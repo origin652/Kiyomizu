@@ -1,6 +1,9 @@
 package hifumi.kiyomizu
 
+import io.ktor.http.headersOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -8,10 +11,38 @@ import kotlin.test.assertTrue
 
 class ProxyTest {
 
+    private fun patch(path: String, body: JsonObject): JsonObject = runBlocking { MessagePatcher.patchJsonBody(path, body) }
+
+    private fun resetDbFiles() {
+        listOf(
+            File("kiyomizu_companion.db"),
+            File("kiyomizu_companion.db-wal"),
+            File("kiyomizu_companion.db-shm")
+        ).forEach {
+            if (it.exists()) it.delete()
+        }
+    }
+
+    private fun resetConfig() {
+        Config.preset = "custom"
+        Config.upstream = "https://example.com"
+        Config.cacheTtl = "1h"
+        Config.cacheMode = "explicit"
+        Config.cacheStrategy = "stable-prefix"
+        Config.cacheBreakpoints = 4
+        Config.memoryEnabled = false
+        Config.spontaneousRecallProbability = 0.0
+        Config.maxRecalledMemories = 5
+    }
+
     @Test
-    fun testSelfTest() {
-        val claudeRequest = buildJsonObject {
-            put("model", "anthropic/claude-sonnet-4.6")
+    fun anthropicPresetPatchesMessagesAndHeaders() {
+        resetConfig()
+        Config.preset = "anthropic"
+        Config.upstream = "https://api.anthropic.com"
+
+        val request = buildJsonObject {
+            put("model", "claude-sonnet-4-5")
             put("stream", true)
             put("messages", buildJsonArray {
                 add(buildJsonObject {
@@ -42,136 +73,100 @@ class ProxyTest {
             })
         }
 
-        val patchedClaude = MessagePatcher.patchJsonBody(claudeRequest)
+        val patched = patch("/v1/messages", request)
+        assertTrue("provider" !in patched, "anthropic preset does not inject provider")
+        assertTrue("cache_control" !in patched, "explicit mode keeps top-level cache_control absent")
 
-        val providerOnly = patchedClaude["provider"]?.jsonObject?.get("only")?.jsonArray
-        assertNotNull(providerOnly)
-        assertEquals("anthropic", providerOnly[0].jsonPrimitive.content, "provider forced")
-
-        assertTrue("cache_control" !in patchedClaude, "top-level cache_control omitted by default in explicit mode")
-
-        val messages = patchedClaude["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
         assertNotNull(messages)
+        assertEquals(3, MessagePatcher.countExplicitCacheBlocks(messages), "stable prefix gets explicit breakpoints")
+        assertEquals(listOf(0, 1, 2), MessagePatcher.findLoggedCacheBreakpointIndexes(messages))
+        assertEquals(0, MessagePatcher.countStrippedThinkingBlocks(messages), "thinking blocks stripped")
+        assertEquals("Newest user message.", messages.last()["content"]?.jsonPrimitive?.content, "dynamic tail remains untouched")
 
-        val explicitCacheBlocks = MessagePatcher.countExplicitCacheBlocks(messages)
-        assertEquals(3, explicitCacheBlocks, "all stable cacheable messages get breakpoints when <= max")
+        assertEquals("/v1/messages", ProxyService.normalizeUpstreamPath("/v1/messages"))
 
-        val breakpointIndexes = MessagePatcher.findLoggedCacheBreakpointIndexes(messages)
-        assertEquals(listOf(0, 1, 2), breakpointIndexes, "breakpoints placed across stable prefix before dynamic tail")
+        val adjustedHeaders = ProxyService.adjustHeadersForUpstream(
+            ProxyService.cleanHeaders(headersOf("Authorization", "Bearer sk-anthropic-test"))
+        )
+        assertTrue(adjustedHeaders.none { it.first.equals("Authorization", ignoreCase = true) })
+        assertEquals("sk-anthropic-test", adjustedHeaders.first { it.first == "x-api-key" }.second)
+        assertEquals("2023-06-01", adjustedHeaders.first { it.first == "anthropic-version" }.second)
+    }
 
-        val strippedThinkingBlocks = MessagePatcher.countStrippedThinkingBlocks(messages)
-        assertEquals(0, strippedThinkingBlocks, "thinking blocks stripped")
+    @Test
+    fun anthropicAutomaticAddsTopLevelCacheControl() {
+        resetConfig()
+        Config.preset = "anthropic"
+        Config.upstream = "https://api.anthropic.com"
+        Config.cacheMode = "automatic"
 
-        assertEquals("Newest user message.", messages.last()["content"]?.jsonPrimitive?.content, "dynamic tail remains unpatched")
-
-        Config.forceProvider = "vertex"
-        val patchedVertexClaude = MessagePatcher.patchJsonBody(claudeRequest)
-        val vertexProviderOnly = patchedVertexClaude["provider"]?.jsonObject?.get("only")?.jsonArray
-        assertNotNull(vertexProviderOnly)
-        assertEquals("google-vertex", vertexProviderOnly[0].jsonPrimitive.content, "Claude Vertex provider uses OpenRouter slug")
-
-        Config.forceProvider = "anthropic"
-
-        val nonClaudeRequest = buildJsonObject {
-            put("model", "openai/gpt-4.1")
+        val request = buildJsonObject {
+            put("model", "claude-sonnet-4-5")
             put("messages", buildJsonArray {
                 add(buildJsonObject {
                     put("role", "user")
-                    put("content", "Hello.")
-                })
-            })
-        }
-        val patchedNonClaude = MessagePatcher.patchJsonBody(nonClaudeRequest)
-        assertEquals(nonClaudeRequest, patchedNonClaude, "non-Claude request forwarded unchanged")
-
-        val geminiRequest = buildJsonObject {
-            put("model", "google/gemini-2.5-flash")
-            put("messages", buildJsonArray {
-                add(buildJsonObject { put("role", "system"); put("content", "You are helpful.") })
-                add(buildJsonObject { put("role", "user"); put("content", "Message one.") })
-                add(buildJsonObject { put("role", "assistant"); put("content", "Answer one.") })
-                add(buildJsonObject { put("role", "user"); put("content", "Message two.") })
-            })
-        }
-        val patchedGemini = MessagePatcher.patchJsonBody(geminiRequest)
-        val geminiProviderOnly = patchedGemini["provider"]?.jsonObject?.get("only")?.jsonArray
-        assertNotNull(geminiProviderOnly)
-        assertEquals("google-ai-studio", geminiProviderOnly[0].jsonPrimitive.content, "Gemini uses aistudio provider by default")
-
-        val geminiMessages = patchedGemini["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        assertNotNull(geminiMessages)
-        val geminiBreakpoints = MessagePatcher.findLoggedCacheBreakpointIndexes(geminiMessages)
-        assertNotNull(geminiBreakpoints)
-        assertEquals(1, geminiBreakpoints.size, "Gemini gets exactly one cache breakpoint")
-        assertEquals(geminiMessages.size - 1, geminiBreakpoints[0], "Gemini breakpoint is on the last message")
-
-        Config.geminiProvider = "vertex"
-        val patchedVertexGemini = MessagePatcher.patchJsonBody(geminiRequest)
-        val vertexGeminiProviderOnly = patchedVertexGemini["provider"]?.jsonObject?.get("only")?.jsonArray
-        assertNotNull(vertexGeminiProviderOnly)
-        assertEquals("google-vertex", vertexGeminiProviderOnly[0].jsonPrimitive.content, "Gemini Vertex provider uses OpenRouter slug")
-
-        Config.geminiProvider = "aistudio"
-
-        val modelListPayload = buildJsonObject {
-            put("data", buildJsonArray {
-                add(buildJsonObject {
-                    put("id", "anthropic/claude-sonnet-4.6")
-                    put("name", "Claude Sonnet 4.6")
-                    put("context_length", 200000)
-                    put("pricing", buildJsonObject {
-                        put("prompt", "0.000003")
-                    })
+                    put("content", "Stable prompt.")
                 })
                 add(buildJsonObject {
-                    put("id", JsonNull)
+                    put("role", "user")
+                    put("content", "New prompt.")
                 })
             })
         }
-        val modelList = MessagePatcher.normalizeModelList(modelListPayload)
-        assertEquals("list", modelList["object"]?.jsonPrimitive?.content, "model list object is OpenAI-shaped")
 
-        val modelData = modelList["data"]?.jsonArray
-        assertNotNull(modelData)
-        assertEquals(1, modelData.size, "invalid models are filtered")
+        val patched = patch("/v1/messages", request)
+        val cacheControl = patched["cache_control"]?.jsonObject
+        assertNotNull(cacheControl)
+        assertEquals("ephemeral", cacheControl["type"]?.jsonPrimitive?.content)
+        assertEquals("1h", cacheControl["ttl"]?.jsonPrimitive?.content)
 
-        val firstModel = modelData[0].jsonObject
-        assertEquals("anthropic/claude-sonnet-4.6", firstModel["id"]?.jsonPrimitive?.content, "model id preserved")
-        assertEquals("model", firstModel["object"]?.jsonPrimitive?.content, "model object set")
-        assertEquals("anthropic", firstModel["owned_by"]?.jsonPrimitive?.content, "owned_by derived")
+        val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        assertNotNull(messages)
+        assertEquals(0, MessagePatcher.countExplicitCacheBlocks(messages), "automatic mode leaves block-level breakpoints alone")
+    }
 
-        assertEquals("/api/v1/chat/completions", ProxyService.normalizeUpstreamPath("/v1/chat/completions"), "OpenAI chat path maps to OpenRouter API path")
-        assertEquals("/api/v1/chat/completions", ProxyService.normalizeUpstreamPath("/api/v1/chat/completions"), "OpenRouter API path is preserved")
+    @Test
+    fun customPresetIsDumbPipe() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.upstream = "https://llm.example.test"
 
-        // Test reasoning_content stripping
-        val deepseekRequest = buildJsonObject {
-            put("model", "anthropic/claude-sonnet-4.6")
+        val request = buildJsonObject {
+            put("model", "gpt-4.1")
+            put("provider", buildJsonObject {
+                put("only", buildJsonArray { add("openai") })
+            })
+            put("cache_control", buildJsonObject {
+                put("type", "ephemeral")
+            })
             put("messages", buildJsonArray {
                 add(buildJsonObject {
-                    put("role", "assistant")
-                    put("content", buildJsonArray {
-                        add(buildJsonObject {
-                            put("type", "reasoning_content")
-                            put("reasoning_content", "thinking deeply...")
-                        })
-                        add(buildJsonObject {
-                            put("type", "text")
-                            put("text", "Actual response.")
-                        })
-                    })
+                    put("role", "user")
+                    put("content", "Pass this through unchanged.")
                 })
             })
         }
-        val patchedDeepseek = MessagePatcher.patchJsonBody(deepseekRequest)
-        val deepseekMessages = patchedDeepseek["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        assertNotNull(deepseekMessages)
-        val deepseekStripped = MessagePatcher.countStrippedThinkingBlocks(deepseekMessages)
-        assertEquals(0, deepseekStripped, "reasoning_content blocks stripped")
 
-        // Test none TTL omission
+        val patched = patch("/v1/chat/completions", request)
+        assertEquals(request, patched, "custom preset leaves the request body untouched")
+        assertEquals("/v1/chat/completions", ProxyService.normalizeUpstreamPath("/v1/chat/completions"))
+
+        val adjustedHeaders = ProxyService.adjustHeadersForUpstream(
+            ProxyService.cleanHeaders(headersOf("Authorization", "Token raw-custom-header"))
+        )
+        assertEquals(listOf("Authorization" to "Token raw-custom-header"), adjustedHeaders)
+    }
+
+    @Test
+    fun explicitCacheOmitsTtlWhenConfiguredNone() {
+        resetConfig()
+        Config.preset = "anthropic"
+        Config.upstream = "https://api.anthropic.com"
         Config.cacheTtl = "none"
-        val noneTtlRequest = buildJsonObject {
-            put("model", "anthropic/claude-sonnet-4.6")
+
+        val request = buildJsonObject {
+            put("model", "claude-sonnet-4-5")
             put("messages", buildJsonArray {
                 add(buildJsonObject {
                     put("role", "user")
@@ -183,14 +178,111 @@ class ProxyTest {
                 })
             })
         }
-        val patchedNoneTtl = MessagePatcher.patchJsonBody(noneTtlRequest)
-        val noneTtlMessages = patchedNoneTtl["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        assertNotNull(noneTtlMessages)
-        val cacheControlObj = noneTtlMessages[0]["content"]?.jsonArray?.get(0)?.jsonObject?.get("cache_control")?.jsonObject
+
+        val patched = patch("/v1/messages", request)
+        val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        assertNotNull(messages)
+        val cacheControlObj = messages[0]["content"]?.jsonArray?.get(0)?.jsonObject?.get("cache_control")?.jsonObject
         assertNotNull(cacheControlObj)
         assertEquals("ephemeral", cacheControlObj["type"]?.jsonPrimitive?.content)
-        assertTrue("ttl" !in cacheControlObj, "ttl key omitted when cacheTtl is 'none'")
+        assertTrue("ttl" !in cacheControlObj, "ttl key omitted when cacheTtl is none")
+    }
 
-        Config.cacheTtl = "1h" // Reset config
+    @Test
+    fun customChatCompletionsStillGetsCompanionInjection() {
+        resetConfig()
+        resetDbFiles()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        Config.memoryEnabled = true
+
+        val request = buildJsonObject {
+            put("model", "openai/gpt-4.1")
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "system"); put("content", "You are helpful.") })
+                add(buildJsonObject { put("role", "user"); put("content", "Stable user context.") })
+                add(buildJsonObject { put("role", "assistant"); put("content", "Stable answer.") })
+                add(buildJsonObject { put("role", "user"); put("content", "Newest question.") })
+            })
+        }
+
+        val patched = patch("/v1/chat/completions", request)
+        val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        assertNotNull(messages)
+        val tailText = MessagePatcher.extractTextContent(messages.last()["content"])
+        assertTrue(tailText.contains("Kiyomizu Companion Core"))
+        assertTrue(tailText.endsWith("Newest question."))
+
+        Config.memoryEnabled = false
+        resetDbFiles()
+    }
+
+    @Test
+    fun responsesApiGetsCompanionInjectionIntoInput() {
+        resetConfig()
+        resetDbFiles()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        Config.memoryEnabled = true
+
+        val request = buildJsonObject {
+            put("model", "gpt-5")
+            put("input", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", "message")
+                    put("role", "user")
+                    put("content", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "input_text")
+                            put("text", "Tell me something.")
+                        })
+                    })
+                })
+            })
+        }
+
+        val patched = patch("/v1/responses", request)
+        val input = patched["input"]?.jsonArray
+        assertNotNull(input)
+        assertEquals(2, input.size, "single-turn input gets a fresh user turn appended to preserve the stable prefix")
+        val appendedContent = input[1].jsonObject["content"]?.jsonArray
+        assertNotNull(appendedContent)
+        assertTrue(appendedContent[0].jsonObject["text"]?.jsonPrimitive?.content?.contains("Kiyomizu Companion Core") == true)
+
+        Config.memoryEnabled = false
+        resetDbFiles()
+    }
+
+    @Test
+    fun geminiGenerateContentGetsCompanionInjectionIntoParts() {
+        resetConfig()
+        resetDbFiles()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        Config.memoryEnabled = true
+
+        val request = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject {
+                            put("text", "Hello Gemini direct.")
+                        })
+                    })
+                })
+            })
+        }
+
+        val patched = patch("/v1beta/models/gemini-2.5-flash:generateContent", request)
+        val contents = patched["contents"]?.jsonArray
+        assertNotNull(contents)
+        assertEquals(2, contents.size, "single-turn contents gets a fresh user turn appended to preserve the stable prefix")
+        val appendedParts = contents[1].jsonObject["parts"]?.jsonArray
+        assertNotNull(appendedParts)
+        assertTrue(appendedParts[0].jsonObject["text"]?.jsonPrimitive?.content?.contains("Kiyomizu Companion Core") == true)
+
+        Config.memoryEnabled = false
+        resetDbFiles()
     }
 }
