@@ -2,76 +2,897 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Cache Proxy Config</title>
+<title>Kiyomizu Config Panel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body { font-family: monospace; max-width: 480px; margin: 40px auto; padding: 0 16px; }
-h1 { font-size: 1.1em; }
-label { display: block; margin-top: 12px; font-weight: bold; }
-select, input[type=number] { margin-top: 4px; padding: 4px; font-family: monospace; }
-button { margin-top: 20px; padding: 6px 16px; font-family: monospace; cursor: pointer; }
-#lang-bar { text-align: right; margin-bottom: 8px; }
-#lang-bar button { margin-top: 0; padding: 2px 8px; }
-#status { margin-top: 12px; color: green; }
-#status.err { color: red; }
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(0, 0, 0, 0.05);
+  --card-border-hover: rgba(37, 99, 235, 0.15);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent-color: #2563eb;
+  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  --accent-hover: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --input-focus: #2563eb;
+  --success-color: #059669;
+  --success-glow: rgba(16, 185, 129, 0.08);
+  --error-color: #dc2626;
+  --error-glow: rgba(239, 68, 68, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 20px;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.glow-orb {
+  position: fixed;
+  width: 450px;
+  height: 450px;
+  border-radius: 50%;
+  filter: blur(150px);
+  opacity: 0.12;
+  z-index: -1;
+  pointer-events: none;
+}
+.glow-1 {
+  background: #60a5fa;
+  top: -5%;
+  left: 10%;
+  animation: float 25s infinite alternate;
+}
+.glow-2 {
+  background: #c084fc;
+  bottom: -5%;
+  right: 10%;
+  animation: float 30s infinite alternate-reverse;
+}
+@keyframes float {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(40px, 30px) scale(1.08); }
+}
+
+.dashboard-wrapper {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  z-index: 1;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #cbd5e1;
+  padding-bottom: 24px;
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kiyomizu-logo {
+  width: 36px;
+  height: 36px;
+  filter: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.3));
+}
+
+.brand-text {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+#t-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 28px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dashboard-card:hover {
+  border-color: var(--card-border-hover);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.08), 0 0 20px rgba(37, 99, 235, 0.03);
+  transform: translateY(-2px);
+}
+
+.dashboard-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.select-wrapper {
+  position: relative;
+  margin-top: 4px;
+}
+
+.select-wrapper::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 5px;
+  background-color: var(--text-secondary);
+  clip-path: polygon(100% 0, 0 0, 50% 100%);
+  pointer-events: none;
+  transition: background-color 0.2s ease;
+}
+
+.select-wrapper:hover::after {
+  background-color: var(--text-primary);
+}
+
+select, input[type=number], input[type=text] {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  padding: 13px 16px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+select {
+  padding-right: 40px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+select:focus, input[type=number]:focus, input[type=text]:focus {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+button[type=submit] {
+  width: 100%;
+  background: var(--accent-gradient);
+  border: none;
+  color: #ffffff;
+  padding: 15px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+button[type=submit]:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+}
+
+button[type=submit]:active {
+  transform: translateY(1px);
+}
+
+#status {
+  padding: 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  display: none;
+  word-break: break-all;
+  border: 1px solid transparent;
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 8px;
+}
+
+#status.success {
+  background: rgba(5, 150, 105, 0.08);
+  border-color: rgba(5, 150, 105, 0.25);
+  color: #047857;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.02);
+}
+
+#status.err {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.25);
+  color: #b91c1c;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.02);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#lang-bar {
+  display: flex;
+  gap: 6px;
+}
+
+#lang-bar button {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#lang-bar button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+#lang-bar button.active {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.25);
+  color: #2563eb;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.05);
+}
+
+.tabs {
+  display: flex;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 4px;
+  border-radius: 14px;
+  margin-bottom: 8px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 11px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.tab-btn.active {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+.tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sidebar Widgets styling */
+.status-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  padding-bottom: 12px;
+}
+
+.status-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.status-pulse-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #059669;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #10b981;
+  animation: pulse-dot-anim 1.5s infinite;
+}
+
+@keyframes pulse-dot-anim {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.status-badges-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-badge-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+.badge-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.badge-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: 'Fira Code', monospace;
+}
+
+.text-success {
+  color: #059669;
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+/* SVG diagram animation */
+.flow-line {
+  animation: flow-dash 1.8s linear infinite;
+}
+
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Visualizer Card */
+.visualizer-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visualizer-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.timeline-track {
+  display: flex;
+  gap: 6px;
+  height: 32px;
+  margin-bottom: 14px;
+  position: relative;
+}
+
+.timeline-msg {
+  flex: 1;
+  border-radius: 6px;
+  position: relative;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timeline-msg .msg-num {
+  font-size: 0.7rem;
+  font-family: 'Fira Code', monospace;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.timeline-msg.stable {
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.timeline-msg.tail {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Cache pin placement */
+.cache-pin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #10b981;
+  animation: pulse-pin 2s infinite;
+}
+
+@keyframes pulse-pin {
+  0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px #10b981; }
+  50% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 14px #10b981; }
+  100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px #10b981; }
+}
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+}
+
+#visualizer-container.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(100%);
+}
+
+#msg-not-applicable {
+  padding: 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-align: center;
+}
 </style>
 </head>
 <body>
-<div id="lang-bar">
-  <button onclick="setLang('zh')">中文</button>
-  <button onclick="setLang('en')">EN</button>
-  <button onclick="setLang('ja')">日本語</button>
+<div class="glow-orb glow-1"></div>
+<div class="glow-orb glow-2"></div>
+
+<div class="dashboard-wrapper">
+  <!-- Header -->
+  <header class="dashboard-header">
+    <div class="brand-section">
+      <svg class="kiyomizu-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M20,60 C30,45 40,45 50,60 C60,75 70,75 80,60" stroke="url(#logo-grad)" stroke-width="8" stroke-linecap="round"/>
+        <path d="M15,40 C27,22 43,22 55,40 C67,58 83,58 95,40" stroke="url(#logo-grad)" stroke-width="6" stroke-opacity="0.6" stroke-linecap="round"/>
+        <path d="M25,80 C33,70 41,70 49,80 C57,90 65,90 73,80" stroke="url(#logo-grad)" stroke-width="5" stroke-opacity="0.3" stroke-linecap="round"/>
+        <defs>
+          <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6" />
+            <stop offset="100%" stop-color="#1d4ed8" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div>
+        <span class="brand-text">Kiyomizu</span>
+        <div id="t-title"></div>
+      </div>
+    </div>
+    <div id="lang-bar">
+      <button id="btn-lang-zh" onclick="setLang('zh')">中文</button>
+      <button id="btn-lang-en" onclick="setLang('en')">EN</button>
+      <button id="btn-lang-ja" onclick="setLang('ja')">日本語</button>
+    </div>
+  </header>
+
+  <!-- Grid Content -->
+  <div class="dashboard-grid">
+    
+    <!-- Left Column: Status / Diagrams -->
+    <div class="dashboard-sidebar">
+      
+      <!-- Card 1: System Status & Overview -->
+      <div class="dashboard-card">
+        <div class="status-summary-card">
+          <div class="status-title-row">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line><line x1="10" y1="6" x2="10.01" y2="6"></line><line x1="10" y1="18" x2="10.01" y2="18"></line></svg>
+              <span class="status-title" id="lbl-status-title">System Status</span>
+            </div>
+            <span class="status-pulse-badge">
+              <span class="pulse-dot"></span>
+              <span id="lbl-status-active">Running</span>
+            </span>
+          </div>
+          
+          <div class="status-badges-grid">
+            <div class="status-badge-item">
+              <span class="badge-label" id="lbl-status-upstream-label">Active Upstream</span>
+              <span class="badge-value" id="val-status-upstream">-</span>
+            </div>
+            <div class="status-badge-item">
+              <span class="badge-label" id="lbl-status-cache-label">Smart Caching</span>
+              <span class="badge-value" id="val-status-cache">-</span>
+            </div>
+            <div class="status-badge-item">
+              <span class="badge-label" id="lbl-status-thinking-label">Reasoning Optimization</span>
+              <span class="badge-value text-success" id="val-status-thinking">Active (Stripping thinking)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Card 2: Interactive SVG Traffic Proxy Flow -->
+      <div class="dashboard-card">
+        <h3 class="visualizer-title" style="margin-bottom: 8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+          <span id="lbl-dashboard-title">Proxy Traffic Flow</span>
+        </h3>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; display: flex; justify-content: center; align-items: center;">
+          <svg class="flow-svg" viewBox="0 0 400 135" xmlns="http://www.w3.org/2000/svg" style="width: 100%; max-width: 400px; height: auto;">
+            <!-- Nodes -->
+            <!-- Client Node -->
+            <rect x="15" y="25" width="75" height="40" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+            <text id="flow-lbl-client" x="52" y="49" font-size="10" fill="#0f172a" text-anchor="middle" font-weight="600">Client</text>
+            
+            <!-- Proxy Node (Kiyomizu) -->
+            <rect id="node-proxy" x="150" y="15" width="100" height="60" rx="10" fill="rgba(37, 99, 235, 0.04)" stroke="#3b82f6" stroke-width="2" style="transition: all 0.3s ease;" />
+            <text x="200" y="45" font-size="11" fill="#1d4ed8" text-anchor="middle" font-weight="bold">Kiyomizu</text>
+            <text id="flow-lbl-proxy" x="200" y="59" font-size="9" fill="#475569" text-anchor="middle">Proxy Cache</text>
+            
+            <!-- Upstream Node -->
+            <rect x="310" y="25" width="75" height="40" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+            <text id="flow-lbl-upstream" x="347" y="49" font-size="9" fill="#0f172a" text-anchor="middle" font-weight="600">Upstream</text>
+            
+            <!-- Cache Cylinder -->
+            <g id="cache-cylinder" transform="translate(185, 96)" style="transition: all 0.3s ease;">
+              <ellipse cx="15" cy="5" rx="15" ry="5" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="1.5"/>
+              <path d="M0,5 V18 A15,5 0 0,0 30,18 V5" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="1.5"/>
+              <path d="M0,11 A15,5 0 0,0 30,11" fill="none" stroke="#10b981" stroke-width="1.5"/>
+              <text id="flow-lbl-cache" x="15" y="-3" font-size="8" fill="#10b981" text-anchor="middle" font-weight="bold">CACHE</text>
+            </g>
+            
+            <!-- Flow Lines -->
+            <path d="M90,45 L150,45" fill="none" stroke="rgba(37, 99, 235, 0.4)" stroke-width="2" stroke-dasharray="5 5" class="flow-line" />
+            <polygon points="150,45 144,41 144,49" fill="#2563eb" />
+            
+            <path id="line-proxy-upstream" d="M250,45 L310,45" fill="none" stroke="rgba(37, 99, 235, 0.4)" stroke-width="2" stroke-dasharray="5 5" class="flow-line" />
+            <polygon points="310,45 304,41 304,49" fill="#2563eb" />
+            
+            <path id="line-proxy-cache" d="M200,75 L200,96" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="3 3" style="transition: all 0.3s ease;" />
+          </svg>
+        </div>
+      </div>
+      
+      <!-- Card 3: Cache Breakpoint Visualizer -->
+      <div class="dashboard-card" id="visualizer-container">
+        <div class="visualizer-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+          <span id="lbl-visualizer-title">Cache Breakpoints Visualizer</span>
+        </div>
+        
+        <div class="visualizer-card">
+          <div class="timeline-track" id="timeline-track">
+            <div class="timeline-msg stable"><span class="msg-num">1</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">2</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">3</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">4</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">5</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">6</span></div>
+            <div class="timeline-msg stable"><span class="msg-num">7</span></div>
+            <div class="timeline-msg tail"><span class="msg-num">8</span></div>
+          </div>
+          
+          <div class="timeline-labels">
+            <span id="lbl-visualizer-stable" style="color: #38bdf8;">Stable Prefix (Cached)</span>
+            <span id="lbl-visualizer-tail" style="color: var(--text-muted);">Dynamic Tail (Uncached)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Configurations form -->
+    <div class="dashboard-main">
+      <div class="dashboard-card">
+        <form id="f">
+          <!-- Preset Selection -->
+          <label id="t-preset-label">
+            Preset
+            <div class="select-wrapper">
+              <select name="preset" onchange="onPresetChange()">
+                <option value="anthropic" id="t-preset-anthropic"></option>
+                <option value="custom" id="t-preset-custom"></option>
+              </select>
+            </div>
+          </label>
+
+          <!-- Upstream URL -->
+          <label id="t-upstream-label">
+            Upstream URL
+            <div class="input-wrapper" style="margin-top: 4px;">
+              <input type="text" name="upstream" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">
+            </div>
+          </label>
+          
+          <div id="advanced-settings-wrapper" style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
+            <div id="section-claude" class="tab-content">
+              <div id="claude-cache-settings" style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
+                <label id="t-ttl-label">
+                  Cache TTL
+                  <div class="select-wrapper">
+                    <select name="cache_ttl">
+                      <option value="5m" id="t-ttl-5m"></option>
+                      <option value="1h" id="t-ttl-1h"></option>
+                      <option value="none" id="t-ttl-none"></option>
+                    </select>
+                  </div>
+                </label>
+                
+                <label id="t-mode-label">
+                  Cache Mode
+                  <div class="select-wrapper">
+                    <select name="cache_mode">
+                      <option value="explicit" id="t-mode-explicit"></option>
+                      <option value="automatic" id="t-mode-automatic"></option>
+                    </select>
+                  </div>
+                </label>
+                
+                <label id="t-strategy-label">
+                  Cache Strategy
+                  <div class="select-wrapper">
+                    <select name="cache_strategy">
+                      <option value="stable-prefix" id="t-strategy-prefix"></option>
+                      <option value="last" id="t-strategy-last"></option>
+                    </select>
+                  </div>
+                </label>
+                
+                <label id="t-bp-label">
+                  Breakpoints (0-4)
+                  <div class="input-wrapper" style="margin-top: 4px;">
+                    <input type="number" name="cache_breakpoints" min="0" max="4" style="font-family: 'Fira Code', monospace;">
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cache Not Applicable Message -->
+          <div id="msg-not-applicable" style="display: none;"></div>
+
+          <!-- AI Companion Core Settings Section -->
+          <div class="dashboard-card" style="padding: 20px; background: rgba(37, 99, 235, 0.02); border: 1px dashed rgba(37, 99, 235, 0.2); gap: 16px;">
+            <h4 style="display: flex; align-items: center; gap: 8px; font-size: 1rem; color: var(--accent-color); margin-bottom: 4px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 0 0-10 10c0 5.523 4.477 10 10 10s10-4.477 10-10A10 10 0 0 0 12 2zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg>
+              <span id="t-companion-title">AI Companion Core Settings</span>
+            </h4>
+            
+            <label style="flex-direction: row; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 0;">
+              <span id="t-comp-enable-label">Enable Memory & Intimacy</span>
+              <input type="checkbox" name="memory_enabled" style="width: 20px; height: 20px; accent-color: var(--accent-color);">
+            </label>
+            
+            <div id="companion-fields-wrapper" style="display: flex; flex-direction: column; gap: 16px; width: 100%;">
+              <label id="t-comp-summary-url-label">
+                Summarization Endpoint
+                <input type="text" name="memory_summary_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+              </label>
+              
+              <label id="t-comp-summary-key-label">
+                Summarization API Key
+                <input type="password" name="memory_summary_key" placeholder="API Key..." autocomplete="new-password" style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; font-size: 0.75rem; color: var(--text-secondary);">
+                  <span id="t-comp-summary-key-status">No key stored</span>
+                  <label id="t-comp-summary-clear-label" style="flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 0.75rem;">
+                    Clear stored key
+                    <input type="checkbox" name="clear_memory_summary_key" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
+                  </label>
+                </div>
+              </label>
+              
+              <label id="t-comp-summary-model-label">
+                Summarization Model
+                <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+              </label>
+              
+              <label id="t-comp-embedding-url-label">
+                Embedding Endpoint
+                <input type="text" name="memory_embedding_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+              </label>
+              
+              <label id="t-comp-embedding-key-label">
+                Embedding API Key
+                <input type="password" name="memory_embedding_key" placeholder="API Key..." autocomplete="new-password" style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; font-size: 0.75rem; color: var(--text-secondary);">
+                  <span id="t-comp-embedding-key-status">No key stored</span>
+                  <label id="t-comp-embedding-clear-label" style="flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 0.75rem;">
+                    Clear stored key
+                    <input type="checkbox" name="clear_memory_embedding_key" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
+                  </label>
+                </div>
+              </label>
+              
+              <label id="t-comp-embedding-model-label">
+                Embedding Model
+                <input type="text" name="memory_embedding_model" placeholder="text-embedding-004..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+              </label>
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <label id="t-comp-decay-hours-label">
+                  Decay Interval (Hours)
+                  <input type="number" name="memory_decay_interval_hours" min="1" max="720" style="margin-top: 4px;">
+                </label>
+                
+                <label id="t-comp-decay-rate-label">
+                  Memory Decay Rate (0-1)
+                  <input type="number" name="memory_decay_rate" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <label id="t-comp-threshold-label">
+                  Forget Threshold (0-1)
+                  <input type="number" name="memory_threshold" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+                
+                <label id="t-comp-recovery-label">
+                  Recall Recovery delta
+                  <input type="number" name="memory_recovery_amount" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <label id="t-comp-initial-strength-label">
+                  Initial Strength (0-1)
+                  <input type="number" name="memory_initial_strength" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+                
+                <label id="t-comp-max-strength-label">
+                  Max Strength (0-1)
+                  <input type="number" name="memory_max_strength" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <label id="t-comp-intimacy-decay-label">
+                  Intimacy Decay Rate / 24h
+                  <input type="number" name="intimacy_decay_rate" min="0" max="10" step="0.1" style="margin-top: 4px;">
+                </label>
+                
+                <label id="t-comp-recall-prob-label">
+                  Spontaneous recall % (0-1)
+                  <input type="number" name="spontaneous_recall_probability" min="0" max="1" step="0.01" style="margin-top: 4px;">
+                </label>
+              </div>
+              
+              <label id="t-comp-summary-prompt-label">
+                Summarization System Prompt
+                <textarea name="memory_summary_prompt" rows="6" style="width: 100%; font-family: inherit; font-size: 0.8rem; padding: 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-primary); outline: none; margin-top: 4px; resize: vertical;"></textarea>
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" id="t-save">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            Save Settings
+          </button>
+        </form>
+        <div id="status"></div>
+      </div>
+    </div>
+    
+  </div>
 </div>
-<h1 id="t-title"></h1>
-<form id="f">
-  <label id="t-provider-label">
-    <select name="force_provider">
-      <option value="anthropic" id="t-provider-anthropic"></option>
-      <option value="bedrock" id="t-provider-bedrock"></option>
-      <option value="vertex" id="t-provider-vertex"></option>
-    </select>
-  </label>
-  <label id="t-gemini-provider-label">
-    <select name="gemini_provider">
-      <option value="aistudio" id="t-gemini-aistudio"></option>
-      <option value="vertex" id="t-gemini-vertex"></option>
-    </select>
-  </label>
-  <label id="t-ttl-label">
-    <select name="cache_ttl">
-      <option value="5m" id="t-ttl-5m"></option>
-      <option value="1h" id="t-ttl-1h"></option>
-      <option value="none" id="t-ttl-none"></option>
-    </select>
-  </label>
-  <label id="t-mode-label">
-    <select name="cache_mode">
-      <option value="explicit" id="t-mode-explicit"></option>
-      <option value="automatic" id="t-mode-automatic"></option>
-    </select>
-  </label>
-  <label id="t-strategy-label">
-    <select name="cache_strategy">
-      <option value="stable-prefix" id="t-strategy-prefix"></option>
-      <option value="last" id="t-strategy-last"></option>
-    </select>
-  </label>
-  <label id="t-bp-label">
-    <input type="number" name="cache_breakpoints" min="0" max="4" style="width:60px">
-  </label>
-  <button type="submit" id="t-save"></button>
-</form>
-<div id="status"></div>
+
 <script>
 const STRINGS = {
   zh: {
-    title: 'Cache Proxy 配置',
-    providerLabel: 'Claude 供应商',
-    providerAnthropic: 'Anthropic（直连）',
-    providerBedrock: 'Amazon Bedrock',
-    providerVertex: 'Google Vertex',
-    geminiProviderLabel: 'Gemini 供应商',
-    geminiAistudio: 'Google AI Studio',
-    geminiVertex: 'Google Vertex',
+    title: 'Kiyomizu 配置控制台',
+    presetLabel: '代理模式',
+    upstreamLabel: '上游地址 (Upstream URL)',
+    presetAnthropic: 'Claude Cache Mode',
+    presetCustom: 'Custom Upstream (Pass-through)',
+    cacheNotApplicable: '此模式为纯透传：路径、头与请求体都原样转发',
     ttlLabel: '缓存 TTL',
     ttl5m: '5 分钟',
     ttl1h: '1 小时',
@@ -84,60 +905,178 @@ const STRINGS = {
     strategyLast: 'last（仅最后一条）',
     bpLabel: '断点数量（0-4）',
     cacheNote: '⚠ automatic 模式仅在 Anthropic 直連时生效',
-    save: '保存',
+    save: '保存配置',
     saved: '已保存：',
     error: '错误：',
+    dashboardTitle: '代理流量图',
+    statusTitle: '系统状态',
+    statusActive: '正常运行',
+    statusConnected: '已连接',
+    statusUpstream: '活动上游',
+    statusCache: '智能缓存',
+    statusCacheActive: '已启用',
+    statusCacheInactive: '直接穿透',
+    statusThinking: '思维链优化',
+    statusThinkingActive: '已启用 (过滤老历史以稳定缓存)',
+    diagramClient: 'AI 客户端',
+    diagramProxy: 'Kiyomizu 代理',
+    diagramUpstream: 'LLM 上游',
+    diagramCache: 'Prompt 缓存',
+    visualizerTitle: '缓存断点可视化 (Prompt Caching)',
+    visualizerStable: '稳定前缀 (缓存范围)',
+    visualizerTail: '动态尾部 (实时更新)',
+    companionTitle: 'AI 伴侣核心设置（记忆与情感）',
+    compEnableLabel: '启用记忆与亲密度功能',
+    compSummaryUrlLabel: '摘要 API 端点',
+    compSummaryKeyLabel: '摘要 API 密钥',
+    compSummaryModelLabel: '摘要模型',
+    compEmbeddingUrlLabel: '嵌入 (Embedding) API 端点',
+    compEmbeddingKeyLabel: '嵌入 API 密钥',
+    compEmbeddingModelLabel: '嵌入模型',
+    compDecayHoursLabel: '遗忘（衰减）检查间隔 (小时)',
+    compDecayRateLabel: '记忆衰减速度 (0-1)',
+    compThresholdLabel: '遗忘阈值 (0-1)',
+    compRecoveryLabel: '回忆恢复量',
+    compInitialStrengthLabel: '初始记忆强度 (0-1)',
+    compMaxStrengthLabel: '最大记忆强度 (0-1)',
+    compIntimacyDecayLabel: '亲密度下降速度 / 24h',
+    compRecallProbLabel: '自发性回忆概率 (0-1)',
+    compSummaryPromptLabel: '摘要与评估系统提示词',
+    compKeyStored: '密钥已保存；留空则保持不变',
+    compKeyEmpty: '尚未保存密钥',
+    compClearKeyLabel: '清除已保存密钥',
+    compKeyPlaceholderStored: '如需替换，请输入新密钥',
+    compKeyPlaceholderEmpty: 'API Key...',
   },
   en: {
-    title: 'Cache Proxy Config',
-    providerLabel: 'Claude provider',
-    providerAnthropic: 'Anthropic (direct)',
-    providerBedrock: 'Amazon Bedrock',
-    providerVertex: 'Google Vertex',
-    geminiProviderLabel: 'Gemini provider',
-    geminiAistudio: 'Google AI Studio',
-    geminiVertex: 'Google Vertex',
+    title: 'Kiyomizu Configuration Console',
+    presetLabel: 'Proxy Mode',
+    upstreamLabel: 'Upstream URL',
+    presetAnthropic: 'Claude Cache Mode',
+    presetCustom: 'Custom Upstream (Pass-through)',
+    cacheNotApplicable: 'Pure pass-through mode: path, headers, and body are forwarded untouched',
     ttlLabel: 'Cache TTL',
     ttl5m: '5 minutes',
     ttl1h: '1 hour',
-    ttlNone: 'No cache',
-    modeLabel: 'Cache mode',
+    ttlNone: 'No Cache',
+    modeLabel: 'Cache Mode',
     modeExplicit: 'explicit (manual breakpoints)',
     modeAutomatic: 'automatic',
-    strategyLabel: 'Cache strategy',
+    strategyLabel: 'Cache Strategy',
     strategyPrefix: 'stable-prefix (evenly distributed)',
     strategyLast: 'last (last message only)',
     bpLabel: 'Breakpoints (0-4)',
     cacheNote: '⚠ automatic cache mode only works with Anthropic direct',
-    save: 'Save',
+    save: 'Save Settings',
     saved: 'Saved: ',
     error: 'Error: ',
+    dashboardTitle: 'Proxy Traffic Flow',
+    statusTitle: 'System Status',
+    statusActive: 'Running',
+    statusConnected: 'Connected',
+    statusUpstream: 'Active Upstream',
+    statusCache: 'Smart Caching',
+    statusCacheActive: 'Active',
+    statusCacheInactive: 'Bypassed',
+    statusThinking: 'Reasoning Optimization',
+    statusThinkingActive: 'Active (Stripping thinking blocks)',
+    diagramClient: 'AI Client',
+    diagramProxy: 'Kiyomizu Proxy',
+    diagramUpstream: 'LLM Provider',
+    diagramCache: 'Prompt Cache',
+    visualizerTitle: 'Cache Breakpoints Visualizer',
+    visualizerStable: 'Stable Prefix (Cached)',
+    visualizerTail: 'Dynamic Tail (Uncached)',
+    companionTitle: 'AI Companion Core Settings',
+    compEnableLabel: 'Enable Memory & Intimacy',
+    compSummaryUrlLabel: 'Summarization Endpoint',
+    compSummaryKeyLabel: 'Summarization API Key',
+    compSummaryModelLabel: 'Summarization Model',
+    compEmbeddingUrlLabel: 'Embedding Endpoint',
+    compEmbeddingKeyLabel: 'Embedding API Key',
+    compEmbeddingModelLabel: 'Embedding Model',
+    compDecayHoursLabel: 'Decay Interval (Hours)',
+    compDecayRateLabel: 'Memory Decay Rate (0-1)',
+    compThresholdLabel: 'Forget Threshold (0-1)',
+    compRecoveryLabel: 'Recall Recovery delta',
+    compInitialStrengthLabel: 'Initial Strength (0-1)',
+    compMaxStrengthLabel: 'Max Strength (0-1)',
+    compIntimacyDecayLabel: 'Intimacy Decay Rate / 24h',
+    compRecallProbLabel: 'Spontaneous recall % (0-1)',
+    compSummaryPromptLabel: 'Summarization System Prompt',
+    compKeyStored: 'Key stored; leave blank to keep it',
+    compKeyEmpty: 'No key stored yet',
+    compClearKeyLabel: 'Clear stored key',
+    compKeyPlaceholderStored: 'Enter a new key to replace it',
+    compKeyPlaceholderEmpty: 'API Key...',
   },
   ja: {
-    title: 'キャッシュプロキシ設定',
-    providerLabel: 'Claude プロバイダー',
-    providerAnthropic: 'Anthropic（直接）',
-    providerBedrock: 'Amazon Bedrock',
-    providerVertex: 'Google Vertex',
-    geminiProviderLabel: 'Gemini プロバイダー',
-    geminiAistudio: 'Google AI Studio',
-    geminiVertex: 'Google Vertex',
+    title: 'Kiyomizu 設定コントロールパネル',
+    presetLabel: 'プロキシモード',
+    upstreamLabel: '上流URL',
+    presetAnthropic: 'Claude キャッシュモード',
+    presetCustom: 'カスタム上流 (透過転送)',
+    cacheNotApplicable: '完全な透過モードです。パス、ヘッダ、ボディをそのまま転送します',
     ttlLabel: 'キャッシュ TTL',
     ttl5m: '5 分',
     ttl1h: '1 時間',
     ttlNone: 'キャッシュなし',
     modeLabel: 'キャッシュモード',
-    modeExplicit: 'explicit（手動ブレークポイント）',
+    modeExplicit: 'explicit（手动ブレークポイント）',
     modeAutomatic: 'automatic（自動）',
     strategyLabel: 'キャッシュ戦略',
     strategyPrefix: 'stable-prefix（均等分布）',
     strategyLast: 'last（最後のメッセージのみ）',
     bpLabel: 'ブレークポイント数（0-4）',
     cacheNote: '⚠ automatic モードは Anthropic 直接接続時のみ有効',
-    save: '保存',
+    save: '設定を保存',
     saved: '保存しました：',
     error: 'エラー：',
+    dashboardTitle: 'プロキシトラフィックフロー',
+    statusTitle: 'システムステータス',
+    statusActive: '稼働中',
+    statusConnected: '接続済み',
+    statusUpstream: 'アクティブ上流',
+    statusCache: 'スマートキャッシュ',
+    statusCacheActive: '有効',
+    statusCacheInactive: 'バイパス中',
+    statusThinking: '思考ブロック最適化',
+    statusThinkingActive: '有効 (思考タグを除去しキャッシュを安定化)',
+    diagramClient: 'AI クライアント',
+    diagramProxy: 'Kiyomizu プロキシ',
+    diagramUpstream: 'LLM プロバイダー',
+    diagramCache: 'プロンプトキャッシュ',
+    visualizerTitle: 'キャッシュブレークポイント可視化',
+    visualizerStable: '安定プレフィックス (キャッシュ対象)',
+    visualizerTail: '動的テール (キャッシュ対象外)',
+    companionTitle: 'AIコンパニオン設定 (記憶・感情)',
+    compEnableLabel: '記憶＆親密度機能を有効化',
+    compSummaryUrlLabel: '要約用 APIエンドポイント',
+    compSummaryKeyLabel: '要約用 APIキー',
+    compSummaryModelLabel: '要約用 モデル名',
+    compEmbeddingUrlLabel: 'Embedding用 APIエンドポイント',
+    compEmbeddingKeyLabel: 'Embedding用 APIキー',
+    compEmbeddingModelLabel: 'Embedding用 モデル名',
+    compDecayHoursLabel: '忘却（減衰）チェック間隔 (時間)',
+    compDecayRateLabel: '記憶減衰スピード (0〜1)',
+    compThresholdLabel: '忘却しきい値 (0〜1)',
+    compRecoveryLabel: '想起時の記憶回復量 (0〜1)',
+    compInitialStrengthLabel: '初期記憶強度 (0〜1)',
+    compMaxStrengthLabel: '最大記憶強度 (0〜1)',
+    compIntimacyDecayLabel: '疎遠化スピード (親密度低下/24h)',
+    compRecallProbLabel: '自発的な思い出話の発生確率 (0〜1)',
+    compSummaryPromptLabel: '要約＆評価用システムプロンプト',
+    compKeyStored: 'キー保存済み。空欄ならそのまま維持します',
+    compKeyEmpty: 'キーはまだ保存されていません',
+    compClearKeyLabel: '保存済みキーを削除',
+    compKeyPlaceholderStored: '置き換える場合だけ新しいキーを入力',
+    compKeyPlaceholderEmpty: 'API Key...',
   },
+};
+
+const UPSTREAM_DEFAULTS = {
+  anthropic: 'https://api.anthropic.com',
+  custom: ''
 };
 
 function detectLang() {
@@ -152,31 +1091,154 @@ function detectLang() {
 }
 
 let currentLang = detectLang();
+let summaryKeyConfigured = false;
+let embeddingKeyConfigured = false;
+
+function refreshSecretFieldUi() {
+  const f = document.getElementById('f');
+  const s = STRINGS[currentLang];
+  document.getElementById('t-comp-summary-key-status').textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+  document.getElementById('t-comp-embedding-key-status').textContent = embeddingKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+  f.memory_summary_key.placeholder = summaryKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
+  f.memory_embedding_key.placeholder = embeddingKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
+}
+
+function applyConfigData(d) {
+  const f = document.getElementById('f');
+  f.preset.value = d.preset || 'custom';
+  f.upstream.value = d.upstream || '';
+  f.cache_ttl.value = d.cache_ttl;
+  f.cache_mode.value = d.cache_mode;
+  f.cache_strategy.value = d.cache_strategy;
+  f.cache_breakpoints.value = d.cache_breakpoints;
+
+  f.memory_enabled.checked = d.memory_enabled || false;
+  f.memory_summary_url.value = d.memory_summary_url || '';
+  f.memory_summary_key.value = '';
+  f.clear_memory_summary_key.checked = false;
+  f.memory_summary_model.value = d.memory_summary_model || '';
+  f.memory_summary_prompt.value = d.memory_summary_prompt || '';
+  f.memory_embedding_url.value = d.memory_embedding_url || '';
+  f.memory_embedding_key.value = '';
+  f.clear_memory_embedding_key.checked = false;
+  f.memory_embedding_model.value = d.memory_embedding_model || '';
+  f.memory_decay_interval_hours.value = d.memory_decay_interval_hours !== undefined ? d.memory_decay_interval_hours : 24;
+  f.memory_decay_rate.value = d.memory_decay_rate !== undefined ? d.memory_decay_rate : 0.1;
+  f.memory_threshold.value = d.memory_threshold !== undefined ? d.memory_threshold : 0.1;
+  f.memory_recovery_amount.value = d.memory_recovery_amount !== undefined ? d.memory_recovery_amount : 0.3;
+  f.memory_initial_strength.value = d.memory_initial_strength !== undefined ? d.memory_initial_strength : 1.0;
+  f.memory_max_strength.value = d.memory_max_strength !== undefined ? d.memory_max_strength : 1.0;
+  f.intimacy_decay_rate.value = d.intimacy_decay_rate !== undefined ? d.intimacy_decay_rate : 0.5;
+  f.spontaneous_recall_probability.value = d.spontaneous_recall_probability !== undefined ? d.spontaneous_recall_probability : 0.15;
+
+  summaryKeyConfigured = d.memory_summary_key_configured || false;
+  embeddingKeyConfigured = d.memory_embedding_key_configured || false;
+
+  updateCacheModeOptions();
+  updateUiVisibility();
+  updateVisualizer();
+  updateFlowDiagram();
+  updateStatusSummary();
+  updateCompanionVisibility();
+  refreshSecretFieldUi();
+}
 
 function applyLang(lang) {
   const s = STRINGS[lang];
   document.documentElement.lang = lang;
   document.getElementById('t-title').textContent = s.title;
   document.title = s.title;
-  setText('t-provider-label', s.providerLabel, 'force_provider');
-  document.getElementById('t-provider-anthropic').textContent = s.providerAnthropic;
-  document.getElementById('t-provider-bedrock').textContent = s.providerBedrock;
-  document.getElementById('t-provider-vertex').textContent = s.providerVertex;
-  setText('t-gemini-provider-label', s.geminiProviderLabel, 'gemini_provider');
-  document.getElementById('t-gemini-aistudio').textContent = s.geminiAistudio;
-  document.getElementById('t-gemini-vertex').textContent = s.geminiVertex;
+
+  // Sidebar widget texts
+  document.getElementById('lbl-status-title').textContent = s.statusTitle;
+  document.getElementById('lbl-status-active').textContent = s.statusActive;
+  document.getElementById('lbl-status-upstream-label').textContent = s.statusUpstream;
+  document.getElementById('lbl-status-cache-label').textContent = s.statusCache;
+  document.getElementById('lbl-status-thinking-label').textContent = s.statusThinking;
+  document.getElementById('lbl-status-thinking-label').nextElementSibling.textContent = s.statusThinkingActive;
+  
+  // Diagram texts
+  document.getElementById('lbl-dashboard-title').textContent = s.dashboardTitle;
+  document.getElementById('flow-lbl-client').textContent = s.diagramClient;
+  document.getElementById('flow-lbl-proxy').textContent = s.diagramProxy;
+  document.getElementById('flow-lbl-cache').textContent = s.diagramCache;
+  
+  // Visualizer texts
+  document.getElementById('lbl-visualizer-title').textContent = s.visualizerTitle;
+  document.getElementById('lbl-visualizer-stable').textContent = s.visualizerStable;
+  document.getElementById('lbl-visualizer-tail').textContent = s.visualizerTail;
+  
+  setText('t-preset-label', s.presetLabel, 'preset');
+  document.getElementById('t-preset-anthropic').textContent = s.presetAnthropic;
+  document.getElementById('t-preset-custom').textContent = s.presetCustom;
+
+  setText('t-upstream-label', s.upstreamLabel, 'upstream');
+  document.getElementById('msg-not-applicable').textContent = s.cacheNotApplicable;
+  
   setText('t-ttl-label', s.ttlLabel, 'cache_ttl');
   document.getElementById('t-ttl-5m').textContent = s.ttl5m;
   document.getElementById('t-ttl-1h').textContent = s.ttl1h;
   document.getElementById('t-ttl-none').textContent = s.ttlNone;
+  
   setText('t-mode-label', s.modeLabel, 'cache_mode');
   document.getElementById('t-mode-explicit').textContent = s.modeExplicit;
   document.getElementById('t-mode-automatic').textContent = s.modeAutomatic;
+  
   setText('t-strategy-label', s.strategyLabel, 'cache_strategy');
   document.getElementById('t-strategy-prefix').textContent = s.strategyPrefix;
   document.getElementById('t-strategy-last').textContent = s.strategyLast;
+  
   setText('t-bp-label', s.bpLabel, 'cache_breakpoints');
-  document.getElementById('t-save').textContent = s.save;
+  
+  // Companion Memory labels
+  document.getElementById('t-companion-title').textContent = s.companionTitle || 'AI Companion Core Settings';
+  document.getElementById('t-comp-enable-label').textContent = s.compEnableLabel || 'Enable Memory & Intimacy';
+  setText('t-comp-summary-url-label', s.compSummaryUrlLabel || 'Summarization Endpoint', 'memory_summary_url');
+  setText('t-comp-summary-key-label', s.compSummaryKeyLabel || 'Summarization API Key', 'memory_summary_key');
+  setText('t-comp-summary-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_summary_key');
+  setText('t-comp-summary-model-label', s.compSummaryModelLabel || 'Summarization Model', 'memory_summary_model');
+  setText('t-comp-embedding-url-label', s.compEmbeddingUrlLabel || 'Embedding Endpoint', 'memory_embedding_url');
+  setText('t-comp-embedding-key-label', s.compEmbeddingKeyLabel || 'Embedding API Key', 'memory_embedding_key');
+  setText('t-comp-embedding-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_embedding_key');
+  setText('t-comp-embedding-model-label', s.compEmbeddingModelLabel || 'Embedding Model', 'memory_embedding_model');
+  
+  setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
+  setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
+  setText('t-comp-threshold-label', s.compThresholdLabel || 'Forget Threshold (0-1)', 'memory_threshold');
+  setText('t-comp-recovery-label', s.compRecoveryLabel || 'Recall Recovery delta', 'memory_recovery_amount');
+  setText('t-comp-initial-strength-label', s.compInitialStrengthLabel || 'Initial Strength (0-1)', 'memory_initial_strength');
+  setText('t-comp-max-strength-label', s.compMaxStrengthLabel || 'Max Strength (0-1)', 'memory_max_strength');
+  setText('t-comp-intimacy-decay-label', s.compIntimacyDecayLabel || 'Intimacy Decay Rate / 24h', 'intimacy_decay_rate');
+  setText('t-comp-recall-prob-label', s.compRecallProbLabel || 'Spontaneous recall % (0-1)', 'spontaneous_recall_probability');
+  
+  setText('t-comp-summary-prompt-label', s.compSummaryPromptLabel || 'Summarization System Prompt', 'memory_summary_prompt');
+
+  // Set save button text without stripping icon
+  const saveBtn = document.getElementById('t-save');
+  const saveIcon = saveBtn.querySelector('svg').outerHTML;
+  saveBtn.innerHTML = saveIcon + ' ' + s.save;
+
+  updateCacheModeOptions();
+  updateVisualizer();
+  updateFlowDiagram();
+  updateStatusSummary();
+  refreshSecretFieldUi();
+}
+
+function updateCacheModeOptions() {
+  const f = document.getElementById('f');
+  const cacheModeSelect = f.cache_mode;
+  const automaticOption = cacheModeSelect.querySelector('option[value="automatic"]');
+  const anthropicMode = f.preset.value === 'anthropic';
+
+  if (!anthropicMode) {
+    automaticOption.disabled = true;
+    if (cacheModeSelect.value === 'automatic') {
+      cacheModeSelect.value = 'explicit';
+    }
+  } else {
+    automaticOption.disabled = false;
+  }
   updateCacheNote();
 }
 
@@ -186,19 +1248,19 @@ function updateCacheNote() {
   if (!note) {
     note = document.createElement('p');
     note.id = 'cache-note';
-    note.style.cssText = 'margin-top:8px;color:#888;font-size:0.9em;';
-    f.appendChild(note);
+    note.style.cssText = 'margin-top:8px;color:#b45309;font-size:0.75rem;font-weight:500;line-height:1.4;';
+    const claudeSec = document.getElementById('claude-cache-settings');
+    if (claudeSec) {
+      claudeSec.appendChild(note);
+    }
   }
-  const isAnthropic = f.force_provider && f.force_provider.value === 'anthropic';
   const isAutomatic = f.cache_mode && f.cache_mode.value === 'automatic';
-  note.textContent = (!isAnthropic && isAutomatic) ? STRINGS[currentLang].cacheNote : '';
+  note.textContent = (f.preset.value !== 'anthropic' && isAutomatic) ? STRINGS[currentLang].cacheNote : '';
 }
 
 function setText(labelId, text, inputName) {
   const label = document.getElementById(labelId);
   const input = label.querySelector('[name=' + inputName + ']');
-  label.childNodes[0].textContent = text + '\n';
-  // rebuild text node cleanly
   while (label.firstChild && label.firstChild.nodeType === 3) {
     label.removeChild(label.firstChild);
   }
@@ -209,49 +1271,234 @@ function setLang(lang) {
   currentLang = lang;
   localStorage.setItem('proxy-lang', lang);
   applyLang(lang);
+  
+  document.querySelectorAll('#lang-bar button').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = document.getElementById('btn-lang-' + lang);
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
+function onPresetChange() {
+  const f = document.getElementById('f');
+  const preset = f.preset.value;
+  if (UPSTREAM_DEFAULTS[preset] !== undefined) {
+    f.upstream.value = UPSTREAM_DEFAULTS[preset];
+  }
+  updateUiVisibility();
+  updateVisualizer();
+  updateFlowDiagram();
+  updateStatusSummary();
+}
+
+function updateUiVisibility() {
+  const f = document.getElementById('f');
+  const preset = f.preset.value;
+  
+  const sectionClaude = document.getElementById('section-claude');
+  const claudeCacheSettings = document.getElementById('claude-cache-settings');
+  const msgNotApplicable = document.getElementById('msg-not-applicable');
+  const advancedSettingsWrapper = document.getElementById('advanced-settings-wrapper');
+  
+  msgNotApplicable.style.display = 'none';
+  sectionClaude.style.display = 'none';
+  claudeCacheSettings.style.display = 'none';
+  advancedSettingsWrapper.style.display = 'flex';
+
+  if (preset === 'anthropic') {
+    sectionClaude.style.display = 'flex';
+    claudeCacheSettings.style.display = 'flex';
+  } else {
+    msgNotApplicable.style.display = 'block';
+    advancedSettingsWrapper.style.display = 'none';
+  }
+  updateCacheNote();
+}
+
+function updateVisualizer() {
+  const f = document.getElementById('f');
+  const preset = f.preset.value;
+  const isCacheActive = preset === 'anthropic';
+  const strategy = f.cache_strategy.value;
+  const bpCount = parseInt(f.cache_breakpoints.value) || 0;
+  const cacheTtl = f.cache_ttl.value;
+  
+  const container = document.getElementById('visualizer-container');
+  const timeline = document.getElementById('timeline-track');
+  
+  // Clear existing pins
+  timeline.querySelectorAll('.cache-pin').forEach(pin => pin.remove());
+  
+  if (!isCacheActive || cacheTtl === 'none') {
+    container.classList.add('disabled');
+    return;
+  }
+  
+  container.classList.remove('disabled');
+  
+  const stableBlocks = timeline.querySelectorAll('.timeline-msg.stable');
+  const stableCount = stableBlocks.length; // 7 stable blocks
+  
+  const pinIndices = [];
+  if (strategy === 'last') {
+    pinIndices.push(stableCount - 1);
+  } else {
+    // stable-prefix distribution mapping
+    if (bpCount === 1) {
+      pinIndices.push(stableCount - 1);
+    } else if (bpCount === 2) {
+      pinIndices.push(Math.floor(stableCount / 2) - 1);
+      pinIndices.push(stableCount - 1);
+    } else if (bpCount === 3) {
+      pinIndices.push(1);
+      pinIndices.push(4);
+      pinIndices.push(6);
+    } else if (bpCount === 4) {
+      pinIndices.push(0);
+      pinIndices.push(2);
+      pinIndices.push(4);
+      pinIndices.push(6);
+    }
+  }
+  
+  pinIndices.forEach(idx => {
+    if (idx >= 0 && idx < stableCount) {
+      const pin = document.createElement('div');
+      pin.className = 'cache-pin';
+      stableBlocks[idx].appendChild(pin);
+    }
+  });
+}
+
+function updateFlowDiagram() {
+  const f = document.getElementById('f');
+  const preset = f.preset.value;
+  const cacheTtl = f.cache_ttl.value;
+  const isCacheActive = (preset === 'anthropic') && (cacheTtl !== 'none');
+  
+  const proxyNode = document.getElementById('node-proxy');
+  const cacheCylinder = document.getElementById('cache-cylinder');
+  const lineProxyCache = document.getElementById('line-proxy-cache');
+  const upstreamText = document.getElementById('flow-lbl-upstream');
+  const lineProxyUpstream = document.getElementById('line-proxy-upstream');
+  
+  // Update Upstream text label in diagram
+  let presetText = f.preset.options[f.preset.selectedIndex].text;
+  if (presetText.includes(' (')) {
+    presetText = presetText.split(' (')[0];
+  }
+  if (presetText.includes(' API')) {
+    presetText = presetText.split(' API')[0];
+  }
+  upstreamText.textContent = presetText;
+  
+  if (isCacheActive) {
+    cacheCylinder.style.opacity = '1';
+    lineProxyCache.style.opacity = '1';
+    lineProxyCache.setAttribute('stroke', '#10b981');
+    proxyNode.setAttribute('stroke', '#10b981');
+    proxyNode.setAttribute('fill', 'rgba(16, 185, 129, 0.06)');
+  } else {
+    cacheCylinder.style.opacity = '0.15';
+    lineProxyCache.style.opacity = '0.15';
+    lineProxyCache.setAttribute('stroke', '#cbd5e1');
+    proxyNode.setAttribute('stroke', '#3b82f6');
+    proxyNode.setAttribute('fill', 'rgba(37, 99, 235, 0.04)');
+  }
+}
+
+function updateStatusSummary() {
+  const f = document.getElementById('f');
+  const preset = f.preset.value;
+  const cacheTtl = f.cache_ttl.value;
+  const isCacheActive = (preset === 'anthropic') && (cacheTtl !== 'none');
+  const bpCount = f.cache_breakpoints.value;
+  
+  // Upstream
+  const upstreamVal = document.getElementById('val-status-upstream');
+  upstreamVal.textContent = f.upstream.value || f.preset.options[f.preset.selectedIndex].text;
+  
+  // Cache Status
+  const cacheVal = document.getElementById('val-status-cache');
+  const s = STRINGS[currentLang];
+  if (isCacheActive) {
+    cacheVal.textContent = `${s.statusCacheActive} (${bpCount} BP)`;
+    cacheVal.className = 'badge-value text-success';
+  } else {
+    cacheVal.textContent = s.statusCacheInactive;
+    cacheVal.className = 'badge-value text-muted';
+  }
+}
+
+function updateCompanionVisibility() {
+  const f = document.getElementById('f');
+  const wrapper = document.getElementById('companion-fields-wrapper');
+  wrapper.style.display = f.memory_enabled.checked ? 'flex' : 'none';
 }
 
 async function load() {
   const r = await fetch('/api/config');
   const d = await r.json();
-  const f = document.getElementById('f');
-  f.force_provider.value = d.force_provider;
-  f.gemini_provider.value = d.gemini_provider;
-  f.cache_ttl.value = d.cache_ttl;
-  f.cache_mode.value = d.cache_mode;
-  f.cache_strategy.value = d.cache_strategy;
-  f.cache_breakpoints.value = d.cache_breakpoints;
-  updateCacheNote();
+  applyConfigData(d);
 }
 
-document.getElementById('f').force_provider.addEventListener('change', updateCacheNote);
-document.getElementById('f').cache_mode.addEventListener('change', updateCacheNote);
+document.getElementById('f').cache_mode.addEventListener('change', updateCacheModeOptions);
+document.querySelector('[name="memory_enabled"]').addEventListener('change', updateCompanionVisibility);
+
+// Global form change listener to keep widgets in perfect sync
+document.getElementById('f').addEventListener('change', () => {
+  updateVisualizer();
+  updateFlowDiagram();
+  updateStatusSummary();
+});
 
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target;
   const payload = {
-    force_provider: f.force_provider.value,
-    gemini_provider: f.gemini_provider.value,
+    preset: f.preset.value,
+    upstream: f.upstream.value,
     cache_ttl: f.cache_ttl.value,
     cache_mode: f.cache_mode.value,
     cache_strategy: f.cache_strategy.value,
     cache_breakpoints: Number(f.cache_breakpoints.value),
+    
+    // Companion Memory fields
+    memory_enabled: f.memory_enabled.checked,
+    memory_summary_url: f.memory_summary_url.value,
+    memory_summary_model: f.memory_summary_model.value,
+    memory_summary_prompt: f.memory_summary_prompt.value,
+    memory_embedding_url: f.memory_embedding_url.value,
+    memory_embedding_model: f.memory_embedding_model.value,
+    memory_decay_interval_hours: Number(f.memory_decay_interval_hours.value),
+    memory_decay_rate: Number(f.memory_decay_rate.value),
+    memory_threshold: Number(f.memory_threshold.value),
+    memory_recovery_amount: Number(f.memory_recovery_amount.value),
+    memory_initial_strength: Number(f.memory_initial_strength.value),
+    memory_max_strength: Number(f.memory_max_strength.value),
+    intimacy_decay_rate: Number(f.intimacy_decay_rate.value),
+    spontaneous_recall_probability: Number(f.spontaneous_recall_probability.value),
+    clear_memory_summary_key: f.clear_memory_summary_key.checked,
+    clear_memory_embedding_key: f.clear_memory_embedding_key.checked,
   };
+  if (f.memory_summary_key.value.trim()) payload.memory_summary_key = f.memory_summary_key.value.trim();
+  if (f.memory_embedding_key.value.trim()) payload.memory_embedding_key = f.memory_embedding_key.value.trim();
   const r = await fetch('/api/config', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
   const d = await r.json();
   const s = document.getElementById('status');
   const str = STRINGS[currentLang];
   if (r.ok) {
-    s.className = '';
+    applyConfigData(d);
+    s.className = 'success';
     s.textContent = str.saved + JSON.stringify(d);
+    s.style.display = 'block';
+    setTimeout(() => { s.style.display = 'none'; }, 4000);
   } else {
     s.className = 'err';
     s.textContent = str.error + (d.errors || []).join('; ');
+    s.style.display = 'block';
   }
 });
 
-applyLang(currentLang);
+setLang(currentLang);
 load();
 </script>
 </body>

@@ -15,7 +15,16 @@ import kotlinx.serialization.json.*
 import java.net.URI
 
 fun main() {
-    println("Starting OpenRouter cache proxy listening on http://${Config.host}:${Config.port}")
+    DatabaseService.initDatabase()
+
+    if (Config.cacheMode == "automatic" && Config.preset != "anthropic") {
+        println("Warning: CACHE_MODE was automatic but PRESET is not anthropic. Forcing cacheMode to explicit.")
+        Config.cacheMode = "explicit"
+    }
+
+    println("Starting Kiyomizu Cache Proxy listening on http://${Config.host}:${Config.port}")
+    println("Preset: ${Config.preset}")
+    println("Upstream: ${Config.upstream.ifEmpty { "<unset>" }}")
     println("Cache mode: ${Config.cacheMode}")
     println("Send top-level cache_control: ${Config.sendTopLevelCacheControl}")
     println("Cache strategy: ${Config.cacheStrategy}")
@@ -25,6 +34,8 @@ fun main() {
     println("Model filter: ${Config.modelFilter}")
 
     embeddedServer(Netty, port = Config.port, host = Config.host) {
+        MemoryService.startDecayJob(this)
+
         install(CORS) {
             allowHost("localhost")
             allowHost("127.0.0.1")
@@ -56,10 +67,9 @@ fun main() {
 
             get("/health") {
                 val healthText = listOf(
-                    "OpenRouter cache proxy is running.",
+                    "Kiyomizu Cache Proxy is running.",
+                    "Preset: ${Config.preset}",
                     "Upstream: ${Config.upstream}",
-                    "Forced provider (Claude): ${Config.forceProvider}",
-                    "Forced provider (Gemini): ${Config.geminiProvider}",
                     "Prompt cache TTL: ${Config.cacheTtl}",
                     "Cache mode: ${Config.cacheMode}",
                     "Send top-level cache_control: ${Config.sendTopLevelCacheControl}",
@@ -81,81 +91,23 @@ fun main() {
 
             route("/api/config") {
                 get {
-                    val configJson = buildJsonObject {
-                        put("force_provider", Config.forceProvider)
-                        put("gemini_provider", Config.geminiProvider)
-                        put("cache_ttl", Config.cacheTtl)
-                        put("cache_mode", Config.cacheMode)
-                        put("cache_strategy", Config.cacheStrategy)
-                        put("cache_breakpoints", Config.cacheBreakpoints)
-                    }
-                    call.respondText(configJson.toString(), ContentType.Application.Json)
+                    call.respondText(ConfigApi.publicConfigJson().toString(), ContentType.Application.Json)
                 }
                 post {
                     val bodyText = call.receiveText()
                     val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
-                    val errors = mutableListOf<String>()
-                    if (body != null) {
-                        body["force_provider"]?.jsonPrimitive?.contentOrNull?.let {
-                            if (it in listOf("anthropic", "bedrock", "vertex")) {
-                                Config.forceProvider = it
-                            } else {
-                                errors.add("force_provider must be one of: anthropic, bedrock, vertex")
-                            }
-                        }
-                        body["gemini_provider"]?.jsonPrimitive?.contentOrNull?.let {
-                            if (it in listOf("aistudio", "vertex")) {
-                                Config.geminiProvider = it
-                            } else {
-                                errors.add("gemini_provider must be one of: aistudio, vertex")
-                            }
-                        }
-                        body["cache_ttl"]?.jsonPrimitive?.contentOrNull?.let {
-                            if (it in listOf("5m", "1h", "none")) {
-                                Config.cacheTtl = it
-                            } else {
-                                errors.add("cache_ttl must be one of: 5m, 1h, none")
-                            }
-                        }
-                        body["cache_mode"]?.jsonPrimitive?.contentOrNull?.let {
-                            if (it in listOf("explicit", "automatic")) {
-                                Config.cacheMode = it
-                            } else {
-                                errors.add("cache_mode must be one of: explicit, automatic")
-                            }
-                        }
-                        body["cache_strategy"]?.jsonPrimitive?.contentOrNull?.let {
-                            if (it in listOf("stable-prefix", "last")) {
-                                Config.cacheStrategy = it
-                            } else {
-                                errors.add("cache_strategy must be one of: stable-prefix, last")
-                            }
-                        }
-                        body["cache_breakpoints"]?.jsonPrimitive?.intOrNull?.let {
-                            if (it in 0..4) {
-                                Config.cacheBreakpoints = it
-                            } else {
-                                errors.add("cache_breakpoints must be an integer 0-4")
-                            }
-                        }
-                    }
-                    if (errors.isNotEmpty()) {
+                    val updateResult = ConfigApi.applyUpdate(body)
+                    if (updateResult.errors.isNotEmpty()) {
                         call.respondText(
-                            buildJsonObject { put("errors", buildJsonArray { errors.forEach { add(it) } }) }.toString(),
+                            buildJsonObject {
+                                put("errors", buildJsonArray { updateResult.errors.forEach { add(it) } })
+                            }.toString(),
                             ContentType.Application.Json,
                             HttpStatusCode.BadRequest
                         )
                     } else {
-                        println("Config updated: forceProvider=${Config.forceProvider}, geminiProvider=${Config.geminiProvider}, cacheTtl=${Config.cacheTtl}, cacheMode=${Config.cacheMode}, cacheStrategy=${Config.cacheStrategy}, cacheBreakpoints=${Config.cacheBreakpoints}")
-                        val responseJson = buildJsonObject {
-                            put("force_provider", Config.forceProvider)
-                            put("gemini_provider", Config.geminiProvider)
-                            put("cache_ttl", Config.cacheTtl)
-                            put("cache_mode", Config.cacheMode)
-                            put("cache_strategy", Config.cacheStrategy)
-                            put("cache_breakpoints", Config.cacheBreakpoints)
-                        }
-                        call.respondText(responseJson.toString(), ContentType.Application.Json)
+                        println("Config updated: preset=${Config.preset}, upstream=${Config.upstream.ifEmpty { "<unset>" }}, cacheTtl=${Config.cacheTtl}, cacheMode=${Config.cacheMode}, cacheStrategy=${Config.cacheStrategy}, cacheBreakpoints=${Config.cacheBreakpoints}, memoryEnabled=${Config.memoryEnabled}")
+                        call.respondText(updateResult.responseBody.toString(), ContentType.Application.Json)
                     }
                 }
             }
@@ -183,11 +135,18 @@ private suspend fun serveUi(call: ApplicationCall) {
 }
 
 private suspend fun handleModelListProxy(call: ApplicationCall) {
-    val upstreamUrl = "${Config.upstream}/api/v1/models"
+    val upstream = Config.upstream
+    if (upstream.isBlank()) {
+        call.respondText("Upstream URL is not configured", ContentType.Text.Plain, HttpStatusCode.BadRequest)
+        return
+    }
+    val query = call.request.queryString()
+    val upstreamUrl = "$upstream${ProxyService.normalizeUpstreamPath(call.request.path())}${if (query.isNotEmpty()) "?$query" else ""}"
     val cleanedHeaders = ProxyService.cleanHeaders(call.request.headers)
+    val finalHeaders = ProxyService.adjustHeadersForUpstream(cleanedHeaders)
     try {
         val response = ProxyService.client.get(upstreamUrl) {
-            cleanedHeaders.forEach { (k, v) ->
+            finalHeaders.forEach { (k, v) ->
                 if (k.lowercase() != "host") {
                     header(k, v)
                 }
@@ -195,14 +154,8 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
             header("host", URI(Config.upstream).host)
         }
         val text = response.bodyAsText()
-        val payload = try { Json.parseToJsonElement(text) } catch(e: Exception) { null }
         val statusVal = response.status.value
-        if (payload == null) {
-            call.respondText(text, response.contentType() ?: ContentType.Application.Json, HttpStatusCode.fromValue(statusVal))
-        } else {
-            val normalized = MessagePatcher.normalizeModelList(payload)
-            call.respondText(normalized.toString(), ContentType.Application.Json, HttpStatusCode.fromValue(statusVal))
-        }
+        call.respondText(text, response.contentType() ?: ContentType.Application.Json, HttpStatusCode.fromValue(statusVal))
     } catch (e: Exception) {
         e.printStackTrace()
         call.respondText("Proxy error: ${e.message}", ContentType.Text.Plain, HttpStatusCode.BadGateway)
@@ -212,29 +165,35 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
 private fun Route.fallbackProxyRoute() {
     route("{...}") {
         handle {
+            val upstreamBase = Config.upstream
+            if (upstreamBase.isBlank()) {
+                call.respondText("Upstream URL is not configured", ContentType.Text.Plain, HttpStatusCode.BadRequest)
+                return@handle
+            }
             val path = call.request.path()
             val query = call.request.queryString()
             val upstreamPath = ProxyService.normalizeUpstreamPath(path)
-            val upstreamUrl = "${Config.upstream}$upstreamPath${if (query.isNotEmpty()) "?$query" else ""}"
+            val upstreamUrl = "$upstreamBase$upstreamPath${if (query.isNotEmpty()) "?$query" else ""}"
             
             val cleanedHeaders = ProxyService.cleanHeaders(call.request.headers)
             val requestBodyText = call.receiveText()
             var finalBodyBytes = requestBodyText.toByteArray(Charsets.UTF_8)
             var hasBetaHeader = false
+            var originalJson: JsonObject? = null
 
             val isJson = call.request.contentType().match(ContentType.Application.Json)
             if (requestBodyText.isNotEmpty() && isJson) {
                 try {
-                    val originalJson = Json.parseToJsonElement(requestBodyText) as? JsonObject
-                    if (originalJson != null) {
-                        val patchedJson = MessagePatcher.patchJsonBody(originalJson)
+                    val parsed = Json.parseToJsonElement(requestBodyText) as? JsonObject
+                    if (parsed != null) {
+                        originalJson = parsed
+                        val patchedJson = MessagePatcher.patchJsonBody(path, parsed)
                         finalBodyBytes = patchedJson.toString().toByteArray(Charsets.UTF_8)
                         
-                        val model = originalJson["model"]?.jsonPrimitive?.contentOrNull
-                        if (MessagePatcher.isCacheProvider() && MessagePatcher.shouldPatchModel(model)) {
+                        if (Config.preset == "anthropic" && MessagePatcher.isAnthropicMessagesRequest(path, parsed)) {
                             hasBetaHeader = true
                         }
-                        ProxyService.logRequest(call.request.httpMethod.value, path, originalJson, patchedJson)
+                        ProxyService.logRequest(call.request.httpMethod.value, path, parsed, patchedJson)
                     }
                 } catch (e: Exception) {
                     System.err.println("Failed to parse request JSON: ${e.message}")
@@ -243,14 +202,15 @@ private fun Route.fallbackProxyRoute() {
 
             try {
                 val methodStr = call.request.httpMethod.value
+                val finalHeaders = ProxyService.adjustHeadersForUpstream(cleanedHeaders)
                 val upstreamResponse = ProxyService.client.request(upstreamUrl) {
                     this.method = HttpMethod.parse(methodStr)
-                    cleanedHeaders.forEach { (k, v) ->
+                    finalHeaders.forEach { (k, v) ->
                         if (k.lowercase() != "host" && k.lowercase() != "content-length") {
                             header(k, v)
                         }
                     }
-                    header("host", URI(Config.upstream).host)
+                    header("host", URI(upstreamBase).host)
                     if (hasBetaHeader) {
                         header("anthropic-beta", Config.betaHeader)
                     }
@@ -266,12 +226,24 @@ private fun Route.fallbackProxyRoute() {
 
                 val statusVal = upstreamResponse.status.value
                 val channel = upstreamResponse.bodyAsChannel()
+                val responseContentType = upstreamResponse.contentType()
+                val isTextResponse = responseContentType != null && (
+                    responseContentType.match(ContentType.Application.Json) ||
+                    responseContentType.match(ContentType.Text.EventStream) ||
+                    responseContentType.match(ContentType.Text.Plain)
+                )
 
                 call.respondBytesWriter(
                     status = HttpStatusCode.fromValue(statusVal),
-                    contentType = upstreamResponse.contentType() ?: ContentType.Application.OctetStream
+                    contentType = responseContentType ?: ContentType.Application.OctetStream
                 ) {
-                    channel.copyTo(this)
+                    val captured = channel.copyToAndCapture(this, isTextResponse)
+                    if (originalJson != null && isTextResponse && Config.memoryEnabled) {
+                        val compiledText = compileResponseText(captured, responseContentType!!.match(ContentType.Text.EventStream))
+                        if (compiledText.isNotEmpty()) {
+                            MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -279,4 +251,94 @@ private fun Route.fallbackProxyRoute() {
             }
         }
     }
+}
+
+private suspend fun ByteReadChannel.copyToAndCapture(target: ByteWriteChannel, isText: Boolean): String {
+    val buffer = ByteArray(4096)
+    val out = java.io.ByteArrayOutputStream()
+    var totalCaptured = 0
+    while (!isClosedForRead) {
+        val read = readAvailable(buffer, 0, buffer.size)
+        if (read < 0) break
+        if (read > 0) {
+            target.writeFully(buffer, 0, read)
+            if (isText && totalCaptured < 100000) { // Limit capture to 100KB
+                out.write(buffer, 0, read)
+                totalCaptured += read
+            }
+        }
+    }
+    return if (isText) out.toString("UTF-8") else ""
+}
+
+private fun compileSseResponse(sseText: String): String {
+    val lines = sseText.split("\n")
+    val sb = java.lang.StringBuilder()
+    for (line in lines) {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("data:")) continue
+        val dataStr = trimmed.substring(5).trim()
+        if (dataStr == "[DONE]") continue
+        try {
+            val json = Json.parseToJsonElement(dataStr) as? JsonObject ?: continue
+            val openAiContent = json["choices"]?.jsonArray?.getOrNull(0)?.jsonObject
+                ?.get("delta")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+            if (openAiContent != null) {
+                sb.append(openAiContent)
+                continue
+            }
+            if (json["type"]?.jsonPrimitive?.contentOrNull == "content_block_delta") {
+                val delta = json["delta"]?.jsonObject ?: continue
+                if (delta["type"]?.jsonPrimitive?.contentOrNull == "text_delta") {
+                    delta["text"]?.jsonPrimitive?.contentOrNull?.let { sb.append(it) }
+                    continue
+                }
+            }
+            val responsesDelta = json["delta"]?.jsonPrimitive?.contentOrNull
+            if (responsesDelta != null) {
+                sb.append(responsesDelta)
+            }
+        } catch (e: Exception) {
+            // Ignore parse errors for keep-alives
+        }
+    }
+    return sb.toString()
+}
+
+private fun compileResponseText(text: String, isSse: Boolean): String {
+    if (isSse) {
+        return compileSseResponse(text)
+    }
+    try {
+        val json = Json.parseToJsonElement(text) as? JsonObject ?: return text
+        val openAiContent = json["choices"]?.jsonArray?.getOrNull(0)?.jsonObject
+            ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
+        if (openAiContent != null) return openAiContent
+        val responsesContent = json["output"]?.jsonArray?.mapNotNull { outputItem ->
+            (outputItem as? JsonObject)?.get("content")?.jsonArray?.mapNotNull { contentItem ->
+                (contentItem as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
+            }?.joinToString("\n")
+        }?.joinToString("\n")
+        if (!responsesContent.isNullOrBlank()) return responsesContent
+        val topLevelOutputText = json["output_text"]?.jsonPrimitive?.contentOrNull
+        if (!topLevelOutputText.isNullOrBlank()) return topLevelOutputText
+        val anthropicContent = json["content"]?.jsonArray
+        if (anthropicContent != null) {
+            return anthropicContent.mapNotNull { block ->
+                (block as? JsonObject)?.let { o ->
+                    if (o["type"]?.jsonPrimitive?.contentOrNull == "text") {
+                        o["text"]?.jsonPrimitive?.contentOrNull
+                    } else null
+                }
+            }.joinToString("\n")
+        }
+        val geminiContent = json["candidates"]?.jsonArray?.getOrNull(0)?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray?.mapNotNull { part ->
+                (part as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
+            }?.joinToString("\n")
+        if (!geminiContent.isNullOrBlank()) return geminiContent
+    } catch (e: Exception) {
+        // Ignore
+    }
+    return text
 }

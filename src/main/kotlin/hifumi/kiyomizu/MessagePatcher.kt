@@ -4,47 +4,40 @@ import kotlinx.serialization.json.*
 
 object MessagePatcher {
     private val thinkingBlockTypes = setOf("thinking", "redacted_thinking", "reasoning", "reasoning_details", "reasoning_content")
-    private val providerMap = mapOf(
-        "anthropic" to "anthropic",
-        "bedrock" to "amazon-bedrock",
-        "vertex" to "google-vertex",
-        "aistudio" to "google-ai-studio"
-    )
-
-    fun resolvedProvider(): String {
-        return providerMap[Config.forceProvider] ?: Config.forceProvider
+    private enum class RequestEnvelope {
+        OPENAI_CHAT_COMPLETIONS,
+        ANTHROPIC_MESSAGES,
+        OPENAI_RESPONSES,
+        GEMINI_GENERATE_CONTENT,
+        UNKNOWN
     }
 
-    fun isCacheProvider(): Boolean {
-        return Config.forceProvider == "anthropic"
+    private enum class CapabilityProfile {
+        ANTHROPIC_DIRECT,
+        GENERIC
     }
 
-    fun isGeminiModel(model: String?): Boolean {
-        if (model == null) return false
-        val normalizedModel = model.lowercase()
-        return Config.geminiModelFilter.split(",")
-            .map { it.trim().lowercase() }
-            .filter { it.isNotEmpty() }
-            .any { normalizedModel.contains(it) }
-    }
-
-    fun resolvedGeminiProvider(): String {
-        return providerMap[Config.geminiProvider] ?: Config.geminiProvider
-    }
-
-    fun mergeGeminiProvider(provider: JsonElement?): JsonObject {
-        val current = if (provider is JsonObject) provider else emptyMap()
-        return buildJsonObject {
-            current.forEach { (k, v) -> put(k, v) }
-            put("only", buildJsonArray { add(resolvedGeminiProvider()) })
+    private fun detectEnvelope(path: String, body: JsonObject): RequestEnvelope {
+        val normalizedPath = path.lowercase()
+        return when {
+            normalizedPath.contains(":generatecontent") || "contents" in body -> RequestEnvelope.GEMINI_GENERATE_CONTENT
+            normalizedPath.contains("/responses") || "input" in body -> RequestEnvelope.OPENAI_RESPONSES
+            normalizedPath.endsWith("/messages") || normalizedPath.contains("/v1/messages") -> RequestEnvelope.ANTHROPIC_MESSAGES
+            normalizedPath.contains("/chat/completions") || "messages" in body -> RequestEnvelope.OPENAI_CHAT_COMPLETIONS
+            else -> RequestEnvelope.UNKNOWN
         }
     }
 
-    fun mergeProvider(provider: JsonElement?): JsonObject {
-        val current = if (provider is JsonObject) provider else emptyMap()
-        return buildJsonObject {
-            current.forEach { (k, v) -> put(k, v) }
-            put("only", buildJsonArray { add(resolvedProvider()) })
+    private fun detectCapabilityProfile(): CapabilityProfile {
+        return if (Config.preset == "anthropic") CapabilityProfile.ANTHROPIC_DIRECT else CapabilityProfile.GENERIC
+    }
+
+    fun isAnthropicMessagesRequest(path: String, body: JsonObject? = null): Boolean {
+        return if (body != null) {
+            detectEnvelope(path, body) == RequestEnvelope.ANTHROPIC_MESSAGES
+        } else {
+            val normalizedPath = path.lowercase()
+            normalizedPath.endsWith("/messages") || normalizedPath.contains("/v1/messages")
         }
     }
 
@@ -219,15 +212,19 @@ object MessagePatcher {
         return false
     }
 
-    fun stableEndIndex(messages: List<JsonObject>): Int {
-        if (messages.isEmpty()) return -1
+    private fun stableEndIndex(itemCount: Int): Int {
+        if (itemCount <= 0) return -1
         if (Config.cacheStrategy == "last") {
-            return messages.size - 1
+            return itemCount - 1
         }
         val tail = if (Config.dynamicTailMessages >= 0) Config.dynamicTailMessages else 1
-        val stableIndex = messages.size - tail - 1
+        val stableIndex = itemCount - tail - 1
         if (stableIndex >= 0) return stableIndex
-        return messages.size - 1
+        return itemCount - 1
+    }
+
+    fun stableEndIndex(messages: List<JsonObject>): Int {
+        return stableEndIndex(messages.size)
     }
 
     fun chooseCacheBreakpointIndexes(messages: List<JsonObject>): List<Int> {
@@ -313,46 +310,316 @@ object MessagePatcher {
         return normalized
     }
 
-    fun patchJsonBody(body: JsonObject): JsonObject {
-        val model = body["model"]?.jsonPrimitive?.contentOrNull
-        if (isGeminiModel(model)) {
-            val messages = body["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: emptyList()
-            val patchedMessages = patchGeminiMessages(messages)
-            val provider = body["provider"]
-            return buildJsonObject {
-                body.forEach { (k, v) ->
-                    when (k) {
-                        "messages" -> put("messages", JsonArray(patchedMessages))
-                        "provider" -> put("provider", mergeGeminiProvider(provider))
-                        else -> put(k, v)
-                    }
+    fun extractTextContent(content: JsonElement?): String {
+        return when (content) {
+            is JsonPrimitive -> if (content.isString) content.content else ""
+            is JsonArray -> content.mapNotNull { el ->
+                (el as? JsonObject)?.let { o ->
+                    o["text"]?.jsonPrimitive?.contentOrNull
                 }
-                if ("provider" !in body) {
-                    put("provider", mergeGeminiProvider(null))
-                }
+            }.joinToString("\n")
+            else -> ""
+        }
+    }
+
+    private fun prependTextToContent(message: JsonObject, prefix: String, textBlockType: String = "text"): JsonObject {
+        val content = message["content"]
+        val newContent: JsonElement = when (content) {
+            is JsonPrimitive -> if (content.isString) JsonPrimitive(prefix + content.content) else JsonPrimitive(prefix)
+            is JsonArray -> buildJsonArray {
+                add(buildJsonObject {
+                    put("type", textBlockType)
+                    put("text", prefix)
+                })
+                content.forEach { add(it) }
+            }
+            else -> JsonPrimitive(prefix)
+        }
+        return buildJsonObject {
+            message.forEach { (k, v) ->
+                if (k == "content") put("content", newContent) else put(k, v)
+            }
+        }
+    }
+
+    private fun extractTextFromGeminiContent(content: JsonObject): String {
+        val parts = content["parts"] as? JsonArray ?: return ""
+        return parts.mapNotNull { part ->
+            (part as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
+        }.joinToString("\n")
+    }
+
+    private fun prependTextToGeminiContent(content: JsonObject, prefix: String): JsonObject {
+        val existingParts = content["parts"] as? JsonArray
+        val newParts = buildJsonArray {
+            add(buildJsonObject {
+                put("text", prefix)
+            })
+            existingParts?.forEach { add(it) }
+        }
+        return buildJsonObject {
+            content.forEach { (k, v) ->
+                if (k == "parts") put("parts", newParts) else put(k, v)
+            }
+            if ("parts" !in content) {
+                put("parts", newParts)
+            }
+        }
+    }
+
+    private fun buildCompanionPrompt(
+        state: DatabaseService.RelationshipState,
+        recalled: List<DatabaseService.MemoryRecord>,
+        reflections: List<String>
+    ): String {
+        val intimacyStage = when {
+            state.intimacy < 30.0 -> "・関係性: まだお互いを探り合っている知人の段階です。丁寧な言葉遣い（敬語・ですます調）を使い、礼儀正しく節度ある態度で接してください。"
+            state.intimacy < 70.0 -> "・関係性: 親しい友達です。親しみを込めたタメ口（カジュアルな表現、〜だよ、〜ね、など）を使い、リラックスした楽しい雰囲気で話してください。"
+            else -> "・関係性: 非常に親密で特別な存在（恋人や無二の親友）です。深い愛情と信頼を寄せた、非常に温かく甘い口調（〜だね、〜だよ、心配してるよ、大好き、など）で、相手に寄り添い、優しく語りかけてください。"
+        }
+
+        var spontaneousRecallStr = ""
+        if (Math.random() < Config.spontaneousRecallProbability) {
+            val candidates = recalled.filter { it.type == "episodic" }
+            val chosen = if (candidates.isNotEmpty()) candidates.random() else {
+                val allEpisodic = DatabaseService.getAllMemoriesForSearch().filter { it.type == "episodic" }
+                if (allEpisodic.isNotEmpty()) allEpisodic.random() else null
+            }
+            if (chosen != null) {
+                spontaneousRecallStr = "★[自発的想起のサジェスト]: あなたの心の片隅にこの記憶があります: '${chosen.content}'。もし会話の流れが許すなら、自然な形で『そういえば前に〜って言ってたけど…』と言及して思い出話を引き出してください（強要ではありません）。"
             }
         }
 
-        if (!shouldPatchModel(model)) {
+        return buildString {
+            append("\n[Kiyomizu Companion Core - あなたの現在の感情と関係性の記憶]\n")
+            append(intimacyStage).append("\n")
+            append("・親密度: ${state.intimacy.toInt()}/100, 信頼度: ${state.trust.toInt()}/100\n")
+            append("・現在の気分: ${state.mood}\n")
+            if (recalled.isNotEmpty()) {
+                append("・関連する記憶:\n")
+                recalled.forEach {
+                    append("  - ${it.content} (感情: ${it.emotionTag})\n")
+                }
+            }
+            if (reflections.isNotEmpty()) {
+                append("・あなたの最近の内省・日記（本音）:\n")
+                reflections.forEach {
+                    append("  - $it\n")
+                }
+            }
+            if (spontaneousRecallStr.isNotEmpty()) {
+                append(spontaneousRecallStr).append("\n")
+            }
+            append("[Kiyomizu Companion Core - ここまで]\n\n")
+        }
+    }
+
+    private suspend fun buildCompanionPromptForQuery(userQuery: String): String {
+        val recalled = if (userQuery.isNotEmpty()) MemoryService.recallMemories(userQuery) else emptyList()
+        val state = DatabaseService.getRelationshipState()
+        val reflections = DatabaseService.getRecentReflections(3)
+        return buildCompanionPrompt(state, recalled, reflections)
+    }
+
+    private suspend fun injectCompanionIntoConversation(
+        items: List<JsonObject>,
+        isUserItem: (JsonObject) -> Boolean,
+        extractUserText: (JsonObject) -> String,
+        prependPrompt: (JsonObject, String) -> JsonObject,
+        appendPrompt: (String) -> JsonObject
+    ): List<JsonObject> {
+        if (!Config.memoryEnabled || items.isEmpty()) return items
+
+        val lastUserAnywhere = items.lastOrNull(isUserItem)
+        val userQuery = lastUserAnywhere?.let(extractUserText).orEmpty()
+        val companionPrompt = buildCompanionPromptForQuery(userQuery)
+
+        val stableEnd = stableEndIndex(items.size)
+        val tailUserIdx = (stableEnd + 1 until items.size)
+            .lastOrNull { isUserItem(items[it]) }
+
+        if (tailUserIdx != null) {
+            val updated = items.toMutableList()
+            updated[tailUserIdx] = prependPrompt(items[tailUserIdx], companionPrompt)
+            return updated
+        }
+
+        return items + appendPrompt(companionPrompt)
+    }
+
+    /**
+     * Companion context is injected into the dynamic-tail region (strictly after the
+     * stable prefix where cache breakpoints sit) so prompt-cache hits remain intact.
+     * Target: the last user message whose index is past stableEndIndex. When the
+     * config leaves no dynamic tail, a new user message is appended after the cached
+     * prefix instead of mutating a cached message.
+     */
+    suspend fun injectCompanionPrompt(messages: List<JsonObject>): List<JsonObject> {
+        return injectCompanionIntoConversation(
+            items = messages,
+            isUserItem = { it["role"]?.jsonPrimitive?.contentOrNull == "user" },
+            extractUserText = { extractTextContent(it["content"]) },
+            prependPrompt = { message, prompt -> prependTextToContent(message, prompt) },
+            appendPrompt = { prompt ->
+                buildJsonObject {
+                    put("role", "user")
+                    put("content", prompt)
+                }
+            }
+        )
+    }
+
+    private suspend fun injectCompanionIntoResponsesInput(body: JsonObject): JsonObject {
+        val input = body["input"] ?: return body
+        return when {
+            input is JsonPrimitive && input.isString -> {
+                val companionPrompt = buildCompanionPromptForQuery(input.content)
+                buildJsonObject {
+                    body.forEach { (k, v) ->
+                        if (k == "input") put("input", JsonPrimitive(companionPrompt + input.content)) else put(k, v)
+                    }
+                }
+            }
+
+            input is JsonArray -> {
+                val items = input.mapNotNull { it as? JsonObject }
+                if (items.size != input.size) return body
+                val updated = injectCompanionIntoConversation(
+                    items = items,
+                    isUserItem = { it["role"]?.jsonPrimitive?.contentOrNull == "user" },
+                    extractUserText = { extractTextContent(it["content"]) },
+                    prependPrompt = { item, prompt -> prependTextToContent(item, prompt, "input_text") },
+                    appendPrompt = { prompt ->
+                        buildJsonObject {
+                            put("type", "message")
+                            put("role", "user")
+                            put("content", buildJsonArray {
+                                add(buildJsonObject {
+                                    put("type", "input_text")
+                                    put("text", prompt)
+                                })
+                            })
+                        }
+                    }
+                )
+                buildJsonObject {
+                    body.forEach { (k, v) ->
+                        if (k == "input") put("input", JsonArray(updated)) else put(k, v)
+                    }
+                }
+            }
+
+            else -> body
+        }
+    }
+
+    private suspend fun injectCompanionIntoGeminiContents(body: JsonObject): JsonObject {
+        val contents = body["contents"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return body
+        val updated = injectCompanionIntoConversation(
+            items = contents,
+            isUserItem = { it["role"]?.jsonPrimitive?.contentOrNull == "user" },
+            extractUserText = { extractTextFromGeminiContent(it) },
+            prependPrompt = { content, prompt -> prependTextToGeminiContent(content, prompt) },
+            appendPrompt = { prompt ->
+                buildJsonObject {
+                    put("role", "user")
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject {
+                            put("text", prompt)
+                        })
+                    })
+                }
+            }
+        )
+        return buildJsonObject {
+            body.forEach { (k, v) ->
+                if (k == "contents") put("contents", JsonArray(updated)) else put(k, v)
+            }
+        }
+    }
+
+    fun extractLatestUserText(path: String, body: JsonObject): String? {
+        return when (detectEnvelope(path, body)) {
+            RequestEnvelope.OPENAI_CHAT_COMPLETIONS,
+            RequestEnvelope.ANTHROPIC_MESSAGES -> {
+                body["messages"]?.jsonArray
+                    ?.mapNotNull { it as? JsonObject }
+                    ?.lastOrNull { it["role"]?.jsonPrimitive?.contentOrNull == "user" }
+                    ?.let { extractTextContent(it["content"]) }
+                    ?.takeIf { it.isNotBlank() }
+            }
+
+            RequestEnvelope.OPENAI_RESPONSES -> {
+                val input = body["input"]
+                when (input) {
+                    is JsonPrimitive -> input.contentOrNull?.takeIf { it.isNotBlank() }
+                    is JsonArray -> input.mapNotNull { it as? JsonObject }
+                        .lastOrNull { it["role"]?.jsonPrimitive?.contentOrNull == "user" }
+                        ?.let { extractTextContent(it["content"]) }
+                        ?.takeIf { it.isNotBlank() }
+                    else -> null
+                }
+            }
+
+            RequestEnvelope.GEMINI_GENERATE_CONTENT -> {
+                body["contents"]?.jsonArray
+                    ?.mapNotNull { it as? JsonObject }
+                    ?.lastOrNull { it["role"]?.jsonPrimitive?.contentOrNull == "user" }
+                    ?.let { extractTextFromGeminiContent(it) }
+                    ?.takeIf { it.isNotBlank() }
+            }
+
+            RequestEnvelope.UNKNOWN -> null
+        }
+    }
+
+    suspend fun patchJsonBody(path: String, body: JsonObject): JsonObject {
+        val envelope = detectEnvelope(path, body)
+        val capabilityProfile = detectCapabilityProfile()
+        val capabilityPatched = applyCapabilityPatching(body, envelope, capabilityProfile)
+        if (!Config.memoryEnabled) return capabilityPatched
+
+        return when (envelope) {
+            RequestEnvelope.OPENAI_CHAT_COMPLETIONS,
+            RequestEnvelope.ANTHROPIC_MESSAGES -> {
+                val messages = capabilityPatched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return capabilityPatched
+                val withCompanion = injectCompanionPrompt(messages)
+                buildJsonObject {
+                    capabilityPatched.forEach { (k, v) ->
+                        if (k == "messages") put("messages", JsonArray(withCompanion)) else put(k, v)
+                    }
+                }
+            }
+
+            RequestEnvelope.OPENAI_RESPONSES -> injectCompanionIntoResponsesInput(capabilityPatched)
+            RequestEnvelope.GEMINI_GENERATE_CONTENT -> injectCompanionIntoGeminiContents(capabilityPatched)
+            RequestEnvelope.UNKNOWN -> capabilityPatched
+        }
+    }
+
+    private fun applyCapabilityPatching(
+        body: JsonObject,
+        envelope: RequestEnvelope,
+        capabilityProfile: CapabilityProfile
+    ): JsonObject {
+        if (capabilityProfile != CapabilityProfile.ANTHROPIC_DIRECT || envelope != RequestEnvelope.ANTHROPIC_MESSAGES) {
             return body
         }
 
         val messages = body["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: emptyList()
         val patchedMessages = patchMessages(messages)
-        val provider = body["provider"]
+        val shouldSendAutomaticCacheControl = Config.cacheMode == "automatic" || Config.sendTopLevelCacheControl
 
         return buildJsonObject {
             body.forEach { (k, v) ->
                 when (k) {
                     "messages" -> put("messages", JsonArray(patchedMessages))
-                    "provider" -> put("provider", mergeProvider(provider))
+                    "provider" -> {}
+                    "cache_control" -> if (Config.cacheMode == "automatic") put(k, v)
                     else -> put(k, v)
                 }
             }
-            if ("provider" !in body) {
-                put("provider", mergeProvider(null))
-            }
-            if (Config.sendTopLevelCacheControl && "cache_control" !in body) {
+            if (shouldSendAutomaticCacheControl && "cache_control" !in body) {
                 put("cache_control", buildJsonObject {
                     put("type", "ephemeral")
                     if (Config.cacheTtl != "none") {

@@ -3,3 +3,7 @@ build/
 .kotlin
 .idea
 *.log
+kiyomizu_companion.db
+kiyomizu_companion.db-journal
+kiyomizu_companion.db-wal
+kiyomizu_companion.db-shm

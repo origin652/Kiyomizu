@@ -30,13 +30,7 @@ object ProxyService {
     )
 
     fun normalizeUpstreamPath(pathname: String): String {
-        return when {
-            pathname == "/v1" -> "/api/v1"
-            pathname.startsWith("/v1/") -> "/api$pathname"
-            pathname == "/model" -> "/api/v1/models"
-            pathname == "/models" -> "/api/v1/models"
-            else -> pathname
-        }
+        return pathname
     }
 
     fun corsHeaders(requestedHeaders: String?): List<Pair<String, String>> {
@@ -58,6 +52,35 @@ object ProxyService {
             }
         }
         return list
+    }
+
+    fun adjustHeadersForUpstream(cleanedHeaders: List<Pair<String, String>>): List<Pair<String, String>> {
+        if (Config.preset != "anthropic") {
+            return cleanedHeaders
+        }
+
+        val result = mutableListOf<Pair<String, String>>()
+        var apiKey = ""
+        cleanedHeaders.forEach { (k, v) ->
+            val lk = k.lowercase()
+            if (lk == "authorization") {
+                if (v.startsWith("Bearer ", ignoreCase = true)) {
+                    apiKey = v.substring(7).trim()
+                } else {
+                    apiKey = v.trim()
+                }
+            } else {
+                result.add(k to v)
+            }
+        }
+
+        if (apiKey.isNotEmpty()) {
+            result.add("x-api-key" to apiKey)
+        }
+        if (result.none { it.first.lowercase() == "anthropic-version" }) {
+            result.add("anthropic-version" to "2023-06-01")
+        }
+        return result
     }
 
     private val json = Json {
@@ -93,16 +116,14 @@ object ProxyService {
 
     private fun summarizeBody(body: JsonObject): JsonObject {
         val model = body["model"]?.jsonPrimitive?.contentOrNull
-        val isGemini = MessagePatcher.isGeminiModel(model)
-        val eligibleForPatch = MessagePatcher.shouldPatchModel(model) || isGemini
-
         val messages = body["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        val eligibleForPatch = Config.preset == "anthropic" && MessagePatcher.shouldPatchModel(model)
 
         return buildJsonObject {
             if (model != null) put("model", model)
             body["stream"]?.let { put("stream", it) }
+            put("preset", Config.preset)
             put("eligible_for_patch", eligibleForPatch)
-            put("force_provider", if (isGemini) Config.geminiProvider else Config.forceProvider)
             put("cache_mode", Config.cacheMode)
             put("send_top_level_cache_control", Config.sendTopLevelCacheControl)
             put("cache_strategy", Config.cacheStrategy)
