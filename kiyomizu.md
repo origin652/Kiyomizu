@@ -1,148 +1,90 @@
-# OpenRouter Claude Cache Gateway
+# Kiyomizu - Advanced LLM Cache Proxy & Gateway
 
-This local gateway lets Cherry Studio keep using an OpenAI-compatible endpoint while forcing OpenRouter Claude requests into a cache-friendly shape.
+Kiyomizu is a lightweight, local caching proxy designed to sit between your AI client (e.g., Cherry Studio, LibreChat) and upstream API providers (OpenRouter, Anthropic, OpenAI, DeepSeek, Google, Vercel Gateway, and more). It dynamically modifies requests to optimize prompt-cache utilization—such as injecting Anthropic prompt-caching breakpoints, stripping reasoning/thinking blocks from chat history to stabilize prefixes, and enforcing specific providers.
 
-## Start
+---
+
+## Features
+
+- **Multi-Preset Support**: Quickly switch upstream configurations for OpenRouter, Anthropic, OpenAI, DeepSeek, Vercel Gateway, or custom endpoints.
+- **Anthropic Prompt Caching**: Inject up to 4 explicit content-block cache breakpoints evenly spaced across your stable message history.
+- **Gemini Cache Support**: Automatically applies cache control to Gemini requests (targeting AI Studio or Google Vertex).
+- **History Sanitization**: Strips assistant `thinking` and `reasoning_content` blocks from older chat history. This keeps the prompt prefix stable, maximizing cache hits and saving tokens.
+- **Web UI Configurator**: A clean, responsive configuration panel served directly by the proxy (designed with a premium, water-inspired glassmorphic theme).
+- **Kotlin/Ktor Core**: Rebuilt as a high-performance JVM-based proxy engine.
+
+---
+
+## Starting the Gateway
+
+### Build and Run with Gradle
+Ensure you have JDK 17 or higher installed, then execute:
 
 ```sh
-node openrouter-cache-proxy.mjs
+./gradlew run
 ```
 
-Optional settings:
+### Config Environment Variables
+You can customize Kiyomizu's behavior via environment variables at startup:
 
-```sh
-HOST=0.0.0.0 PORT=8787 CACHE_TTL=1h CACHE_MODE=explicit CACHE_STRATEGY=stable-prefix CACHE_BREAKPOINTS=4 DYNAMIC_TAIL_MESSAGES=1 STRIP_THINKING=1 FORCE_PROVIDER=anthropic MODEL_FILTER=anthropic,claude node openrouter-cache-proxy.mjs
+| Variable | Default | Description |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Set to `0.0.0.0` to expose Kiyomizu to your Local Area Network (LAN). |
+| `PORT` | `8787` | Local port for the proxy server. |
+| `STRIP_THINKING` | `1` | Set to `0` to keep reasoning/thinking blocks in history. |
+| `MODEL_FILTER` | `anthropic,claude` | Patch models containing these terms (for Claude logic). |
+| `GEMINI_MODEL_FILTER` | `google,gemini` | Patch models containing these terms (for Gemini logic). |
+| `SEND_TOP_LEVEL_CACHE_CONTROL` | `0` | Set to `1` to include top-level cache_control. |
+| `DYNAMIC_TAIL_MESSAGES` | `1` | Number of messages at the tail of history excluded from the cache window. |
+
+---
+
+## Configuration Web UI
+
+Once Kiyomizu is running, open your browser and navigate to:
 ```
-
-Default `HOST` is `127.0.0.1`, which only accepts local connections. Use `HOST=0.0.0.0` to expose the gateway to your LAN.
-
-Only models whose names contain one of the comma-separated `MODEL_FILTER` terms are patched. By default, that means Claude/OpenRouter Anthropic model names are patched and all other models are forwarded unchanged.
-
-## Defaults
-
-```text
-CACHE_MODE=explicit
-SEND_TOP_LEVEL_CACHE_CONTROL=0
-CACHE_STRATEGY=stable-prefix
-CACHE_BREAKPOINTS=4
-DYNAMIC_TAIL_MESSAGES=1
-STRIP_THINKING=1
-CACHE_TTL=1h
+http://127.0.0.1:8787/
 ```
+From this panel, you can:
+1. Select an **Upstream Preset** (e.g. OpenRouter).
+2. Override the **Upstream URL**.
+3. Toggle between **Claude** and **Gemini** providers.
+4. Customize caching parameters (TTL, Breakpoints count, Strategy).
+5. Instantly save settings without restarting the server.
 
-The gateway keeps the newest message out of the explicit cache breakpoint range and places up to 4 cache points across the stable prefix before it. This gives Anthropic multiple fallback points instead of betting the whole context on one breakpoint.
+---
 
-It also strips thinking/reasoning blocks from historical messages by default. Cherry Studio may send only the previous thinking record in thinking mode, which makes the prompt prefix unstable and expensive. Visible assistant text is preserved.
+## Integrating with Clients (e.g., Cherry Studio)
 
-## Cherry Studio
+### For OpenRouter Presets
+Add a custom OpenAI-compatible provider in Cherry Studio with these settings:
 
-Use these provider settings:
+- **API Base URL**: `http://127.0.0.1:8787/v1` (or `http://127.0.0.1:8787/api/v1`)
+- **API Key**: *Your OpenRouter API Key*
+- **Model ID**: `anthropic/claude-3.7-sonnet` (or any other desired model)
 
-```text
-API Base URL: http://127.0.0.1:8787/api/v1
-API Key: your OpenRouter API key
-Model: anthropic/claude-4.6-sonnet-20260217
-```
+### For Anthropic Direct Presets
+- **API Base URL**: `http://127.0.0.1:8787/v1`
+- **API Key**: *Your Anthropic API Key*
 
-For another device on your LAN, start with `HOST=0.0.0.0` and use:
+---
 
-```text
-API Base URL: http://YOUR_MAC_LAN_IP:8787/api/v1
-```
+## Caching Strategy Details
 
-The proxy forwards requests to:
+- **Stable-Prefix**: Places cache breakpoints evenly distributed across the stable part of the history (all messages excluding the last `DYNAMIC_TAIL_MESSAGES`). This ensures that context remains cached even as new messages are added.
+- **Last**: Places a single cache breakpoint on the very last stable message.
+- **Thinking Blocks Removal**: Assistant outputs that include `<thinking>` tags or `reasoning_content` blocks are stripped from older messages in the request payload. Keeping reasoning out of history maintains a stable cache signature.
 
-```text
-https://openrouter.ai/api/v1/...
-```
+---
 
-It also exposes model-list aliases for clients that expect OpenAI-style paths:
+## Verification & Monitoring
 
-```text
-GET /v1/models -> https://openrouter.ai/api/v1/models
-GET /v1/model  -> https://openrouter.ai/api/v1/models
-```
+In OpenRouter's activity logs or billing panel, you should see active prompt cache hits:
+- `native_tokens_cached > 0`
+- `response_cache_source_id = null`
 
-The returned model list is normalized to OpenAI shape:
-
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "anthropic/claude-sonnet-4.6",
-      "object": "model",
-      "created": 0,
-      "owned_by": "anthropic"
-    }
-  ]
-}
-```
-
-and injects provider routing:
-
-```json
-{
-  "provider": {
-    "only": ["anthropic"]
-  }
-}
-```
-
-Provider choices are translated to OpenRouter slugs before sending: `anthropic`,
-`amazon-bedrock`, `google-vertex`, and `google-ai-studio`.
-
-In explicit mode, top-level `cache_control` is omitted by default. The gateway uses only block-level cache controls so the request stays within Claude's 4-block cache limit. Set `SEND_TOP_LEVEL_CACHE_CONTROL=1` only for automatic-cache experiments.
-
-For non-Claude models, the proxy does not inject `cache_control`, does not force `provider.only`, and does not send the Anthropic beta header.
-
-By default it rewrites each cache breakpoint message text into an explicit content block:
-
-```json
-{
-  "role": "user",
-  "content": [
-    {
-      "type": "text",
-      "text": "...",
-      "cache_control": {
-        "type": "ephemeral",
-        "ttl": "1h"
-      }
-    }
-  ]
-}
-```
-
-Set `CACHE_MODE=automatic` to disable this rewrite and only send the top-level `cache_control`.
-
-Set `CACHE_STRATEGY=last` to restore the old behavior of putting the breakpoint on the last message. That is useful for tiny one-shot tests, but poor for normal chat.
-
-Set `CACHE_BREAKPOINTS=1` to restore single-breakpoint behavior. The maximum is clamped to 4 because Claude supports up to 4 prompt cache breakpoints.
-
-Set `STRIP_THINKING=0` if you want to forward thinking/reasoning blocks unchanged.
-
-It also sends this header upstream:
-
-```text
-anthropic-beta: extended-cache-ttl-2025-04-11
-```
-
-## Verify
-
-OpenRouter Activity should show native prompt cache hits:
-
-```text
-native_tokens_cached > 0
-response_cache_source_id = null
-```
-
-Do not rely on `Cache write cost` alone to infer TTL. In testing, OpenRouter sometimes reported a 5-minute-looking write surcharge while the resulting cache lived longer than 5 minutes.
-
-For logs, the gateway prints:
-
-```text
-explicit_cache_blocks
-cache_breakpoint_indexes
-removed_thinking_blocks
-```
+Kiyomizu also logs requests to stdout in a clean, structured JSON format showing:
+- `patched`: Whether the request was modified.
+- `removed_thinking_blocks`: Count of reasoning blocks stripped.
+- `cache_breakpoint_indexes`: The message indexes where cache breakpoints were injected.
+- `explicit_cache_blocks`: The total count of cached blocks.

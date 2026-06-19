@@ -1,61 +1,53 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding assistants (like Claude Code, Antigravity) when working with code in this repository.
 
-## What this is
+## Project Name: Kiyomizu
+Kiyomizu is a Gradle-managed Kotlin Ktor proxy designed to intercept and optimize LLM API calls (inject prompt caching, strip historical thinking blocks, enforce providers, etc.) with a web configuration UI.
 
-A single-file local HTTP proxy (`openrouter-cache-proxy.mjs`) that sits between an OpenAI-compatible client (e.g. Cherry Studio) and the OpenRouter API. It rewrites Claude requests to inject Anthropic prompt-cache breakpoints and strips thinking/reasoning blocks from historical messages to keep the prompt prefix stable and cache-friendly.
+## Build and Run Commands
 
-## Running
-
+### Run the Server
+Starts the proxy on the host/port configured (default http://127.0.0.1:8787):
 ```sh
-node openrouter-cache-proxy.mjs
+./gradlew run
 ```
 
-With all env vars:
-
+### Run Tests
 ```sh
-HOST=0.0.0.0 PORT=8787 CACHE_TTL=1h CACHE_MODE=explicit CACHE_STRATEGY=stable-prefix CACHE_BREAKPOINTS=4 DYNAMIC_TAIL_MESSAGES=1 STRIP_THINKING=1 FORCE_PROVIDER=anthropic MODEL_FILTER=anthropic,claude node openrouter-cache-proxy.mjs
+./gradlew test
 ```
 
-Self-test (no network, no server):
-
+### Build Project
+Compiles and packages the application:
 ```sh
-node openrouter-cache-proxy.mjs --self-test
+./gradlew build
 ```
 
-## Key env vars and defaults
+---
 
-| Variable | Default | Notes |
-|---|---|---|
-| `HOST` | `127.0.0.1` | Use `0.0.0.0` to expose to LAN |
-| `PORT` | `8787` | |
-| `CACHE_MODE` | `explicit` | `automatic` disables block-level rewrite |
-| `CACHE_STRATEGY` | `stable-prefix` | `last` puts one breakpoint on last message |
-| `CACHE_BREAKPOINTS` | `4` | Max 4 (Anthropic limit) |
-| `DYNAMIC_TAIL_MESSAGES` | `1` | Messages excluded from cache window |
-| `STRIP_THINKING` | `1` | Strip thinking/reasoning blocks from history |
-| `SEND_TOP_LEVEL_CACHE_CONTROL` | `0` | Top-level cache_control omitted by default |
-| `CACHE_TTL` | `1h` | Requires `extended-cache-ttl-2025-04-11` beta header |
-| `MODEL_FILTER` | `anthropic,claude` | Only patch models whose name contains these terms |
+## Directory & Package Structure
 
-## Architecture
+The package is `hifumi.kiyomizu`.
 
-The entire proxy is a single Node.js ESM file with no dependencies. Flow:
+- **Main entry point**: [Main.kt](file:///Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/Main.kt)
+  - Starts Ktor Netty server.
+  - Configures CORS for local/private network clients.
+  - Dispatches endpoints `/`, `/ui`, `/health`, `/api/config` (GET/POST), `/v1/models`, and captures wildcard paths `{...}` for downstream proxying.
+- **Configuration holder**: [Config.kt](file:///Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/Config.kt)
+  - Manages atomic configuration properties (upstream, provider, cache TTL, strategy, presets).
+- **Request transformer**: [MessagePatcher.kt](file:///Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/MessagePatcher.kt)
+  - Normalizes payloads, strips `thinking` and `reasoning_content` blocks from history, and injects `cache_control` blocks based on the strategy.
+- **Proxy and networking**: [ProxyService.kt](file:///Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/ProxyService.kt)
+  - Upstream request execution using Ktor Client (CIO), header purification, and structured JSON stdout logging.
+- **Web UI Resource**: [ui.html](file:///Users/hifumimizuhara/Desktop/Benkyou/src/main/resources/ui.html)
+  - The single-page premium glassmorphic settings panel with localization support.
 
-1. `http.createServer` → `handle()` dispatches requests
-2. `OPTIONS` → CORS preflight reply
-3. `GET /models` (various aliases) → `handleModelList()` fetches from OpenRouter and normalizes to OpenAI shape
-4. All other requests → JSON body is parsed, `patchJsonBody()` rewrites it, forwarded to OpenRouter via `fetch`
+---
 
-### Message patching pipeline (`patchMessages`)
+## Code Guidelines & Standards
 
-1. **Normalize**: `normalizeMessage()` strips thinking blocks and any existing `cache_control` from all messages
-2. **Select breakpoints**: `chooseCacheBreakpointIndexes()` picks up to `CACHE_BREAKPOINTS` evenly-spaced indexes across the stable prefix (all messages except the last `DYNAMIC_TAIL_MESSAGES`)
-3. **Inject**: `patchMessageWithCacheControl()` adds `cache_control: {type: "ephemeral", ttl}` to the last text block in each selected message
-
-Non-Claude models (filtered by `MODEL_FILTER`) bypass all patching and are forwarded unchanged without the Anthropic beta header.
-
-### Logging
-
-Each patched request logs JSON to stdout including `explicit_cache_blocks`, `cache_breakpoint_indexes`, and `removed_thinking_blocks`. Health check at `GET /` or `GET /health`.
+- **Kotlin Conventions**: Use idiomatic Kotlin 2.0. Maintain code cleanliness and use structured concurrency for asynchronous tasks.
+- **Serialization**: Use `kotlinx.serialization.json` for JSON parsing and construction. Construct JsonObjects using the type-safe DSL `buildJsonObject { ... }`.
+- **Ktor Networking**: Handle response stream pipe-lining carefully using Ktor's `copyTo(call.respondBytesWriter { ... })` to support SSE/streaming without buffering.
+- **Error Handling**: Log failures to stderr or wrap exceptions gracefully in JSON responses to keep the proxy client connection alive.
