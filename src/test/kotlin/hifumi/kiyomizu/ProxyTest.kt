@@ -142,5 +142,55 @@ class ProxyTest {
 
         assertEquals("/api/v1/chat/completions", ProxyService.normalizeUpstreamPath("/v1/chat/completions"), "OpenAI chat path maps to OpenRouter API path")
         assertEquals("/api/v1/chat/completions", ProxyService.normalizeUpstreamPath("/api/v1/chat/completions"), "OpenRouter API path is preserved")
+
+        // Test reasoning_content stripping
+        val deepseekRequest = buildJsonObject {
+            put("model", "anthropic/claude-sonnet-4.6")
+            put("messages", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "assistant")
+                    put("content", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "reasoning_content")
+                            put("reasoning_content", "thinking deeply...")
+                        })
+                        add(buildJsonObject {
+                            put("type", "text")
+                            put("text", "Actual response.")
+                        })
+                    })
+                })
+            })
+        }
+        val patchedDeepseek = MessagePatcher.patchJsonBody(deepseekRequest)
+        val deepseekMessages = patchedDeepseek["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        assertNotNull(deepseekMessages)
+        val deepseekStripped = MessagePatcher.countStrippedThinkingBlocks(deepseekMessages)
+        assertEquals(0, deepseekStripped, "reasoning_content blocks stripped")
+
+        // Test none TTL omission
+        Config.cacheTtl = "none"
+        val noneTtlRequest = buildJsonObject {
+            put("model", "anthropic/claude-sonnet-4.6")
+            put("messages", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("content", "Stable prompt.")
+                })
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("content", "New message.")
+                })
+            })
+        }
+        val patchedNoneTtl = MessagePatcher.patchJsonBody(noneTtlRequest)
+        val noneTtlMessages = patchedNoneTtl["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        assertNotNull(noneTtlMessages)
+        val cacheControlObj = noneTtlMessages[0]["content"]?.jsonArray?.get(0)?.jsonObject?.get("cache_control")?.jsonObject
+        assertNotNull(cacheControlObj)
+        assertEquals("ephemeral", cacheControlObj["type"]?.jsonPrimitive?.content)
+        assertTrue("ttl" !in cacheControlObj, "ttl key omitted when cacheTtl is 'none'")
+
+        Config.cacheTtl = "1h" // Reset config
     }
 }

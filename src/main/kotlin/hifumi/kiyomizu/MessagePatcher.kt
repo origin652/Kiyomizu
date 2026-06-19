@@ -3,7 +3,7 @@ package hifumi.kiyomizu
 import kotlinx.serialization.json.*
 
 object MessagePatcher {
-    private val thinkingBlockTypes = setOf("thinking", "redacted_thinking", "reasoning", "reasoning_details")
+    private val thinkingBlockTypes = setOf("thinking", "redacted_thinking", "reasoning", "reasoning_details", "reasoning_content")
     private val providerMap = mapOf(
         "anthropic" to "anthropic",
         "bedrock" to "amazon-bedrock",
@@ -63,7 +63,9 @@ object MessagePatcher {
             block.forEach { (k, v) -> put(k, v) }
             put("cache_control", buildJsonObject {
                 put("type", "ephemeral")
-                put("ttl", Config.cacheTtl)
+                if (Config.cacheTtl != "none") {
+                    put("ttl", Config.cacheTtl)
+                }
             })
         }
     }
@@ -132,7 +134,7 @@ object MessagePatcher {
             }
         }
 
-        val filterKeys = setOf("reasoning", "reasoning_details", "thinking", "redacted_thinking", "cache_control")
+        val filterKeys = setOf("reasoning", "reasoning_details", "reasoning_content", "thinking", "redacted_thinking", "cache_control")
         val messageKeys = message.keys
         for (k in filterKeys) {
             if (k in messageKeys) {
@@ -167,7 +169,9 @@ object MessagePatcher {
                     put("text", content.content)
                     put("cache_control", buildJsonObject {
                         put("type", "ephemeral")
-                        put("ttl", Config.cacheTtl)
+                        if (Config.cacheTtl != "none") {
+                            put("ttl", Config.cacheTtl)
+                        }
                     })
                 })
             }
@@ -351,7 +355,9 @@ object MessagePatcher {
             if (Config.sendTopLevelCacheControl && "cache_control" !in body) {
                 put("cache_control", buildJsonObject {
                     put("type", "ephemeral")
-                    put("ttl", Config.cacheTtl)
+                    if (Config.cacheTtl != "none") {
+                        put("ttl", Config.cacheTtl)
+                    }
                 })
             }
         }
