@@ -26,7 +26,8 @@ fun main() {
 
     embeddedServer(Netty, port = Config.port, host = Config.host) {
         install(CORS) {
-            anyHost()
+            allowHost("localhost")
+            allowHost("127.0.0.1")
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
             allowHeader("http-referer")
@@ -45,9 +46,6 @@ fun main() {
         install(createApplicationPlugin("PrivateNetworkCORS") {
             onCallRespond { call ->
                 call.response.headers.append("Access-Control-Allow-Private-Network", "true", safeOnly = true)
-                if (call.response.headers["Access-Control-Allow-Origin"] == null) {
-                    call.response.headers.append("Access-Control-Allow-Origin", "*", safeOnly = true)
-                }
             }
         })
 

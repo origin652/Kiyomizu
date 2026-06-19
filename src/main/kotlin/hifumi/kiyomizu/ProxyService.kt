@@ -52,7 +52,8 @@ object ProxyService {
     fun cleanHeaders(headers: Headers): List<Pair<String, String>> {
         val list = mutableListOf<Pair<String, String>>()
         headers.forEach { key, values ->
-            if (!hopByHopHeaders.contains(key.lowercase())) {
+            val lowerKey = key.lowercase()
+            if (!hopByHopHeaders.contains(lowerKey) && !lowerKey.startsWith("access-control-")) {
                 list.add(key to values.joinToString(", "))
             }
         }
