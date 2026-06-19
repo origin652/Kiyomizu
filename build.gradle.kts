@@ -4,6 +4,8 @@ plugins {
     application
 }
 
+version = "0.8.0-poc"
+
 repositories {
     mavenCentral()
 }
@@ -43,4 +45,23 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    description = "Assembles a self-contained executable jar."
+    archiveClassifier.set("all")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    manifest {
+        attributes["Main-Class"] = application.mainClass.get()
+    }
+
+    from(sourceSets.main.get().output)
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.get().map { dependency ->
+            if (dependency.isDirectory) dependency else zipTree(dependency)
+        }
+    })
 }
