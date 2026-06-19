@@ -4,7 +4,7 @@ plugins {
     application
 }
 
-version = "0.8.0-poc"
+version = "0.8.1-poc"
 
 repositories {
     mavenCentral()
