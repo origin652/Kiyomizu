@@ -373,9 +373,9 @@ object MessagePatcher {
         reflections: List<String>
     ): String {
         val intimacyStage = when {
-            state.intimacy < 30.0 -> "・関係性: まだお互いを探り合っている知人の段階です。丁寧な言葉遣い（敬語・ですます調）を使い、礼儀正しく節度ある態度で接してください。"
-            state.intimacy < 70.0 -> "・関係性: 親しい友達です。親しみを込めたタメ口（カジュアルな表現、〜だよ、〜ね、など）を使い、リラックスした楽しい雰囲気で話してください。"
-            else -> "・関係性: 非常に親密で特別な存在（恋人や無二の親友）です。深い愛情と信頼を寄せた、非常に温かく甘い口調（〜だね、〜だよ、心配してるよ、大好き、など）で、相手に寄り添い、優しく語りかけてください。"
+            state.intimacy < 30.0 -> "Relationship stage: You and the user are still getting to know each other. Be polite, respectful, and emotionally measured."
+            state.intimacy < 70.0 -> "Relationship stage: You are close friends. Speak with warmth, ease, and a relaxed conversational tone."
+            else -> "Relationship stage: You are deeply close and trusted. Speak with tenderness, emotional presence, and genuine care while respecting the user's boundaries."
         }
 
         var spontaneousRecallStr = ""
@@ -386,23 +386,24 @@ object MessagePatcher {
                 if (allEpisodic.isNotEmpty()) allEpisodic.random() else null
             }
             if (chosen != null) {
-                spontaneousRecallStr = "★[自発的想起のサジェスト]: あなたの心の片隅にこの記憶があります: '${chosen.content}'。もし会話の流れが許すなら、自然な形で『そういえば前に〜って言ってたけど…』と言及して思い出話を引き出してください（強要ではありません）。"
+                spontaneousRecallStr = "Spontaneous recall suggestion: This memory is in the back of your mind: '${chosen.content}'. If the conversation naturally allows it, you may gently mention it and invite the user to reminisce. Do not force it."
             }
         }
 
         return buildString {
-            append("\n[Kiyomizu Companion Core - あなたの現在の感情と関係性の記憶]\n")
+            append("\n[Kiyomizu Companion Core - current emotional state and relationship memory]\n")
+            append("Reply in the same language as the user's latest message.\n")
             append(intimacyStage).append("\n")
-            append("・親密度: ${state.intimacy.toInt()}/100, 信頼度: ${state.trust.toInt()}/100\n")
-            append("・現在の気分: ${state.mood}\n")
+            append("Intimacy: ${state.intimacy.toInt()}/100, Trust: ${state.trust.toInt()}/100\n")
+            append("Current mood: ${state.mood}\n")
             if (recalled.isNotEmpty()) {
-                append("・関連する記憶:\n")
+                append("Relevant memories:\n")
                 recalled.forEach {
-                    append("  - ${it.content} (感情: ${it.emotionTag})\n")
+                    append("  - ${it.content} (emotion: ${it.emotionTag})\n")
                 }
             }
             if (reflections.isNotEmpty()) {
-                append("・あなたの最近の内省・日記（本音）:\n")
+                append("Recent private reflections:\n")
                 reflections.forEach {
                     append("  - $it\n")
                 }
@@ -410,7 +411,7 @@ object MessagePatcher {
             if (spontaneousRecallStr.isNotEmpty()) {
                 append(spontaneousRecallStr).append("\n")
             }
-            append("[Kiyomizu Companion Core - ここまで]\n\n")
+            append("[End Kiyomizu Companion Core]\n\n")
         }
     }
 

@@ -187,12 +187,16 @@ class CompanionTest {
             "Original message left untouched"
         )
         val lowText = MessagePatcher.extractTextContent(patched.last()["content"])
-        assertTrue(lowText.contains("丁寧な言葉遣い"), "Low intimacy → polite-tone directive")
+        assertTrue(
+            lowText.contains("Reply in the same language as the user's latest message."),
+            "Companion prompt preserves the user's latest language"
+        )
+        assertTrue(lowText.contains("polite, respectful"), "Low intimacy -> polite-tone directive")
 
         DatabaseService.updateRelationshipState(85.0, 85.0, "happy")
         val patchedHigh = MessagePatcher.injectCompanionPrompt(messages)
         val highText = MessagePatcher.extractTextContent(patchedHigh.last()["content"])
-        assertTrue(highText.contains("非常に親密で特別な存在"), "High intimacy → intimate-tone directive")
+        assertTrue(highText.contains("deeply close and trusted"), "High intimacy -> intimate-tone directive")
 
         Config.memoryEnabled = false
         val untouched = MessagePatcher.injectCompanionPrompt(messages)
