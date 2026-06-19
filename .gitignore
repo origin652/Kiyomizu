@@ -1,7 +1,11 @@
 .gradle
+.gradle-user/
 build/
 .kotlin
 .idea
+.DS_Store
+.agent/
+.codex/
 *.log
 kiyomizu_companion.db
 kiyomizu_companion.db-journal
