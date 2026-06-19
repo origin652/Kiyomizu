@@ -16,6 +16,8 @@ import java.net.URI
 
 fun main() {
     DatabaseService.initDatabase()
+    ConfigAuth.loadPersisted(DatabaseService.loadConfigPassword())
+    Config.loadPersisted(DatabaseService.loadConfig())
 
     if (Config.cacheMode == "automatic" && Config.preset != "anthropic") {
         println("Warning: CACHE_MODE was automatic but PRESET is not anthropic. Forcing cacheMode to explicit.")
@@ -44,6 +46,7 @@ fun main() {
             allowHeader("http-referer")
             allowHeader("x-title")
             allowHeader("anthropic-beta")
+            allowHeader(ConfigAuth.headerName)
             allowMethod(HttpMethod.Get)
             allowMethod(HttpMethod.Post)
             allowMethod(HttpMethod.Put)
@@ -88,12 +91,31 @@ fun main() {
             get("/ui") {
                 serveUi(call)
             }
+            get("/favicon.ico") {
+                serveResource(call, "favicon.ico", ContentType.Image.XIcon)
+            }
 
             route("/api/config") {
                 get {
+                    if (!ConfigAuth.isConfigured()) {
+                        ConfigAuth.setupRequired(call)
+                        return@get
+                    }
+                    if (!ConfigAuth.isAuthorized(call.request.headers)) {
+                        ConfigAuth.reject(call)
+                        return@get
+                    }
                     call.respondText(ConfigApi.publicConfigJson().toString(), ContentType.Application.Json)
                 }
                 post {
+                    if (!ConfigAuth.isConfigured()) {
+                        ConfigAuth.setupRequired(call)
+                        return@post
+                    }
+                    if (!ConfigAuth.isAuthorized(call.request.headers)) {
+                        ConfigAuth.reject(call)
+                        return@post
+                    }
                     val bodyText = call.receiveText()
                     val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
                     val updateResult = ConfigApi.applyUpdate(body)
@@ -112,6 +134,147 @@ fun main() {
                 }
             }
 
+            post("/api/config/password") {
+                if (ConfigAuth.isConfigured()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("error", "config password is already configured")
+                            put("config_password_setup_required", false)
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.Conflict
+                    )
+                    return@post
+                }
+
+                val bodyText = call.receiveText()
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
+                val password = (body?.get("password") as? JsonPrimitive)?.contentOrNull?.trim()
+                val confirmPassword = (body?.get("confirm_password") as? JsonPrimitive)?.contentOrNull?.trim()
+                val errors = mutableListOf<String>()
+
+                if (body == null) {
+                    errors.add("body must be a JSON object")
+                }
+                if (password.isNullOrBlank()) {
+                    errors.add("password must not be blank")
+                }
+                if (confirmPassword != null && confirmPassword != password) {
+                    errors.add("password confirmation does not match")
+                }
+
+                if (errors.isNotEmpty()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("errors", buildJsonArray { errors.forEach { add(it) } })
+                            put("config_password_setup_required", true)
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+
+                val result = ConfigAuth.configureInitialPassword(password!!)
+                if (result.errors.isNotEmpty()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("errors", buildJsonArray { result.errors.forEach { add(it) } })
+                            put("config_password_setup_required", !ConfigAuth.isConfigured())
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+
+                call.respondText(
+                    buildJsonObject {
+                        put("ok", true)
+                        put("config_password_required", true)
+                        put("config_password_setup_required", false)
+                    }.toString(),
+                    ContentType.Application.Json
+                )
+            }
+
+            post("/api/config/password/change") {
+                if (!ConfigAuth.isConfigured()) {
+                    ConfigAuth.setupRequired(call)
+                    return@post
+                }
+                if (!ConfigAuth.isAuthorized(call.request.headers)) {
+                    ConfigAuth.reject(call)
+                    return@post
+                }
+                if (!ConfigAuth.isChangeable()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("error", "config password is controlled by environment or system property")
+                            put("config_password_changeable", false)
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.Conflict
+                    )
+                    return@post
+                }
+
+                val bodyText = call.receiveText()
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
+                val currentPassword = (body?.get("current_password") as? JsonPrimitive)?.contentOrNull?.trim()
+                val newPassword = (body?.get("new_password") as? JsonPrimitive)?.contentOrNull?.trim()
+                val confirmPassword = (body?.get("confirm_password") as? JsonPrimitive)?.contentOrNull?.trim()
+                val errors = mutableListOf<String>()
+
+                if (body == null) {
+                    errors.add("body must be a JSON object")
+                }
+                if (currentPassword.isNullOrBlank()) {
+                    errors.add("current password must not be blank")
+                }
+                if (newPassword.isNullOrBlank()) {
+                    errors.add("new password must not be blank")
+                }
+                if (confirmPassword != null && confirmPassword != newPassword) {
+                    errors.add("password confirmation does not match")
+                }
+
+                if (errors.isNotEmpty()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("errors", buildJsonArray { errors.forEach { add(it) } })
+                            put("config_password_changeable", ConfigAuth.isChangeable())
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+
+                val result = ConfigAuth.changePassword(currentPassword!!, newPassword!!)
+                if (result.errors.isNotEmpty()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("errors", buildJsonArray { result.errors.forEach { add(it) } })
+                            put("config_password_changeable", ConfigAuth.isChangeable())
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+
+                call.respondText(
+                    buildJsonObject {
+                        put("ok", true)
+                        put("config_password_required", true)
+                        put("config_password_setup_required", false)
+                        put("config_password_changeable", ConfigAuth.isChangeable())
+                    }.toString(),
+                    ContentType.Application.Json
+                )
+            }
+
             val modelPaths = listOf("/models", "/model", "/v1/models", "/v1/model", "/api/v1/models", "/api/v1/model")
             modelPaths.forEach { path ->
                 get(path) {
@@ -125,12 +288,24 @@ fun main() {
 }
 
 private suspend fun serveUi(call: ApplicationCall) {
-    val stream = Config::class.java.classLoader.getResourceAsStream("ui.html")
+    serveResource(call, "ui.html", ContentType.Text.Html)
+}
+
+private suspend fun serveResource(call: ApplicationCall, resourceName: String, contentType: ContentType) {
+    val stream = Config::class.java.classLoader.getResourceAsStream(resourceName)
     if (stream != null) {
-        val html = stream.bufferedReader().use { it.readText() }
-        call.respondText(html, ContentType.Text.Html)
+        when {
+            contentType.match(ContentType.Text.Html) -> {
+                val text = stream.bufferedReader().use { it.readText() }
+                call.respondText(text, contentType)
+            }
+            else -> {
+                val bytes = stream.use { it.readBytes() }
+                call.respondBytes(bytes, contentType)
+            }
+        }
     } else {
-        call.respondText("UI HTML not found in resources", ContentType.Text.Plain, HttpStatusCode.NotFound)
+        call.respondText("$resourceName not found in resources", ContentType.Text.Plain, HttpStatusCode.NotFound)
     }
 }
 

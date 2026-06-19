@@ -4,23 +4,37 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.io.File
+import java.nio.file.Files
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ProxyTest {
+    private val tempDir = Files.createTempDirectory("kiyomizu-proxy-test")
+    private val testDbPath = tempDir.resolve("kiyomizu_companion.db").toString()
+
+    init {
+        System.setProperty("kiyomizu.db.file", testDbPath)
+    }
 
     private fun patch(path: String, body: JsonObject): JsonObject = runBlocking { MessagePatcher.patchJsonBody(path, body) }
 
     private fun resetDbFiles() {
         listOf(
-            File("kiyomizu_companion.db"),
-            File("kiyomizu_companion.db-wal"),
-            File("kiyomizu_companion.db-shm")
+            File(testDbPath),
+            File("${testDbPath}-wal"),
+            File("${testDbPath}-shm")
         ).forEach {
             if (it.exists()) it.delete()
         }
+    }
+
+    @AfterTest
+    fun cleanupIsolatedDb() {
+        System.clearProperty("kiyomizu.db.file")
+        tempDir.toFile().deleteRecursively()
     }
 
     private fun resetConfig() {

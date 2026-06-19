@@ -41,6 +41,7 @@ object ConfigApi {
             put("intimacy_decay_rate", Config.intimacyDecayRate)
             put("spontaneous_recall_probability", Config.spontaneousRecallProbability)
             put("max_recalled_memories", Config.maxRecalledMemories)
+            put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
 
@@ -253,30 +254,39 @@ object ConfigApi {
             nextMemoryEmbeddingKey = replaceEmbeddingKey!!.trim()
         }
 
-        Config.preset = nextPreset
-        Config.upstream = nextUpstream
-        Config.cacheTtl = nextCacheTtl
-        Config.cacheMode = nextCacheMode
-        Config.cacheStrategy = nextCacheStrategy
-        Config.cacheBreakpoints = nextCacheBreakpoints
+        val nextSnapshot = Config.Snapshot(
+            preset = nextPreset,
+            upstream = nextUpstream,
+            cacheTtl = nextCacheTtl,
+            cacheMode = nextCacheMode,
+            cacheStrategy = nextCacheStrategy,
+            cacheBreakpoints = nextCacheBreakpoints,
+            memoryEnabled = nextMemoryEnabled,
+            memorySummaryUrl = nextMemorySummaryUrl,
+            memorySummaryKey = nextMemorySummaryKey,
+            memorySummaryModel = nextMemorySummaryModel,
+            memorySummaryPrompt = nextMemorySummaryPrompt,
+            memoryEmbeddingUrl = nextMemoryEmbeddingUrl,
+            memoryEmbeddingKey = nextMemoryEmbeddingKey,
+            memoryEmbeddingModel = nextMemoryEmbeddingModel,
+            memoryDecayIntervalHours = nextMemoryDecayIntervalHours,
+            memoryDecayRate = nextMemoryDecayRate,
+            memoryThreshold = nextMemoryThreshold,
+            memoryRecoveryAmount = nextMemoryRecoveryAmount,
+            memoryMaxStrength = nextMemoryMaxStrength,
+            memoryInitialStrength = nextMemoryInitialStrength,
+            intimacyDecayRate = nextIntimacyDecayRate,
+            spontaneousRecallProbability = nextSpontaneousRecallProbability,
+            maxRecalledMemories = nextMaxRecalledMemories
+        )
 
-        Config.memoryEnabled = nextMemoryEnabled
-        Config.memorySummaryUrl = nextMemorySummaryUrl
-        Config.memorySummaryKey = nextMemorySummaryKey
-        Config.memorySummaryModel = nextMemorySummaryModel
-        Config.memorySummaryPrompt = nextMemorySummaryPrompt
-        Config.memoryEmbeddingUrl = nextMemoryEmbeddingUrl
-        Config.memoryEmbeddingKey = nextMemoryEmbeddingKey
-        Config.memoryEmbeddingModel = nextMemoryEmbeddingModel
-        Config.memoryDecayIntervalHours = nextMemoryDecayIntervalHours
-        Config.memoryDecayRate = nextMemoryDecayRate
-        Config.memoryThreshold = nextMemoryThreshold
-        Config.memoryRecoveryAmount = nextMemoryRecoveryAmount
-        Config.memoryMaxStrength = nextMemoryMaxStrength
-        Config.memoryInitialStrength = nextMemoryInitialStrength
-        Config.intimacyDecayRate = nextIntimacyDecayRate
-        Config.spontaneousRecallProbability = nextSpontaneousRecallProbability
-        Config.maxRecalledMemories = nextMaxRecalledMemories
+        try {
+            DatabaseService.saveConfig(nextSnapshot.toJson().toString())
+        } catch (e: Exception) {
+            return UpdateResult(errors = listOf("failed to persist config: ${e.message ?: "unknown error"}"))
+        }
+
+        Config.applySnapshot(nextSnapshot)
 
         return UpdateResult(errors = emptyList())
     }

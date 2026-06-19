@@ -1,14 +1,25 @@
 package hifumi.kiyomizu
 
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Instant
 
 object DatabaseService {
-    private const val DB_FILE = "kiyomizu_companion.db"
-    private val dbUrl = "jdbc:sqlite:$DB_FILE"
+    private const val DEFAULT_DB_FILE = "kiyomizu_companion.db"
+    private const val APP_DIR_NAME = "Kiyomizu"
+
+    data class ConfigPasswordRecord(
+        val algorithm: String,
+        val iterations: Int,
+        val salt: String,
+        val passwordHash: String
+    )
 
     init {
         // Force loading SQLite driver
@@ -16,7 +27,66 @@ object DatabaseService {
     }
 
     private fun getConnection(): Connection {
-        return DriverManager.getConnection(dbUrl)
+        return DriverManager.getConnection("jdbc:sqlite:${databaseFilePath()}")
+    }
+
+    fun databaseFilePath(): String {
+        val explicitPath = System.getProperty("kiyomizu.db.file")?.takeIf { it.isNotBlank() }
+            ?: System.getenv("KIYOMIZU_DB_FILE")?.takeIf { it.isNotBlank() }
+        if (explicitPath != null) {
+            return prepareDatabasePath(Paths.get(explicitPath), migrateLegacy = false).toString()
+        }
+
+        val managedPath = defaultManagedDatabasePath()
+        return prepareDatabasePath(managedPath, migrateLegacy = true).toString()
+    }
+
+    private fun defaultManagedDatabasePath(): Path {
+        val homeDir = System.getProperty("user.home") ?: "."
+        val osName = (System.getProperty("os.name") ?: "").lowercase()
+        return when {
+            osName.contains("mac") -> Paths.get(homeDir, "Library", "Application Support", APP_DIR_NAME, DEFAULT_DB_FILE)
+            osName.contains("win") -> {
+                val appDataDir = System.getenv("APPDATA")?.takeIf { it.isNotBlank() } ?: homeDir
+                Paths.get(appDataDir, APP_DIR_NAME, DEFAULT_DB_FILE)
+            }
+            else -> {
+                val dataHomeDir = System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
+                    ?: Paths.get(homeDir, ".local", "share").toString()
+                Paths.get(dataHomeDir, APP_DIR_NAME, DEFAULT_DB_FILE)
+            }
+        }
+    }
+
+    private fun prepareDatabasePath(path: Path, migrateLegacy: Boolean): Path {
+        val normalized = path.toAbsolutePath().normalize()
+        normalized.parent?.let { Files.createDirectories(it) }
+        if (migrateLegacy) {
+            migrateLegacyDatabaseIfNeeded(normalized)
+        }
+        return normalized
+    }
+
+    private fun migrateLegacyDatabaseIfNeeded(targetPath: Path) {
+        val legacyPath = Paths.get(DEFAULT_DB_FILE).toAbsolutePath().normalize()
+        if (legacyPath == targetPath || Files.exists(targetPath) || !Files.exists(legacyPath)) {
+            return
+        }
+
+        try {
+            moveIfExists(legacyPath, targetPath)
+            moveIfExists(Paths.get("${legacyPath}-wal"), Paths.get("${targetPath}-wal"))
+            moveIfExists(Paths.get("${legacyPath}-shm"), Paths.get("${targetPath}-shm"))
+            println("Migrated legacy database from $legacyPath to $targetPath")
+        } catch (e: Exception) {
+            System.err.println("Failed to migrate legacy database from $legacyPath to $targetPath: ${e.message}")
+        }
+    }
+
+    private fun moveIfExists(sourcePath: Path, targetPath: Path) {
+        if (!Files.exists(sourcePath)) return
+        targetPath.parent?.let { Files.createDirectories(it) }
+        Files.move(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING)
     }
 
     fun initDatabase() {
@@ -63,6 +133,25 @@ object DatabaseService {
                     )
                 """.trimIndent())
 
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS app_config (
+                        id INTEGER PRIMARY KEY,
+                        config_json TEXT NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS config_auth (
+                        id INTEGER PRIMARY KEY,
+                        algorithm TEXT NOT NULL,
+                        iterations INTEGER NOT NULL,
+                        salt TEXT NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
                 // Insert default relationship state if empty
                 val rs = stmt.executeQuery("SELECT COUNT(*) FROM relationship_state")
                 if (rs.next() && rs.getInt(1) == 0) {
@@ -72,6 +161,79 @@ object DatabaseService {
                         VALUES (1, 10.0, 10.0, 'neutral', $now, $now)
                     """.trimIndent())
                 }
+            }
+        }
+    }
+
+    fun loadConfig(): String? {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT config_json FROM app_config WHERE id = 1").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) {
+                    return rs.getString("config_json")
+                }
+            }
+        }
+        return null
+    }
+
+    fun saveConfig(configJson: String) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO app_config (id, config_json, updated_at)
+                VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    config_json = excluded.config_json,
+                    updated_at = excluded.updated_at
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, configJson)
+                pstmt.setLong(2, now)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun loadConfigPassword(): ConfigPasswordRecord? {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT algorithm, iterations, salt, password_hash
+                FROM config_auth
+                WHERE id = 1
+            """.trimIndent()).use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) {
+                    return ConfigPasswordRecord(
+                        algorithm = rs.getString("algorithm"),
+                        iterations = rs.getInt("iterations"),
+                        salt = rs.getString("salt"),
+                        passwordHash = rs.getString("password_hash")
+                    )
+                }
+            }
+        }
+        return null
+    }
+
+    fun saveConfigPassword(record: ConfigPasswordRecord) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO config_auth (id, algorithm, iterations, salt, password_hash, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    algorithm = excluded.algorithm,
+                    iterations = excluded.iterations,
+                    salt = excluded.salt,
+                    password_hash = excluded.password_hash,
+                    updated_at = excluded.updated_at
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, record.algorithm)
+                pstmt.setInt(2, record.iterations)
+                pstmt.setString(3, record.salt)
+                pstmt.setString(4, record.passwordHash)
+                pstmt.setLong(5, now)
+                pstmt.executeUpdate()
             }
         }
     }

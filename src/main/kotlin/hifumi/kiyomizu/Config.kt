@@ -1,5 +1,14 @@
 package hifumi.kiyomizu
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -31,8 +40,10 @@ object Config {
     private val memorySummaryModelRef = AtomicReference(System.getenv("MEMORY_SUMMARY_MODEL") ?: "gemini-2.5-flash")
     private val memorySummaryPromptRef = AtomicReference(
         System.getenv("MEMORY_SUMMARY_PROMPT") ?: """
-            You are the inner mind of Kiyomizu, an AI companion. Analyze the recent conversation between the User and the Assistant.
+            You are the inner mind of an AI companion. Analyze the recent conversation between the User and the Assistant.
             Extract key new facts, preferences, emotional milestones, or shared experiences about the user or your relationship as a list of distinct atomic statements.
+            Write each memory in the same language the user used in the conversation. Do not translate memories unless the user clearly switched languages on purpose.
+            Preserve names, places, wording nuance, and culturally specific expressions as faithfully as possible while keeping each memory short and atomic.
             Also, evaluate how this interaction affects your intimacy (intimacy_delta between -5.0 and +5.0) and trust (trust_delta between -5.0 and +5.0), and assess your current mood (one of: happy, caring, lonely, worried, neutral).
             You MUST respond with a single JSON object in the following format:
             {
@@ -161,4 +172,164 @@ object Config {
     var maxRecalledMemories: Int
         get() = maxRecalledMemoriesRef.get()
         set(value) { maxRecalledMemoriesRef.set(value) }
+
+    data class Snapshot(
+        val preset: String,
+        val upstream: String,
+        val cacheTtl: String,
+        val cacheMode: String,
+        val cacheStrategy: String,
+        val cacheBreakpoints: Int,
+        val memoryEnabled: Boolean,
+        val memorySummaryUrl: String,
+        val memorySummaryKey: String,
+        val memorySummaryModel: String,
+        val memorySummaryPrompt: String,
+        val memoryEmbeddingUrl: String,
+        val memoryEmbeddingKey: String,
+        val memoryEmbeddingModel: String,
+        val memoryDecayIntervalHours: Int,
+        val memoryDecayRate: Double,
+        val memoryThreshold: Double,
+        val memoryRecoveryAmount: Double,
+        val memoryMaxStrength: Double,
+        val memoryInitialStrength: Double,
+        val intimacyDecayRate: Double,
+        val spontaneousRecallProbability: Double,
+        val maxRecalledMemories: Int
+    ) {
+        fun toJson(): JsonObject {
+            return buildJsonObject {
+                put("preset", preset)
+                put("upstream", upstream)
+                put("cache_ttl", cacheTtl)
+                put("cache_mode", cacheMode)
+                put("cache_strategy", cacheStrategy)
+                put("cache_breakpoints", cacheBreakpoints)
+                put("memory_enabled", memoryEnabled)
+                put("memory_summary_url", memorySummaryUrl)
+                put("memory_summary_key", memorySummaryKey)
+                put("memory_summary_model", memorySummaryModel)
+                put("memory_summary_prompt", memorySummaryPrompt)
+                put("memory_embedding_url", memoryEmbeddingUrl)
+                put("memory_embedding_key", memoryEmbeddingKey)
+                put("memory_embedding_model", memoryEmbeddingModel)
+                put("memory_decay_interval_hours", memoryDecayIntervalHours)
+                put("memory_decay_rate", memoryDecayRate)
+                put("memory_threshold", memoryThreshold)
+                put("memory_recovery_amount", memoryRecoveryAmount)
+                put("memory_max_strength", memoryMaxStrength)
+                put("memory_initial_strength", memoryInitialStrength)
+                put("intimacy_decay_rate", intimacyDecayRate)
+                put("spontaneous_recall_probability", spontaneousRecallProbability)
+                put("max_recalled_memories", maxRecalledMemories)
+            }
+        }
+    }
+
+    fun snapshot(): Snapshot {
+        return Snapshot(
+            preset = preset,
+            upstream = upstreamRef.get().trim(),
+            cacheTtl = cacheTtl,
+            cacheMode = cacheMode,
+            cacheStrategy = cacheStrategy,
+            cacheBreakpoints = cacheBreakpoints,
+            memoryEnabled = memoryEnabled,
+            memorySummaryUrl = memorySummaryUrl,
+            memorySummaryKey = memorySummaryKey,
+            memorySummaryModel = memorySummaryModel,
+            memorySummaryPrompt = memorySummaryPrompt,
+            memoryEmbeddingUrl = memoryEmbeddingUrl,
+            memoryEmbeddingKey = memoryEmbeddingKey,
+            memoryEmbeddingModel = memoryEmbeddingModel,
+            memoryDecayIntervalHours = memoryDecayIntervalHours,
+            memoryDecayRate = memoryDecayRate,
+            memoryThreshold = memoryThreshold,
+            memoryRecoveryAmount = memoryRecoveryAmount,
+            memoryMaxStrength = memoryMaxStrength,
+            memoryInitialStrength = memoryInitialStrength,
+            intimacyDecayRate = intimacyDecayRate,
+            spontaneousRecallProbability = spontaneousRecallProbability,
+            maxRecalledMemories = maxRecalledMemories
+        )
+    }
+
+    fun applySnapshot(snapshot: Snapshot) {
+        preset = snapshot.preset
+        upstream = snapshot.upstream
+        cacheTtl = snapshot.cacheTtl
+        cacheMode = snapshot.cacheMode
+        cacheStrategy = snapshot.cacheStrategy
+        cacheBreakpoints = snapshot.cacheBreakpoints
+        memoryEnabled = snapshot.memoryEnabled
+        memorySummaryUrl = snapshot.memorySummaryUrl
+        memorySummaryKey = snapshot.memorySummaryKey
+        memorySummaryModel = snapshot.memorySummaryModel
+        memorySummaryPrompt = snapshot.memorySummaryPrompt
+        memoryEmbeddingUrl = snapshot.memoryEmbeddingUrl
+        memoryEmbeddingKey = snapshot.memoryEmbeddingKey
+        memoryEmbeddingModel = snapshot.memoryEmbeddingModel
+        memoryDecayIntervalHours = snapshot.memoryDecayIntervalHours
+        memoryDecayRate = snapshot.memoryDecayRate
+        memoryThreshold = snapshot.memoryThreshold
+        memoryRecoveryAmount = snapshot.memoryRecoveryAmount
+        memoryMaxStrength = snapshot.memoryMaxStrength
+        memoryInitialStrength = snapshot.memoryInitialStrength
+        intimacyDecayRate = snapshot.intimacyDecayRate
+        spontaneousRecallProbability = snapshot.spontaneousRecallProbability
+        maxRecalledMemories = snapshot.maxRecalledMemories
+    }
+
+    fun loadPersisted(jsonText: String?) {
+        if (jsonText.isNullOrBlank()) return
+        try {
+            val body = Json.parseToJsonElement(jsonText) as? JsonObject ?: return
+            applySnapshot(
+                Snapshot(
+                    preset = body.stringValue("preset") ?: preset,
+                    upstream = body.stringValue("upstream") ?: upstreamRef.get().trim(),
+                    cacheTtl = body.stringValue("cache_ttl") ?: cacheTtl,
+                    cacheMode = body.stringValue("cache_mode") ?: cacheMode,
+                    cacheStrategy = body.stringValue("cache_strategy") ?: cacheStrategy,
+                    cacheBreakpoints = body.intValue("cache_breakpoints") ?: cacheBreakpoints,
+                    memoryEnabled = body.booleanValue("memory_enabled") ?: memoryEnabled,
+                    memorySummaryUrl = body.stringValue("memory_summary_url") ?: memorySummaryUrl,
+                    memorySummaryKey = body.stringValue("memory_summary_key") ?: memorySummaryKey,
+                    memorySummaryModel = body.stringValue("memory_summary_model") ?: memorySummaryModel,
+                    memorySummaryPrompt = body.stringValue("memory_summary_prompt") ?: memorySummaryPrompt,
+                    memoryEmbeddingUrl = body.stringValue("memory_embedding_url") ?: memoryEmbeddingUrl,
+                    memoryEmbeddingKey = body.stringValue("memory_embedding_key") ?: memoryEmbeddingKey,
+                    memoryEmbeddingModel = body.stringValue("memory_embedding_model") ?: memoryEmbeddingModel,
+                    memoryDecayIntervalHours = body.intValue("memory_decay_interval_hours") ?: memoryDecayIntervalHours,
+                    memoryDecayRate = body.doubleValue("memory_decay_rate") ?: memoryDecayRate,
+                    memoryThreshold = body.doubleValue("memory_threshold") ?: memoryThreshold,
+                    memoryRecoveryAmount = body.doubleValue("memory_recovery_amount") ?: memoryRecoveryAmount,
+                    memoryMaxStrength = body.doubleValue("memory_max_strength") ?: memoryMaxStrength,
+                    memoryInitialStrength = body.doubleValue("memory_initial_strength") ?: memoryInitialStrength,
+                    intimacyDecayRate = body.doubleValue("intimacy_decay_rate") ?: intimacyDecayRate,
+                    spontaneousRecallProbability = body.doubleValue("spontaneous_recall_probability") ?: spontaneousRecallProbability,
+                    maxRecalledMemories = body.intValue("max_recalled_memories") ?: maxRecalledMemories
+                )
+            )
+        } catch (e: Exception) {
+            System.err.println("Failed to load persisted config: ${e.message}")
+        }
+    }
+
+    private fun JsonObject.stringValue(field: String): String? {
+        return (this[field] as? JsonPrimitive)?.contentOrNull
+    }
+
+    private fun JsonObject.booleanValue(field: String): Boolean? {
+        return (this[field] as? JsonPrimitive)?.booleanOrNull
+    }
+
+    private fun JsonObject.intValue(field: String): Int? {
+        return (this[field] as? JsonPrimitive)?.intOrNull
+    }
+
+    private fun JsonObject.doubleValue(field: String): Double? {
+        return (this[field] as? JsonPrimitive)?.doubleOrNull
+    }
 }

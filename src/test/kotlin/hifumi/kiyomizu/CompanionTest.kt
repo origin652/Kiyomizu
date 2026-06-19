@@ -3,23 +3,37 @@ package hifumi.kiyomizu
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.io.File
+import java.nio.file.Files
 import java.sql.DriverManager
 import java.time.Instant
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class CompanionTest {
+    private val tempDir = Files.createTempDirectory("kiyomizu-companion-test")
+    private val testDbPath = tempDir.resolve("kiyomizu_companion.db").toString()
+
+    init {
+        System.setProperty("kiyomizu.db.file", testDbPath)
+    }
 
     private fun resetDbFiles() {
         listOf(
-            File("kiyomizu_companion.db"),
-            File("kiyomizu_companion.db-wal"),
-            File("kiyomizu_companion.db-shm")
+            File(testDbPath),
+            File("${testDbPath}-wal"),
+            File("${testDbPath}-shm")
         ).forEach {
             if (it.exists()) it.delete()
         }
+    }
+
+    @AfterTest
+    fun cleanupIsolatedDb() {
+        System.clearProperty("kiyomizu.db.file")
+        tempDir.toFile().deleteRecursively()
     }
 
     private fun resetConfig() {
@@ -254,7 +268,7 @@ class CompanionTest {
         DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
 
         val staleTimestamp = Instant.now().epochSecond - (2 * 86400)
-        DriverManager.getConnection("jdbc:sqlite:kiyomizu_companion.db").use { conn ->
+        DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
             conn.prepareStatement("""
                 UPDATE relationship_state
                 SET last_interaction_at = ?, last_decay_at = ?
