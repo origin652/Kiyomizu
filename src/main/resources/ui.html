@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cache Proxy Config</title>
+<style>
+body { font-family: monospace; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+h1 { font-size: 1.1em; }
+label { display: block; margin-top: 12px; font-weight: bold; }
+select, input[type=number] { margin-top: 4px; padding: 4px; font-family: monospace; }
+button { margin-top: 20px; padding: 6px 16px; font-family: monospace; cursor: pointer; }
+#lang-bar { text-align: right; margin-bottom: 8px; }
+#lang-bar button { margin-top: 0; padding: 2px 8px; }
+#status { margin-top: 12px; color: green; }
+#status.err { color: red; }
+</style>
+</head>
+<body>
+<div id="lang-bar">
+  <button onclick="setLang('zh')">中文</button>
+  <button onclick="setLang('en')">EN</button>
+  <button onclick="setLang('ja')">日本語</button>
+</div>
+<h1 id="t-title"></h1>
+<form id="f">
+  <label id="t-provider-label">
+    <select name="force_provider">
+      <option value="anthropic" id="t-provider-anthropic"></option>
+      <option value="bedrock" id="t-provider-bedrock"></option>
+      <option value="vertex" id="t-provider-vertex"></option>
+    </select>
+  </label>
+  <label id="t-gemini-provider-label">
+    <select name="gemini_provider">
+      <option value="aistudio" id="t-gemini-aistudio"></option>
+      <option value="vertex" id="t-gemini-vertex"></option>
+    </select>
+  </label>
+  <label id="t-ttl-label">
+    <select name="cache_ttl">
+      <option value="5m" id="t-ttl-5m"></option>
+      <option value="1h" id="t-ttl-1h"></option>
+      <option value="none" id="t-ttl-none"></option>
+    </select>
+  </label>
+  <label id="t-mode-label">
+    <select name="cache_mode">
+      <option value="explicit" id="t-mode-explicit"></option>
+      <option value="automatic" id="t-mode-automatic"></option>
+    </select>
+  </label>
+  <label id="t-strategy-label">
+    <select name="cache_strategy">
+      <option value="stable-prefix" id="t-strategy-prefix"></option>
+      <option value="last" id="t-strategy-last"></option>
+    </select>
+  </label>
+  <label id="t-bp-label">
+    <input type="number" name="cache_breakpoints" min="0" max="4" style="width:60px">
+  </label>
+  <button type="submit" id="t-save"></button>
+</form>
+<div id="status"></div>
+<script>
+const STRINGS = {
+  zh: {
+    title: 'Cache Proxy 配置',
+    providerLabel: 'Claude 供应商',
+    providerAnthropic: 'Anthropic（直连）',
+    providerBedrock: 'Amazon Bedrock',
+    providerVertex: 'Google Vertex',
+    geminiProviderLabel: 'Gemini 供应商',
+    geminiAistudio: 'Google AI Studio',
+    geminiVertex: 'Google Vertex',
+    ttlLabel: '缓存 TTL',
+    ttl5m: '5 分钟',
+    ttl1h: '1 小时',
+    ttlNone: '无缓存',
+    modeLabel: '缓存模式',
+    modeExplicit: 'explicit（手动打断点）',
+    modeAutomatic: 'automatic（自动）',
+    strategyLabel: '缓存策略',
+    strategyPrefix: 'stable-prefix（均匀分布）',
+    strategyLast: 'last（仅最后一条）',
+    bpLabel: '断点数量（0-4）',
+    cacheNote: '⚠ automatic 模式仅在 Anthropic 直連时生效',
+    save: '保存',
+    saved: '已保存：',
+    error: '错误：',
+  },
+  en: {
+    title: 'Cache Proxy Config',
+    providerLabel: 'Claude provider',
+    providerAnthropic: 'Anthropic (direct)',
+    providerBedrock: 'Amazon Bedrock',
+    providerVertex: 'Google Vertex',
+    geminiProviderLabel: 'Gemini provider',
+    geminiAistudio: 'Google AI Studio',
+    geminiVertex: 'Google Vertex',
+    ttlLabel: 'Cache TTL',
+    ttl5m: '5 minutes',
+    ttl1h: '1 hour',
+    ttlNone: 'No cache',
+    modeLabel: 'Cache mode',
+    modeExplicit: 'explicit (manual breakpoints)',
+    modeAutomatic: 'automatic',
+    strategyLabel: 'Cache strategy',
+    strategyPrefix: 'stable-prefix (evenly distributed)',
+    strategyLast: 'last (last message only)',
+    bpLabel: 'Breakpoints (0-4)',
+    cacheNote: '⚠ automatic cache mode only works with Anthropic direct',
+    save: 'Save',
+    saved: 'Saved: ',
+    error: 'Error: ',
+  },
+  ja: {
+    title: 'キャッシュプロキシ設定',
+    providerLabel: 'Claude プロバイダー',
+    providerAnthropic: 'Anthropic（直接）',
+    providerBedrock: 'Amazon Bedrock',
+    providerVertex: 'Google Vertex',
+    geminiProviderLabel: 'Gemini プロバイダー',
+    geminiAistudio: 'Google AI Studio',
+    geminiVertex: 'Google Vertex',
+    ttlLabel: 'キャッシュ TTL',
+    ttl5m: '5 分',
+    ttl1h: '1 時間',
+    ttlNone: 'キャッシュなし',
+    modeLabel: 'キャッシュモード',
+    modeExplicit: 'explicit（手動ブレークポイント）',
+    modeAutomatic: 'automatic（自動）',
+    strategyLabel: 'キャッシュ戦略',
+    strategyPrefix: 'stable-prefix（均等分布）',
+    strategyLast: 'last（最後のメッセージのみ）',
+    bpLabel: 'ブレークポイント数（0-4）',
+    cacheNote: '⚠ automatic モードは Anthropic 直接接続時のみ有効',
+    save: '保存',
+    saved: '保存しました：',
+    error: 'エラー：',
+  },
+};
+
+function detectLang() {
+  const saved = localStorage.getItem('proxy-lang');
+  if (saved && STRINGS[saved]) return saved;
+  const nav = (navigator.languages || [navigator.language || 'en'])
+    .map(l => l.toLowerCase().slice(0, 2));
+  for (const l of nav) {
+    if (STRINGS[l]) return l;
+  }
+  return 'en';
+}
+
+let currentLang = detectLang();
+
+function applyLang(lang) {
+  const s = STRINGS[lang];
+  document.documentElement.lang = lang;
+  document.getElementById('t-title').textContent = s.title;
+  document.title = s.title;
+  setText('t-provider-label', s.providerLabel, 'force_provider');
+  document.getElementById('t-provider-anthropic').textContent = s.providerAnthropic;
+  document.getElementById('t-provider-bedrock').textContent = s.providerBedrock;
+  document.getElementById('t-provider-vertex').textContent = s.providerVertex;
+  setText('t-gemini-provider-label', s.geminiProviderLabel, 'gemini_provider');
+  document.getElementById('t-gemini-aistudio').textContent = s.geminiAistudio;
+  document.getElementById('t-gemini-vertex').textContent = s.geminiVertex;
+  setText('t-ttl-label', s.ttlLabel, 'cache_ttl');
+  document.getElementById('t-ttl-5m').textContent = s.ttl5m;
+  document.getElementById('t-ttl-1h').textContent = s.ttl1h;
+  document.getElementById('t-ttl-none').textContent = s.ttlNone;
+  setText('t-mode-label', s.modeLabel, 'cache_mode');
+  document.getElementById('t-mode-explicit').textContent = s.modeExplicit;
+  document.getElementById('t-mode-automatic').textContent = s.modeAutomatic;
+  setText('t-strategy-label', s.strategyLabel, 'cache_strategy');
+  document.getElementById('t-strategy-prefix').textContent = s.strategyPrefix;
+  document.getElementById('t-strategy-last').textContent = s.strategyLast;
+  setText('t-bp-label', s.bpLabel, 'cache_breakpoints');
+  document.getElementById('t-save').textContent = s.save;
+  updateCacheNote();
+}
+
+function updateCacheNote() {
+  const f = document.getElementById('f');
+  let note = document.getElementById('cache-note');
+  if (!note) {
+    note = document.createElement('p');
+    note.id = 'cache-note';
+    note.style.cssText = 'margin-top:8px;color:#888;font-size:0.9em;';
+    f.appendChild(note);
+  }
+  const isAnthropic = f.force_provider && f.force_provider.value === 'anthropic';
+  const isAutomatic = f.cache_mode && f.cache_mode.value === 'automatic';
+  note.textContent = (!isAnthropic && isAutomatic) ? STRINGS[currentLang].cacheNote : '';
+}
+
+function setText(labelId, text, inputName) {
+  const label = document.getElementById(labelId);
+  const input = label.querySelector('[name=' + inputName + ']');
+  label.childNodes[0].textContent = text + '\n';
+  // rebuild text node cleanly
+  while (label.firstChild && label.firstChild.nodeType === 3) {
+    label.removeChild(label.firstChild);
+  }
+  label.insertBefore(document.createTextNode(text + ' '), label.firstChild);
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('proxy-lang', lang);
+  applyLang(lang);
+}
+
+async function load() {
+  const r = await fetch('/api/config');
+  const d = await r.json();
+  const f = document.getElementById('f');
+  f.force_provider.value = d.force_provider;
+  f.gemini_provider.value = d.gemini_provider;
+  f.cache_ttl.value = d.cache_ttl;
+  f.cache_mode.value = d.cache_mode;
+  f.cache_strategy.value = d.cache_strategy;
+  f.cache_breakpoints.value = d.cache_breakpoints;
+  updateCacheNote();
+}
+
+document.getElementById('f').force_provider.addEventListener('change', updateCacheNote);
+document.getElementById('f').cache_mode.addEventListener('change', updateCacheNote);
+
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  const payload = {
+    force_provider: f.force_provider.value,
+    gemini_provider: f.gemini_provider.value,
+    cache_ttl: f.cache_ttl.value,
+    cache_mode: f.cache_mode.value,
+    cache_strategy: f.cache_strategy.value,
+    cache_breakpoints: Number(f.cache_breakpoints.value),
+  };
+  const r = await fetch('/api/config', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+  const d = await r.json();
+  const s = document.getElementById('status');
+  const str = STRINGS[currentLang];
+  if (r.ok) {
+    s.className = '';
+    s.textContent = str.saved + JSON.stringify(d);
+  } else {
+    s.className = 'err';
+    s.textContent = str.error + (d.errors || []).join('; ');
+  }
+});
+
+applyLang(currentLang);
+load();
+</script>
+</body>
+</html>
