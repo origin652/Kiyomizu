@@ -5,7 +5,10 @@ build/
 .idea
 .DS_Store
 .agent/
+.agents/
 .codex/
+AGENTS.md
+CLAUDE.md
 *.log
 kiyomizu_companion.db
 kiyomizu_companion.db-journal
