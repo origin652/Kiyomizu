@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>Kiyomizu Config Panel</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
@@ -196,7 +197,7 @@ label {
   background-color: var(--text-primary);
 }
 
-select, input[type=number], input[type=text] {
+select, input[type=number], input[type=text], input[type=password] {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -215,12 +216,390 @@ select {
   -webkit-appearance: none;
 }
 
-select:focus, input[type=number]:focus, input[type=text]:focus {
+select:focus, input[type=number]:focus, input[type=text]:focus, input[type=password]:focus {
   border-color: var(--input-focus);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
-button[type=submit] {
+textarea {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  padding: 13px 16px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+textarea:focus {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.password-shell {
+  position: relative;
+  width: 100%;
+}
+
+.password-shell input[type=password],
+.password-shell input[type=text] {
+  padding-right: 48px;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.85rem;
+}
+
+.password-shell:focus-within input {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.password-toggle:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: var(--text-primary);
+}
+
+.password-toggle:focus-visible,
+.secondary-button:focus-visible,
+#lang-bar button:focus-visible,
+.tab-btn:focus-visible,
+button[type=submit]:focus-visible,
+.auth-primary-button:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.65);
+  outline-offset: 2px;
+}
+
+.password-toggle .icon-hide {
+  display: none;
+}
+
+.password-toggle.is-visible .icon-show {
+  display: none;
+}
+
+.password-toggle.is-visible .icon-hide {
+  display: block;
+}
+
+.secret-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.secret-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.secret-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.secret-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
+  flex: 0 0 auto;
+}
+
+.secret-status.configured::before {
+  background: var(--success-color);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.14);
+}
+
+.secret-clear {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.secret-clear input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--error-color);
+  cursor: pointer;
+}
+
+input[disabled], textarea[disabled], select[disabled] {
+  background: #e2e8f0;
+  color: #64748b;
+  border-color: #cbd5e1;
+  cursor: not-allowed;
+  opacity: 1;
+  box-shadow: none;
+}
+
+.field-hint {
+  margin-top: 6px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.field-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: -4px;
+}
+
+.field-group-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.secondary-button {
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--accent-color);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.secondary-button:hover {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.secondary-button:active {
+  transform: translateY(1px);
+}
+
+.secondary-button:disabled {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.field-warning {
+  display: none;
+  margin-top: -4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 119, 6, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+  color: #92400e;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.security-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.security-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.security-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.security-body {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.security-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.security-fields label {
+  font-size: 0.78rem;
+}
+
+.security-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.security-section.is-disabled {
+  opacity: 0.58;
+}
+
+.security-section.is-disabled .security-fields,
+.security-section.is-disabled .security-actions {
+  pointer-events: none;
+}
+
+.autosave-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.autosave-copy {
+  min-width: 0;
+}
+
+.autosave-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.autosave-body {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.autosave-state {
+  color: var(--text-muted);
+  font-family: 'Fira Code', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.autosave-state.saving {
+  color: var(--accent-color);
+}
+
+.autosave-state.saved {
+  color: var(--success-color);
+}
+
+.autosave-state.err {
+  color: var(--error-color);
+}
+
+.switch-control {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+
+.switch-control input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #e2e8f0;
+  pointer-events: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.switch-track::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+  transition: transform 0.2s ease;
+}
+
+.switch-control input:checked + .switch-track {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.switch-control input:checked + .switch-track::after {
+  transform: translateX(20px);
+}
+
+.switch-control input:focus-visible + .switch-track {
+  outline: 2px solid rgba(37, 99, 235, 0.65);
+  outline-offset: 2px;
+}
+
+@media (max-width: 620px) {
+  .autosave-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+button[type=submit],
+.auth-primary-button {
   width: 100%;
   background: var(--accent-gradient);
   border: none;
@@ -240,13 +619,15 @@ button[type=submit] {
   gap: 8px;
 }
 
-button[type=submit]:hover {
+button[type=submit]:hover,
+.auth-primary-button:hover {
   background: var(--accent-hover);
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
 }
 
-button[type=submit]:active {
+button[type=submit]:active,
+.auth-primary-button:active {
   transform: translateY(1px);
 }
 
@@ -551,6 +932,139 @@ button[type=submit]:active {
   font-weight: 500;
   text-align: center;
 }
+
+.auth-panel {
+  display: none;
+  align-items: stretch;
+  gap: 22px;
+  padding: 22px;
+  border-color: rgba(37, 99, 235, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.auth-panel.visible {
+  display: flex;
+}
+
+.dashboard-wrapper.config-locked .dashboard-grid {
+  opacity: 0.32;
+  pointer-events: none;
+  user-select: none;
+}
+
+.auth-panel-copy {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.auth-panel-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  color: var(--accent-color);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.auth-panel-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-panel-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.auth-panel-body {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.auth-panel-actions {
+  width: min(100%, 520px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.auth-panel-actions .password-shell {
+  min-width: 0;
+}
+
+.auth-panel .setup-only {
+  display: none;
+}
+
+.auth-panel.setup .setup-only {
+  display: block;
+}
+
+.auth-panel.setup .auth-panel-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.auth-primary-button {
+  width: auto;
+  min-width: 116px;
+  height: 44px;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .auth-panel,
+  .auth-panel.visible,
+  .auth-panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .auth-panel-copy {
+    flex-direction: row;
+  }
+
+  .auth-panel-actions,
+  .auth-panel.setup .auth-panel-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-primary-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 620px) {
+  .secret-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .secret-clear {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -583,6 +1097,38 @@ button[type=submit]:active {
       <button id="btn-lang-ja" onclick="setLang('ja')">日本語</button>
     </div>
   </header>
+
+  <div class="dashboard-card auth-panel" id="config-auth-panel">
+    <div class="auth-panel-copy">
+      <div class="auth-panel-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="11" width="16" height="9" rx="2"></rect>
+          <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+        </svg>
+      </div>
+      <div class="auth-panel-text">
+        <div class="auth-panel-title" id="auth-title">Configuration Locked</div>
+        <div class="auth-panel-body" id="auth-body">Enter the config password to read or modify settings.</div>
+      </div>
+    </div>
+    <div class="auth-panel-actions">
+      <div class="password-shell">
+        <input type="password" id="config-auth-password" autocomplete="current-password" placeholder="Config password">
+        <button class="password-toggle" type="button" data-toggle-password="config-auth-password">
+          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+        </button>
+      </div>
+      <div class="password-shell setup-only">
+        <input type="password" id="config-auth-password-confirm" autocomplete="new-password" placeholder="Confirm password">
+        <button class="password-toggle" type="button" data-toggle-password="config-auth-password-confirm">
+          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+        </button>
+      </div>
+      <button id="btn-auth-unlock" class="auth-primary-button" type="button">Unlock</button>
+    </div>
+  </div>
 
   <!-- Grid Content -->
   <div class="dashboard-grid">
@@ -711,6 +1257,9 @@ button[type=submit]:active {
             <div class="input-wrapper" style="margin-top: 4px;">
               <input type="text" name="upstream" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">
             </div>
+            <div id="t-upstream-hint" class="field-hint">
+              Base URL only. Example: Anthropic is https://api.anthropic.com, OpenAI is https://api.openai.com, OpenRouter is https://openrouter.ai/api.
+            </div>
           </label>
           
           <div id="advanced-settings-wrapper" style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
@@ -760,6 +1309,53 @@ button[type=submit]:active {
           <!-- Cache Not Applicable Message -->
           <div id="msg-not-applicable" style="display: none;"></div>
 
+          <div class="security-section" id="config-password-section">
+            <div class="security-title-row">
+              <div>
+                <div class="security-title">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  <span id="t-password-change-title">Config Password</span>
+                </div>
+                <div class="security-body" id="t-password-change-body">Change the password used to unlock this settings panel.</div>
+              </div>
+            </div>
+            <div class="security-fields">
+              <label id="t-password-current-label">
+                Current password
+                <div class="password-shell" style="margin-top: 4px;">
+                  <input type="password" name="config_password_current" autocomplete="current-password">
+                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_current">
+                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                  </button>
+                </div>
+              </label>
+              <label id="t-password-new-label">
+                New password
+                <div class="password-shell" style="margin-top: 4px;">
+                  <input type="password" name="config_password_new" autocomplete="new-password">
+                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_new">
+                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                  </button>
+                </div>
+              </label>
+              <label id="t-password-confirm-label">
+                Confirm new password
+                <div class="password-shell" style="margin-top: 4px;">
+                  <input type="password" name="config_password_confirm" autocomplete="new-password">
+                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_confirm">
+                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                  </button>
+                </div>
+              </label>
+            </div>
+            <div class="security-actions">
+              <button type="button" id="btn-change-config-password" class="secondary-button">Change password</button>
+            </div>
+          </div>
+
           <!-- AI Companion Core Settings Section -->
           <div class="dashboard-card" style="padding: 20px; background: rgba(37, 99, 235, 0.02); border: 1px dashed rgba(37, 99, 235, 0.2); gap: 16px;">
             <h4 style="display: flex; align-items: center; gap: 8px; font-size: 1rem; color: var(--accent-color); margin-bottom: 4px;">
@@ -776,17 +1372,28 @@ button[type=submit]:active {
               <label id="t-comp-summary-url-label">
                 Summarization Endpoint
                 <input type="text" name="memory_summary_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+                <div id="t-comp-summary-url-hint" class="field-hint">
+                  Gemini uses the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers accept a base URL; /v1/chat/completions is appended automatically.
+                </div>
               </label>
               
               <label id="t-comp-summary-key-label">
                 Summarization API Key
-                <input type="password" name="memory_summary_key" placeholder="API Key..." autocomplete="new-password" style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; font-size: 0.75rem; color: var(--text-secondary);">
-                  <span id="t-comp-summary-key-status">No key stored</span>
-                  <label id="t-comp-summary-clear-label" style="flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 0.75rem;">
+                <div class="secret-field">
+                  <div class="password-shell">
+                    <input type="password" name="memory_summary_key" placeholder="API Key..." autocomplete="new-password">
+                    <button class="password-toggle" type="button" data-toggle-password-name="memory_summary_key">
+                      <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                    </button>
+                  </div>
+                  <div class="secret-meta">
+                    <span class="secret-status" id="t-comp-summary-key-status">No key stored</span>
+                    <label id="t-comp-summary-clear-label" class="secret-clear">
                     Clear stored key
-                    <input type="checkbox" name="clear_memory_summary_key" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
-                  </label>
+                      <input type="checkbox" name="clear_memory_summary_key">
+                    </label>
+                  </div>
                 </div>
               </label>
               
@@ -795,20 +1402,40 @@ button[type=submit]:active {
                 <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
               </label>
               
+              <div id="embedding-lock-header" class="field-group-header">
+                <span id="t-comp-embedding-lock-title" class="field-group-title">Embedding Config</span>
+                <button type="button" id="btn-edit-embedding" class="secondary-button">変更</button>
+              </div>
+
+              <div id="embedding-lock-warning" class="field-warning">
+                変更すると既存メモリが無効になる可能性があります。
+              </div>
+
               <label id="t-comp-embedding-url-label">
                 Embedding Endpoint
                 <input type="text" name="memory_embedding_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
+                <div id="t-comp-embedding-url-hint" class="field-hint">
+                  Gemini uses the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, set the base URL and Kiyomizu adds /v1/embeddings. OpenRouter needs /api.
+                </div>
               </label>
               
               <label id="t-comp-embedding-key-label">
                 Embedding API Key
-                <input type="password" name="memory_embedding_key" placeholder="API Key..." autocomplete="new-password" style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 6px; font-size: 0.75rem; color: var(--text-secondary);">
-                  <span id="t-comp-embedding-key-status">No key stored</span>
-                  <label id="t-comp-embedding-clear-label" style="flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 0.75rem;">
+                <div class="secret-field">
+                  <div class="password-shell">
+                    <input type="password" name="memory_embedding_key" placeholder="API Key..." autocomplete="new-password">
+                    <button class="password-toggle" type="button" data-toggle-password-name="memory_embedding_key">
+                      <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                      <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                    </button>
+                  </div>
+                  <div class="secret-meta">
+                    <span class="secret-status" id="t-comp-embedding-key-status">No key stored</span>
+                    <label id="t-comp-embedding-clear-label" class="secret-clear">
                     Clear stored key
-                    <input type="checkbox" name="clear_memory_embedding_key" style="width: 16px; height: 16px; accent-color: var(--accent-color);">
-                  </label>
+                      <input type="checkbox" name="clear_memory_embedding_key">
+                    </label>
+                  </div>
                 </div>
               </label>
               
@@ -872,6 +1499,21 @@ button[type=submit]:active {
             </div>
           </div>
 
+          <div class="autosave-panel" id="autosave-panel">
+            <div class="autosave-copy">
+              <div class="autosave-title-row">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path></svg>
+                <span id="t-autosave-title">AutoSave</span>
+                <span class="autosave-state" id="autosave-state">Off</span>
+              </div>
+              <div class="autosave-body" id="t-autosave-body">Automatically saves ordinary settings after changes. Secrets and password changes still require an explicit action.</div>
+            </div>
+            <label class="switch-control" id="t-autosave-toggle-label">
+              <input type="checkbox" id="autosave-toggle">
+              <span class="switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
+
           <button type="submit" id="t-save">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             Save Settings
@@ -928,11 +1570,17 @@ const STRINGS = {
     companionTitle: 'AI 伴侣核心设置（记忆与情感）',
     compEnableLabel: '启用记忆与亲密度功能',
     compSummaryUrlLabel: '摘要 API 端点',
+    upstreamHint: '这里只填基础 URL。示例：Anthropic 用 https://api.anthropic.com，OpenAI 用 https://api.openai.com，OpenRouter 用 https://openrouter.ai/api。',
     compSummaryKeyLabel: '摘要 API 密钥',
     compSummaryModelLabel: '摘要模型',
+    compSummaryUrlHint: 'Gemini 建议填基础 URL，例如 https://generativelanguage.googleapis.com。OpenAI / OpenRouter 兼容接口只填基础 URL，系统会自动补上 /v1/chat/completions。',
     compEmbeddingUrlLabel: '嵌入 (Embedding) API 端点',
     compEmbeddingKeyLabel: '嵌入 API 密钥',
     compEmbeddingModelLabel: '嵌入模型',
+    compEmbeddingUrlHint: 'Gemini 建议填基础 URL，例如 https://generativelanguage.googleapis.com。OpenAI / OpenRouter 兼容接口只填基础 URL，系统会自动补上 /v1/embeddings。OpenRouter 需要带 /api。',
+    compEmbeddingLockTitle: 'Embedding 配置',
+    compEmbeddingChangeButton: '修改',
+    compEmbeddingChangeWarn: '修改后，现有记忆可能失效。',
     compDecayHoursLabel: '遗忘（衰减）检查间隔 (小时)',
     compDecayRateLabel: '记忆衰减速度 (0-1)',
     compThresholdLabel: '遗忘阈值 (0-1)',
@@ -947,11 +1595,43 @@ const STRINGS = {
     compClearKeyLabel: '清除已保存密钥',
     compKeyPlaceholderStored: '如需替换，请输入新密钥',
     compKeyPlaceholderEmpty: 'API Key...',
+    authTitle: '配置已上锁',
+    authBody: '请输入配置密码后再读取或修改设置。',
+    authPlaceholder: '配置密码',
+    authUnlock: '解锁',
+    authInvalid: '密码错误或缺失。',
+    authSetupTitle: '设置配置密码',
+    authSetupBody: '首次使用前请先设置配置密码。设置完成前无法读取或修改配置。',
+    authSetupPlaceholder: '新配置密码',
+    authSetupConfirmPlaceholder: '再次输入密码',
+    authSetupSave: '设置密码',
+    authSetupMismatch: '两次输入的密码不一致。',
+    authSetupRequired: '请先设置配置密码。',
+    authSetupSaved: '配置密码已设置。',
+    secretShow: '显示密码',
+    secretHide: '隐藏密码',
+    passwordChangeTitle: '配置密码',
+    passwordChangeBody: '修改用于解锁此设置面板的密码。',
+    passwordChangeDisabledBody: '当前密码来自环境变量或系统属性，不能在网页中修改。',
+    passwordCurrentLabel: '当前密码',
+    passwordNewLabel: '新密码',
+    passwordConfirmLabel: '确认新密码',
+    passwordChangeButton: '修改密码',
+    passwordChangeSaved: '配置密码已修改。',
+    autosaveTitle: 'AutoSave',
+    autosaveBody: '普通设置会在修改后自动保存。密钥、清除密钥和密码修改仍需手动操作。',
+    autosaveOn: '开启',
+    autosaveOff: '关闭',
+    autosaveSaving: '保存中',
+    autosaveSaved: '已保存',
+    autosaveError: '保存失败',
+    autosaveToggleLabel: '切换自动保存',
   },
   en: {
     title: 'Kiyomizu Configuration Console',
     presetLabel: 'Proxy Mode',
     upstreamLabel: 'Upstream URL',
+    upstreamHint: 'Use the base URL only. Anthropic is https://api.anthropic.com, OpenAI is https://api.openai.com, OpenRouter is https://openrouter.ai/api.',
     presetAnthropic: 'Claude Cache Mode',
     presetCustom: 'Custom Upstream (Pass-through)',
     cacheNotApplicable: 'Pure pass-through mode: path, headers, and body are forwarded untouched',
@@ -990,11 +1670,16 @@ const STRINGS = {
     companionTitle: 'AI Companion Core Settings',
     compEnableLabel: 'Enable Memory & Intimacy',
     compSummaryUrlLabel: 'Summarization Endpoint',
+    compSummaryUrlHint: 'For Gemini, use the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers can use a base URL; /v1/chat/completions is appended automatically.',
     compSummaryKeyLabel: 'Summarization API Key',
     compSummaryModelLabel: 'Summarization Model',
     compEmbeddingUrlLabel: 'Embedding Endpoint',
     compEmbeddingKeyLabel: 'Embedding API Key',
     compEmbeddingModelLabel: 'Embedding Model',
+    compEmbeddingUrlHint: 'For Gemini, use the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, use the base URL and Kiyomizu appends /v1/embeddings. OpenRouter needs /api.',
+    compEmbeddingLockTitle: 'Embedding Config',
+    compEmbeddingChangeButton: 'Change',
+    compEmbeddingChangeWarn: 'Changing this may invalidate existing memories.',
     compDecayHoursLabel: 'Decay Interval (Hours)',
     compDecayRateLabel: 'Memory Decay Rate (0-1)',
     compThresholdLabel: 'Forget Threshold (0-1)',
@@ -1009,11 +1694,43 @@ const STRINGS = {
     compClearKeyLabel: 'Clear stored key',
     compKeyPlaceholderStored: 'Enter a new key to replace it',
     compKeyPlaceholderEmpty: 'API Key...',
+    authTitle: 'Configuration Locked',
+    authBody: 'Enter the config password before reading or changing settings.',
+    authPlaceholder: 'Config password',
+    authUnlock: 'Unlock',
+    authInvalid: 'The config password is missing or incorrect.',
+    authSetupTitle: 'Set Config Password',
+    authSetupBody: 'Set a config password before first use. Settings stay locked until this is done.',
+    authSetupPlaceholder: 'New config password',
+    authSetupConfirmPlaceholder: 'Confirm password',
+    authSetupSave: 'Set Password',
+    authSetupMismatch: 'The two passwords do not match.',
+    authSetupRequired: 'Set a config password first.',
+    authSetupSaved: 'Config password set.',
+    secretShow: 'Show password',
+    secretHide: 'Hide password',
+    passwordChangeTitle: 'Config Password',
+    passwordChangeBody: 'Change the password used to unlock this settings panel.',
+    passwordChangeDisabledBody: 'This password is controlled by an environment variable or system property, so it cannot be changed here.',
+    passwordCurrentLabel: 'Current password',
+    passwordNewLabel: 'New password',
+    passwordConfirmLabel: 'Confirm new password',
+    passwordChangeButton: 'Change password',
+    passwordChangeSaved: 'Config password changed.',
+    autosaveTitle: 'AutoSave',
+    autosaveBody: 'Ordinary settings save automatically after changes. API keys, key clearing, and password changes still require an explicit action.',
+    autosaveOn: 'On',
+    autosaveOff: 'Off',
+    autosaveSaving: 'Saving',
+    autosaveSaved: 'Saved',
+    autosaveError: 'Save failed',
+    autosaveToggleLabel: 'Toggle autosave',
   },
   ja: {
     title: 'Kiyomizu 設定コントロールパネル',
     presetLabel: 'プロキシモード',
     upstreamLabel: '上流URL',
+    upstreamHint: 'ここにはベースURLだけを入れます。例: Anthropic は https://api.anthropic.com、OpenAI は https://api.openai.com、OpenRouter は https://openrouter.ai/api です。',
     presetAnthropic: 'Claude キャッシュモード',
     presetCustom: 'カスタム上流 (透過転送)',
     cacheNotApplicable: '完全な透過モードです。パス、ヘッダ、ボディをそのまま転送します',
@@ -1052,11 +1769,16 @@ const STRINGS = {
     companionTitle: 'AIコンパニオン設定 (記憶・感情)',
     compEnableLabel: '記憶＆親密度機能を有効化',
     compSummaryUrlLabel: '要約用 APIエンドポイント',
+    compSummaryUrlHint: 'Gemini は https://generativelanguage.googleapis.com のようなベースURLを入れます。OpenAI / OpenRouter 互換はベースURLだけでよく、/v1/chat/completions は自動で足されます。',
     compSummaryKeyLabel: '要約用 APIキー',
     compSummaryModelLabel: '要約用 モデル名',
     compEmbeddingUrlLabel: 'Embedding用 APIエンドポイント',
     compEmbeddingKeyLabel: 'Embedding用 APIキー',
     compEmbeddingModelLabel: 'Embedding用 モデル名',
+    compEmbeddingUrlHint: 'Gemini は https://generativelanguage.googleapis.com のようなベースURLを入れます。OpenAI / OpenRouter 互換はベースURLだけでよく、/v1/embeddings は自動で足されます。OpenRouter は /api まで含めてください。',
+    compEmbeddingLockTitle: 'Embedding 設定',
+    compEmbeddingChangeButton: '変更',
+    compEmbeddingChangeWarn: '変更すると既存メモリが無効になる可能性があります。',
     compDecayHoursLabel: '忘却（減衰）チェック間隔 (時間)',
     compDecayRateLabel: '記憶減衰スピード (0〜1)',
     compThresholdLabel: '忘却しきい値 (0〜1)',
@@ -1071,6 +1793,37 @@ const STRINGS = {
     compClearKeyLabel: '保存済みキーを削除',
     compKeyPlaceholderStored: '置き換える場合だけ新しいキーを入力',
     compKeyPlaceholderEmpty: 'API Key...',
+    authTitle: '設定はロックされています',
+    authBody: '設定の参照や更新を行う前に、設定用パスワードを入力してください。',
+    authPlaceholder: '設定パスワード',
+    authUnlock: '解除',
+    authInvalid: '設定パスワードが違うか、送信されていません。',
+    authSetupTitle: '設定パスワードを作成',
+    authSetupBody: '初回利用の前に設定パスワードを作成してください。作成するまで設定の参照や更新はできません。',
+    authSetupPlaceholder: '新しい設定パスワード',
+    authSetupConfirmPlaceholder: 'もう一度入力',
+    authSetupSave: 'パスワードを設定',
+    authSetupMismatch: '2つのパスワードが一致しません。',
+    authSetupRequired: '先に設定パスワードを作成してください。',
+    authSetupSaved: '設定パスワードを作成しました。',
+    secretShow: 'パスワードを表示',
+    secretHide: 'パスワードを隠す',
+    passwordChangeTitle: '設定パスワード',
+    passwordChangeBody: 'この設定画面を解除するためのパスワードを変更します。',
+    passwordChangeDisabledBody: 'このパスワードは環境変数またはシステムプロパティで固定されているため、画面からは変更できません。',
+    passwordCurrentLabel: '現在のパスワード',
+    passwordNewLabel: '新しいパスワード',
+    passwordConfirmLabel: '新しいパスワードを再入力',
+    passwordChangeButton: 'パスワードを変更',
+    passwordChangeSaved: '設定パスワードを変更しました。',
+    autosaveTitle: 'AutoSave',
+    autosaveBody: '通常設定は変更後に自動保存します。APIキー、キー削除、パスワード変更は明示操作のままです。',
+    autosaveOn: '有効',
+    autosaveOff: '無効',
+    autosaveSaving: '保存中',
+    autosaveSaved: '保存済み',
+    autosaveError: '保存失敗',
+    autosaveToggleLabel: 'AutoSaveを切り替え',
   },
 };
 
@@ -1093,18 +1846,184 @@ function detectLang() {
 let currentLang = detectLang();
 let summaryKeyConfigured = false;
 let embeddingKeyConfigured = false;
+let embeddingConfigUnlocked = false;
+let configPasswordChangeable = false;
+let configAuthRequired = false;
+let configAuthMode = 'unlock';
+let configAuthPassword = sessionStorage.getItem('kiyomizu-config-password') || '';
+let autoSaveEnabled = localStorage.getItem('kiyomizu-autosave-enabled') === 'true';
+let autoSaveTimer = null;
+let autoSaveInFlight = false;
+let autoSavePending = false;
+let lastAutoSavePayload = '';
+let applyingConfigData = false;
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (configAuthPassword) {
+    headers['x-kiyomizu-config-password'] = configAuthPassword;
+  }
+  return headers;
+}
+
+function applyAuthPanelCopy() {
+  const s = STRINGS[currentLang];
+  const setupMode = configAuthMode === 'setup';
+  const passwordInput = document.getElementById('config-auth-password');
+  const confirmInput = document.getElementById('config-auth-password-confirm');
+
+  document.getElementById('auth-title').textContent = setupMode ? s.authSetupTitle : s.authTitle;
+  document.getElementById('auth-body').textContent = setupMode ? s.authSetupBody : s.authBody;
+  passwordInput.placeholder = setupMode ? s.authSetupPlaceholder : s.authPlaceholder;
+  passwordInput.autocomplete = setupMode ? 'new-password' : 'current-password';
+  confirmInput.placeholder = s.authSetupConfirmPlaceholder;
+  document.getElementById('btn-auth-unlock').textContent = setupMode ? s.authSetupSave : s.authUnlock;
+}
+
+function setAuthPanelVisible(visible, mode = configAuthMode) {
+  configAuthRequired = visible;
+  configAuthMode = mode;
+  const panel = document.getElementById('config-auth-panel');
+  panel.classList.toggle('visible', visible);
+  panel.classList.toggle('setup', mode === 'setup');
+  document.querySelector('.dashboard-wrapper').classList.toggle('config-locked', visible);
+  applyAuthPanelCopy();
+}
+
+function persistConfigPassword(value) {
+  configAuthPassword = value;
+  if (value) {
+    sessionStorage.setItem('kiyomizu-config-password', value);
+  } else {
+    sessionStorage.removeItem('kiyomizu-config-password');
+  }
+}
+
+async function fetchConfig(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: authHeaders(options.headers || {})
+  });
+
+  if (response.status === 401) {
+    persistConfigPassword('');
+    setAuthPanelVisible(true, 'unlock');
+  }
+
+  if (response.status === 428) {
+    persistConfigPassword('');
+    setAuthPanelVisible(true, 'setup');
+  }
+
+  return response;
+}
 
 function refreshSecretFieldUi() {
   const f = document.getElementById('f');
   const s = STRINGS[currentLang];
-  document.getElementById('t-comp-summary-key-status').textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
-  document.getElementById('t-comp-embedding-key-status').textContent = embeddingKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+  const summaryStatus = document.getElementById('t-comp-summary-key-status');
+  const embeddingStatus = document.getElementById('t-comp-embedding-key-status');
+  summaryStatus.textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+  embeddingStatus.textContent = embeddingKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+  summaryStatus.classList.toggle('configured', summaryKeyConfigured);
+  embeddingStatus.classList.toggle('configured', embeddingKeyConfigured);
   f.memory_summary_key.placeholder = summaryKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
   f.memory_embedding_key.placeholder = embeddingKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
 }
 
+function refreshPasswordChangeUi() {
+  const f = document.getElementById('f');
+  const s = STRINGS[currentLang];
+  const section = document.getElementById('config-password-section');
+  section.classList.toggle('is-disabled', !configPasswordChangeable);
+  document.getElementById('t-password-change-body').textContent = configPasswordChangeable ? s.passwordChangeBody : s.passwordChangeDisabledBody;
+  document.getElementById('btn-change-config-password').textContent = s.passwordChangeButton;
+  f.config_password_current.disabled = !configPasswordChangeable;
+  f.config_password_new.disabled = !configPasswordChangeable;
+  f.config_password_confirm.disabled = !configPasswordChangeable;
+  document.getElementById('btn-change-config-password').disabled = !configPasswordChangeable;
+}
+
+function setAutoSaveState(state) {
+  const s = STRINGS[currentLang];
+  const el = document.getElementById('autosave-state');
+  el.className = 'autosave-state';
+  if (!autoSaveEnabled && state !== 'err') {
+    el.textContent = s.autosaveOff;
+    return;
+  }
+  if (state === 'saving') {
+    el.textContent = s.autosaveSaving;
+    el.classList.add('saving');
+  } else if (state === 'saved') {
+    el.textContent = s.autosaveSaved;
+    el.classList.add('saved');
+  } else if (state === 'err') {
+    el.textContent = s.autosaveError;
+    el.classList.add('err');
+  } else {
+    el.textContent = s.autosaveOn;
+  }
+}
+
+function refreshAutoSaveUi(state = 'idle') {
+  const s = STRINGS[currentLang];
+  const toggle = document.getElementById('autosave-toggle');
+  toggle.checked = autoSaveEnabled;
+  toggle.setAttribute('aria-label', s.autosaveToggleLabel);
+  document.getElementById('t-autosave-title').textContent = s.autosaveTitle;
+  document.getElementById('t-autosave-body').textContent = s.autosaveBody;
+  setAutoSaveState(state);
+}
+
+function getPasswordToggleTarget(button) {
+  const id = button.dataset.togglePassword;
+  if (id) return document.getElementById(id);
+  const name = button.dataset.togglePasswordName;
+  return name ? document.querySelector('[name="' + name + '"]') : null;
+}
+
+function updatePasswordToggleButton(button) {
+  const input = getPasswordToggleTarget(button);
+  if (!input) return;
+  const visible = input.type === 'text';
+  const label = visible ? STRINGS[currentLang].secretHide : STRINGS[currentLang].secretShow;
+  button.classList.toggle('is-visible', visible);
+  button.setAttribute('aria-label', label);
+  button.title = label;
+}
+
+function updatePasswordToggleLabels() {
+  document.querySelectorAll('.password-toggle').forEach(updatePasswordToggleButton);
+}
+
+function hasConfiguredValue(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function updateEmbeddingLockUi() {
+  const f = document.getElementById('f');
+  const s = STRINGS[currentLang];
+  const hasEmbeddingConfig = hasConfiguredValue(f.memory_embedding_url.value) || hasConfiguredValue(f.memory_embedding_model.value);
+  const locked = hasEmbeddingConfig && !embeddingConfigUnlocked;
+  const header = document.getElementById('embedding-lock-header');
+  const warning = document.getElementById('embedding-lock-warning');
+  const button = document.getElementById('btn-edit-embedding');
+
+  header.style.display = hasEmbeddingConfig ? 'flex' : 'none';
+  warning.style.display = embeddingConfigUnlocked ? 'block' : 'none';
+  warning.textContent = s.compEmbeddingChangeWarn;
+  button.textContent = s.compEmbeddingChangeButton;
+  button.style.display = hasEmbeddingConfig && !embeddingConfigUnlocked ? 'inline-flex' : 'none';
+
+  f.memory_embedding_url.disabled = locked;
+  f.memory_embedding_model.disabled = locked;
+}
+
 function applyConfigData(d) {
   const f = document.getElementById('f');
+  applyingConfigData = true;
+  embeddingConfigUnlocked = false;
   f.preset.value = d.preset || 'custom';
   f.upstream.value = d.upstream || '';
   f.cache_ttl.value = d.cache_ttl;
@@ -1133,6 +2052,8 @@ function applyConfigData(d) {
 
   summaryKeyConfigured = d.memory_summary_key_configured || false;
   embeddingKeyConfigured = d.memory_embedding_key_configured || false;
+  configPasswordChangeable = d.config_password_changeable || false;
+  lastAutoSavePayload = JSON.stringify(buildConfigPayload(false));
 
   updateCacheModeOptions();
   updateUiVisibility();
@@ -1141,6 +2062,10 @@ function applyConfigData(d) {
   updateStatusSummary();
   updateCompanionVisibility();
   refreshSecretFieldUi();
+  refreshPasswordChangeUi();
+  updateEmbeddingLockUi();
+  refreshAutoSaveUi();
+  applyingConfigData = false;
 }
 
 function applyLang(lang) {
@@ -1148,6 +2073,7 @@ function applyLang(lang) {
   document.documentElement.lang = lang;
   document.getElementById('t-title').textContent = s.title;
   document.title = s.title;
+  applyAuthPanelCopy();
 
   // Sidebar widget texts
   document.getElementById('lbl-status-title').textContent = s.statusTitle;
@@ -1173,6 +2099,7 @@ function applyLang(lang) {
   document.getElementById('t-preset-custom').textContent = s.presetCustom;
 
   setText('t-upstream-label', s.upstreamLabel, 'upstream');
+  document.getElementById('t-upstream-hint').textContent = s.upstreamHint;
   document.getElementById('msg-not-applicable').textContent = s.cacheNotApplicable;
   
   setText('t-ttl-label', s.ttlLabel, 'cache_ttl');
@@ -1194,13 +2121,16 @@ function applyLang(lang) {
   document.getElementById('t-companion-title').textContent = s.companionTitle || 'AI Companion Core Settings';
   document.getElementById('t-comp-enable-label').textContent = s.compEnableLabel || 'Enable Memory & Intimacy';
   setText('t-comp-summary-url-label', s.compSummaryUrlLabel || 'Summarization Endpoint', 'memory_summary_url');
+  document.getElementById('t-comp-summary-url-hint').textContent = s.compSummaryUrlHint || '';
   setText('t-comp-summary-key-label', s.compSummaryKeyLabel || 'Summarization API Key', 'memory_summary_key');
   setText('t-comp-summary-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_summary_key');
   setText('t-comp-summary-model-label', s.compSummaryModelLabel || 'Summarization Model', 'memory_summary_model');
   setText('t-comp-embedding-url-label', s.compEmbeddingUrlLabel || 'Embedding Endpoint', 'memory_embedding_url');
+  document.getElementById('t-comp-embedding-url-hint').textContent = s.compEmbeddingUrlHint || '';
   setText('t-comp-embedding-key-label', s.compEmbeddingKeyLabel || 'Embedding API Key', 'memory_embedding_key');
   setText('t-comp-embedding-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_embedding_key');
   setText('t-comp-embedding-model-label', s.compEmbeddingModelLabel || 'Embedding Model', 'memory_embedding_model');
+  document.getElementById('t-comp-embedding-lock-title').textContent = s.compEmbeddingLockTitle || 'Embedding Config';
   
   setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
   setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
@@ -1212,6 +2142,11 @@ function applyLang(lang) {
   setText('t-comp-recall-prob-label', s.compRecallProbLabel || 'Spontaneous recall % (0-1)', 'spontaneous_recall_probability');
   
   setText('t-comp-summary-prompt-label', s.compSummaryPromptLabel || 'Summarization System Prompt', 'memory_summary_prompt');
+  document.getElementById('t-password-change-title').textContent = s.passwordChangeTitle || 'Config Password';
+  setText('t-password-current-label', s.passwordCurrentLabel || 'Current password', 'config_password_current');
+  setText('t-password-new-label', s.passwordNewLabel || 'New password', 'config_password_new');
+  setText('t-password-confirm-label', s.passwordConfirmLabel || 'Confirm new password', 'config_password_confirm');
+  refreshAutoSaveUi();
 
   // Set save button text without stripping icon
   const saveBtn = document.getElementById('t-save');
@@ -1223,6 +2158,9 @@ function applyLang(lang) {
   updateFlowDiagram();
   updateStatusSummary();
   refreshSecretFieldUi();
+  refreshPasswordChangeUi();
+  updateEmbeddingLockUi();
+  updatePasswordToggleLabels();
 }
 
 function updateCacheModeOptions() {
@@ -1434,25 +2372,8 @@ function updateCompanionVisibility() {
   wrapper.style.display = f.memory_enabled.checked ? 'flex' : 'none';
 }
 
-async function load() {
-  const r = await fetch('/api/config');
-  const d = await r.json();
-  applyConfigData(d);
-}
-
-document.getElementById('f').cache_mode.addEventListener('change', updateCacheModeOptions);
-document.querySelector('[name="memory_enabled"]').addEventListener('change', updateCompanionVisibility);
-
-// Global form change listener to keep widgets in perfect sync
-document.getElementById('f').addEventListener('change', () => {
-  updateVisualizer();
-  updateFlowDiagram();
-  updateStatusSummary();
-});
-
-document.getElementById('f').addEventListener('submit', async e => {
-  e.preventDefault();
-  const f = e.target;
+function buildConfigPayload(includeManualOnlyFields = true) {
+  const f = document.getElementById('f');
   const payload = {
     preset: f.preset.value,
     upstream: f.upstream.value,
@@ -1460,8 +2381,7 @@ document.getElementById('f').addEventListener('submit', async e => {
     cache_mode: f.cache_mode.value,
     cache_strategy: f.cache_strategy.value,
     cache_breakpoints: Number(f.cache_breakpoints.value),
-    
-    // Companion Memory fields
+
     memory_enabled: f.memory_enabled.checked,
     memory_summary_url: f.memory_summary_url.value,
     memory_summary_model: f.memory_summary_model.value,
@@ -1476,26 +2396,310 @@ document.getElementById('f').addEventListener('submit', async e => {
     memory_max_strength: Number(f.memory_max_strength.value),
     intimacy_decay_rate: Number(f.intimacy_decay_rate.value),
     spontaneous_recall_probability: Number(f.spontaneous_recall_probability.value),
-    clear_memory_summary_key: f.clear_memory_summary_key.checked,
-    clear_memory_embedding_key: f.clear_memory_embedding_key.checked,
   };
-  if (f.memory_summary_key.value.trim()) payload.memory_summary_key = f.memory_summary_key.value.trim();
-  if (f.memory_embedding_key.value.trim()) payload.memory_embedding_key = f.memory_embedding_key.value.trim();
-  const r = await fetch('/api/config', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-  const d = await r.json();
-  const s = document.getElementById('status');
-  const str = STRINGS[currentLang];
-  if (r.ok) {
-    applyConfigData(d);
-    s.className = 'success';
-    s.textContent = str.saved + JSON.stringify(d);
-    s.style.display = 'block';
-    setTimeout(() => { s.style.display = 'none'; }, 4000);
-  } else {
-    s.className = 'err';
-    s.textContent = str.error + (d.errors || []).join('; ');
-    s.style.display = 'block';
+
+  if (includeManualOnlyFields) {
+    payload.clear_memory_summary_key = f.clear_memory_summary_key.checked;
+    payload.clear_memory_embedding_key = f.clear_memory_embedding_key.checked;
+    if (f.memory_summary_key.value.trim()) payload.memory_summary_key = f.memory_summary_key.value.trim();
+    if (f.memory_embedding_key.value.trim()) payload.memory_embedding_key = f.memory_embedding_key.value.trim();
   }
+
+  return payload;
+}
+
+function hasPendingManualOnlyChanges() {
+  const f = document.getElementById('f');
+  return Boolean(
+    f.memory_summary_key.value.trim() ||
+    f.memory_embedding_key.value.trim() ||
+    f.clear_memory_summary_key.checked ||
+    f.clear_memory_embedding_key.checked ||
+    f.config_password_current.value.trim() ||
+    f.config_password_new.value.trim() ||
+    f.config_password_confirm.value.trim()
+  );
+}
+
+async function saveConfig(options = {}) {
+  const manual = options.manual === true;
+  const payload = buildConfigPayload(manual);
+  const r = await fetchConfig('/api/config', {
+    method: 'POST',
+    headers: {'content-type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await r.json();
+  const status = document.getElementById('status');
+  const str = STRINGS[currentLang];
+
+  if (r.ok) {
+    setAuthPanelVisible(false, 'unlock');
+    applyConfigData(d);
+    if (manual) {
+      status.className = 'success';
+      status.textContent = str.saved + JSON.stringify(d);
+      status.style.display = 'block';
+      setTimeout(() => { status.style.display = 'none'; }, 4000);
+    }
+    return true;
+  }
+
+  const errors = d.errors || [d.error || str.authInvalid];
+  status.className = 'err';
+  status.textContent = str.error + errors.join('; ');
+  status.style.display = 'block';
+  return false;
+}
+
+function shouldAutoSaveEvent(event) {
+  const target = event.target;
+  if (!autoSaveEnabled || applyingConfigData || configAuthRequired || !target) return false;
+  if (!target.matches('input, select, textarea')) return false;
+  if (target.closest('#config-password-section')) return false;
+
+  const manualOnlyNames = new Set([
+    'memory_summary_key',
+    'memory_embedding_key',
+    'clear_memory_summary_key',
+    'clear_memory_embedding_key',
+    'config_password_current',
+    'config_password_new',
+    'config_password_confirm'
+  ]);
+  return !manualOnlyNames.has(target.name);
+}
+
+function scheduleAutoSave(event) {
+  if (!shouldAutoSaveEvent(event)) return;
+  if (hasPendingManualOnlyChanges()) return;
+
+  const nextPayload = JSON.stringify(buildConfigPayload(false));
+  if (nextPayload === lastAutoSavePayload) return;
+
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(runAutoSave, 900);
+}
+
+async function runAutoSave() {
+  if (!autoSaveEnabled || configAuthRequired) return;
+  if (hasPendingManualOnlyChanges()) return;
+
+  const nextPayload = JSON.stringify(buildConfigPayload(false));
+  if (nextPayload === lastAutoSavePayload) return;
+  if (autoSaveInFlight) {
+    autoSavePending = true;
+    return;
+  }
+
+  autoSaveInFlight = true;
+  autoSavePending = false;
+  setAutoSaveState('saving');
+
+  try {
+    const ok = await saveConfig({ manual: false });
+    if (ok) {
+      lastAutoSavePayload = nextPayload;
+      setAutoSaveState('saved');
+      setTimeout(() => setAutoSaveState('idle'), 1800);
+    } else {
+      setAutoSaveState('err');
+    }
+  } finally {
+    autoSaveInFlight = false;
+    if (autoSavePending) {
+      autoSavePending = false;
+      scheduleAutoSave({ target: document.getElementById('f').preset });
+    }
+  }
+}
+
+async function load() {
+  const r = await fetchConfig('/api/config');
+  const d = await r.json();
+  if (r.ok) {
+    setAuthPanelVisible(false, 'unlock');
+    applyConfigData(d);
+    return;
+  }
+
+  if (r.status === 401) {
+    const s = document.getElementById('status');
+    const str = STRINGS[currentLang];
+    s.className = 'err';
+    s.textContent = str.error + str.authInvalid;
+    s.style.display = 'block';
+    return;
+  }
+
+  if (r.status === 428 && d.config_password_setup_required) {
+    setAuthPanelVisible(true, 'setup');
+    const s = document.getElementById('status');
+    s.className = 'err';
+    s.textContent = STRINGS[currentLang].authSetupRequired;
+    s.style.display = 'block';
+    return;
+  }
+
+  throw new Error((d.errors || [d.error || 'Failed to load config']).join('; '));
+}
+
+document.getElementById('f').cache_mode.addEventListener('change', updateCacheModeOptions);
+document.querySelector('[name="memory_enabled"]').addEventListener('change', updateCompanionVisibility);
+document.getElementById('autosave-toggle').addEventListener('change', e => {
+  autoSaveEnabled = e.target.checked;
+  localStorage.setItem('kiyomizu-autosave-enabled', autoSaveEnabled ? 'true' : 'false');
+  refreshAutoSaveUi();
+  if (autoSaveEnabled) {
+    scheduleAutoSave({ target: document.getElementById('f').preset });
+  }
+});
+document.getElementById('btn-edit-embedding').addEventListener('click', () => {
+  embeddingConfigUnlocked = true;
+  updateEmbeddingLockUi();
+});
+
+document.getElementById('btn-auth-unlock').addEventListener('click', async () => {
+  const input = document.getElementById('config-auth-password');
+  const confirmInput = document.getElementById('config-auth-password-confirm');
+  const status = document.getElementById('status');
+  const str = STRINGS[currentLang];
+  const password = input.value.trim();
+
+  if (configAuthMode === 'setup') {
+    const confirmPassword = confirmInput.value.trim();
+    if (!password || password !== confirmPassword) {
+      status.className = 'err';
+      status.textContent = !password ? str.authSetupRequired : str.authSetupMismatch;
+      status.style.display = 'block';
+      return;
+    }
+
+    const r = await fetch('/api/config/password', {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify({ password, confirm_password: confirmPassword })
+    });
+    const d = await r.json();
+    if (r.ok) {
+      persistConfigPassword(password);
+      input.value = '';
+      confirmInput.value = '';
+      await load();
+      status.className = 'success';
+      status.textContent = str.authSetupSaved;
+      status.style.display = 'block';
+      setTimeout(() => { status.style.display = 'none'; }, 4000);
+      return;
+    }
+
+    if (r.status === 409) {
+      setAuthPanelVisible(true, 'unlock');
+    }
+    const errors = d.errors || [d.error || str.authSetupRequired];
+    status.className = 'err';
+    status.textContent = str.error + errors.join('; ');
+    status.style.display = 'block';
+    return;
+  }
+
+  persistConfigPassword(password);
+  await load();
+});
+
+document.getElementById('config-auth-password').addEventListener('keydown', async e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('btn-auth-unlock').click();
+  }
+});
+
+document.getElementById('config-auth-password-confirm').addEventListener('keydown', async e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('btn-auth-unlock').click();
+  }
+});
+
+document.querySelectorAll('.password-toggle').forEach(button => {
+  const input = getPasswordToggleTarget(button);
+  if (!input) return;
+  updatePasswordToggleButton(button);
+  button.addEventListener('click', () => {
+    const selectionStart = input.selectionStart;
+    const selectionEnd = input.selectionEnd;
+    input.type = input.type === 'password' ? 'text' : 'password';
+    updatePasswordToggleButton(button);
+    input.focus();
+    if (selectionStart !== null && selectionEnd !== null) {
+      input.setSelectionRange(selectionStart, selectionEnd);
+    }
+  });
+});
+
+document.getElementById('btn-change-config-password').addEventListener('click', async () => {
+  const f = document.getElementById('f');
+  const status = document.getElementById('status');
+  const str = STRINGS[currentLang];
+  const currentPassword = f.config_password_current.value.trim();
+  const newPassword = f.config_password_new.value.trim();
+  const confirmPassword = f.config_password_confirm.value.trim();
+
+  if (!currentPassword || !newPassword || newPassword !== confirmPassword) {
+    status.className = 'err';
+    status.textContent = str.error + (!currentPassword || !newPassword ? str.authSetupRequired : str.authSetupMismatch);
+    status.style.display = 'block';
+    return;
+  }
+
+  const r = await fetchConfig('/api/config/password/change', {
+    method: 'POST',
+    headers: {'content-type':'application/json'},
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      confirm_password: confirmPassword
+    })
+  });
+  const d = await r.json();
+
+  if (r.ok) {
+    persistConfigPassword(newPassword);
+    f.config_password_current.value = '';
+    f.config_password_new.value = '';
+    f.config_password_confirm.value = '';
+    status.className = 'success';
+    status.textContent = str.passwordChangeSaved;
+    status.style.display = 'block';
+    setTimeout(() => { status.style.display = 'none'; }, 4000);
+    await load();
+    return;
+  }
+
+  const errors = d.errors || [d.error || str.authInvalid];
+  status.className = 'err';
+  status.textContent = str.error + errors.join('; ');
+  status.style.display = 'block';
+});
+
+// Global form change listener to keep widgets in perfect sync
+document.getElementById('f').addEventListener('change', e => {
+  updateVisualizer();
+  updateFlowDiagram();
+  updateStatusSummary();
+  scheduleAutoSave(e);
+});
+
+document.getElementById('f').addEventListener('input', e => {
+  updateFlowDiagram();
+  updateStatusSummary();
+  scheduleAutoSave(e);
+});
+
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  clearTimeout(autoSaveTimer);
+  await saveConfig({ manual: true });
 });
 
 setLang(currentLang);
