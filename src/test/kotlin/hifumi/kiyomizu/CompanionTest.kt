@@ -118,6 +118,50 @@ class CompanionTest {
     }
 
     @Test
+    fun testDuplicateMemoryDetectionPrefersExistingSemanticEntry() {
+        val existing = listOf(
+            DatabaseService.MemoryRecord(
+                id = 7,
+                content = "User prefers light roast coffee.",
+                vector = floatArrayOf(1.0f, 0.0f, 0.0f),
+                type = "semantic",
+                emotionTag = "neutral",
+                strength = 0.8,
+                createdAt = 0,
+                lastAccessedAt = 0
+            ),
+            DatabaseService.MemoryRecord(
+                id = 8,
+                content = "User once asked if I remembered their coffee preference.",
+                vector = floatArrayOf(0.0f, 1.0f, 0.0f),
+                type = "episodic",
+                emotionTag = "warmth",
+                strength = 0.6,
+                createdAt = 0,
+                lastAccessedAt = 0
+            )
+        )
+
+        val duplicate = MemoryService.findDuplicateMemory(
+            existing = existing,
+            candidateContent = "  user prefers light roast coffee.  ",
+            candidateVector = floatArrayOf(1.0f, 0.0f, 0.0f),
+            candidateType = "semantic"
+        )
+        assertTrue(duplicate != null)
+        assertEquals(7, duplicate?.first?.id)
+        assertEquals(1.0, duplicate!!.second, 1e-5)
+
+        val differentType = MemoryService.findDuplicateMemory(
+            existing = existing,
+            candidateContent = "User once asked if I remembered their coffee preference.",
+            candidateVector = floatArrayOf(0.0f, 1.0f, 0.0f),
+            candidateType = "semantic"
+        )
+        assertEquals(null, differentType, "Same wording in a different memory type should not merge")
+    }
+
+    @Test
     fun testCompanionPromptInjection() = runBlocking {
         resetDbFiles()
         resetConfig()

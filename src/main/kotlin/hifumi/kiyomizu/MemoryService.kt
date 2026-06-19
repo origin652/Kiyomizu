@@ -9,6 +9,8 @@ import java.time.Instant
 
 object MemoryService {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val debugJson = Json { prettyPrint = false }
+    private const val duplicateMemorySimilarityThreshold = 0.92
 
     fun startDecayJob(appScope: CoroutineScope) {
         appScope.launch {
@@ -65,6 +67,28 @@ object MemoryService {
         }
         if (normA == 0.0 || normB == 0.0) return 0.0
         return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
+    }
+
+    private fun normalizeMemoryContent(text: String): String {
+        return text.trim().lowercase().replace(Regex("\\s+"), " ")
+    }
+
+    internal fun findDuplicateMemory(
+        existing: List<DatabaseService.MemoryRecord>,
+        candidateContent: String,
+        candidateVector: FloatArray,
+        candidateType: String
+    ): Pair<DatabaseService.MemoryRecord, Double>? {
+        val normalizedCandidate = normalizeMemoryContent(candidateContent)
+        return existing.asSequence()
+            .filter { it.type == candidateType }
+            .map { memory ->
+                val exactTextMatch = normalizeMemoryContent(memory.content) == normalizedCandidate
+                val similarity = if (exactTextMatch) 1.0 else cosineSimilarity(candidateVector, memory.vector)
+                memory to similarity
+            }
+            .filter { it.second >= duplicateMemorySimilarityThreshold }
+            .maxByOrNull { it.second }
     }
 
     suspend fun fetchEmbedding(text: String): FloatArray? {
@@ -207,7 +231,14 @@ object MemoryService {
                 }
                 
                 val cleaned = cleanJsonString(contentString)
-                return Json.parseToJsonElement(cleaned) as? JsonObject
+                val parsed = Json.parseToJsonElement(cleaned) as? JsonObject
+                if (parsed == null) {
+                    System.err.println("Summarization response was not a JSON object. Raw content: $cleaned")
+                } else {
+                    val memoryCount = parsed["memories"]?.jsonArray?.size ?: -1
+                    println("Summarization extracted memory_count=$memoryCount payload=${debugJson.encodeToString(JsonObject.serializer(), parsed)}")
+                }
+                return parsed
             }
         } catch (e: Exception) {
             System.err.println("Error calling summarization/state model: ${e.message}")
@@ -330,7 +361,16 @@ object MemoryService {
                 println("Updated Relationship State: intimacy=${updatedState.intimacy} (delta=$intimacyDelta), trust=${updatedState.trust} (delta=$trustDelta), mood=$mood")
                 
                 // 2. Insert memories
-                val memories = result["memories"]?.jsonArray ?: return@launch
+                val memories = result["memories"]?.jsonArray
+                if (memories == null) {
+                    System.err.println("Summarization payload omitted memories array.")
+                    return@launch
+                }
+                if (memories.isEmpty()) {
+                    println("Summarization returned zero memories for latest exchange.")
+                    return@launch
+                }
+                val existingMemories = DatabaseService.getAllMemoriesForSearch().toMutableList()
                 for (m in memories) {
                     val mObj = m as? JsonObject ?: continue
                     val content = mObj["content"]?.jsonPrimitive?.contentOrNull ?: continue
@@ -340,14 +380,42 @@ object MemoryService {
                     
                     val vector = fetchEmbedding(content)
                     if (vector != null) {
-                        DatabaseService.insertMemory(
-                            content = content,
-                            vector = vector,
-                            type = type,
-                            emotionTag = emotionTag,
-                            initialStrength = importance * Config.memoryInitialStrength
-                        )
-                        println("Inserted memory: '$content' [type=$type, emotion=$emotionTag]")
+                        val duplicate = findDuplicateMemory(existingMemories, content, vector, type)
+                        if (duplicate != null) {
+                            val (existingMemory, similarity) = duplicate
+                            DatabaseService.updateMemoryAccessAndStrength(
+                                id = existingMemory.id,
+                                strengthDelta = importance * Config.memoryRecoveryAmount,
+                                maxStrength = Config.memoryMaxStrength
+                            )
+                            println(
+                                "Merged duplicate memory into id=${existingMemory.id}: '$content' " +
+                                    "[type=$type, similarity=${"%.3f".format(similarity)}]"
+                            )
+                        } else {
+                            DatabaseService.insertMemory(
+                                content = content,
+                                vector = vector,
+                                type = type,
+                                emotionTag = emotionTag,
+                                initialStrength = importance * Config.memoryInitialStrength
+                            )
+                            existingMemories.add(
+                                DatabaseService.MemoryRecord(
+                                    id = -1,
+                                    content = content,
+                                    vector = vector,
+                                    type = type,
+                                    emotionTag = emotionTag,
+                                    strength = importance * Config.memoryInitialStrength,
+                                    createdAt = 0,
+                                    lastAccessedAt = 0
+                                )
+                            )
+                            println("Inserted memory: '$content' [type=$type, emotion=$emotionTag]")
+                        }
+                    } else {
+                        System.err.println("Embedding lookup returned null for memory candidate: '$content'")
                     }
                 }
             } catch (e: Exception) {
