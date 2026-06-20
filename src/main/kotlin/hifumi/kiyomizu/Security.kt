@@ -6,9 +6,6 @@ import java.net.InetAddress
 import java.net.URI
 
 object Security {
-    const val proxyAuthHeaderName = "x-kiyomizu-proxy-password"
-
-    private val allowUnauthenticatedProxy = System.getenv("KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY") == "1"
     private val allowRemotePasswordSetup = System.getenv("KIYOMIZU_ALLOW_REMOTE_PASSWORD_SETUP") == "1"
     private val allowBrowserCorsOverride = System.getenv("KIYOMIZU_ALLOW_BROWSER_CORS") == "1"
     private val allowPrivateOutbound = System.getenv("KIYOMIZU_ALLOW_PRIVATE_UPSTREAMS") == "1"
@@ -24,12 +21,6 @@ object Security {
 
     fun shouldAllowBrowserCors(): Boolean {
         return allowBrowserCorsOverride || !isPubliclyBound()
-    }
-
-    fun shouldRequireProxyAuth(): Boolean {
-        val explicitProxyPassword = System.getProperty("kiyomizu.proxy.password")?.isNotBlank() == true ||
-            System.getenv("KIYOMIZU_PROXY_PASSWORD")?.isNotBlank() == true
-        return explicitProxyPassword || (!allowUnauthenticatedProxy && isPubliclyBound())
     }
 
     fun isRemotePasswordSetupAllowed(): Boolean {

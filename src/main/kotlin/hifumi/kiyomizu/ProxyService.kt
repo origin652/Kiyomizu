@@ -35,8 +35,7 @@ object ProxyService {
     )
 
     private val internalHeaders = setOf(
-        ConfigAuth.headerName,
-        Security.proxyAuthHeaderName
+        ConfigAuth.headerName
     )
 
     fun normalizeUpstreamPath(pathname: String): String {

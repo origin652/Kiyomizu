@@ -56,14 +56,6 @@ object ConfigAuth {
             ?: ""
     }
 
-    fun configuredProxyPassword(): String {
-        return System.getProperty("kiyomizu.proxy.password")
-            ?.takeIf { it.isNotBlank() }
-            ?: System.getenv("KIYOMIZU_PROXY_PASSWORD")
-            ?.takeIf { it.isNotBlank() }
-            ?: ""
-    }
-
     fun loadPersisted(record: DatabaseService.ConfigPasswordRecord?) {
         persistedPasswordRef.set(record)
     }
@@ -111,33 +103,9 @@ object ConfigAuth {
         return verifyPassword(candidate, persistedPassword)
     }
 
-    fun isProxyAuthConfigured(): Boolean {
-        return configuredProxyPassword().isNotEmpty() || isConfigured()
-    }
-
-    fun isProxyAuthorized(headers: Headers): Boolean {
-        val candidate = proxyPasswordCandidate(headers) ?: return false
-        val plainProxyPassword = configuredProxyPassword()
-        if (plainProxyPassword.isNotEmpty()) {
-            return secureEquals(candidate, plainProxyPassword)
-        }
-        val plainConfigPassword = configuredPassword()
-        if (plainConfigPassword.isNotEmpty()) {
-            return secureEquals(candidate, plainConfigPassword)
-        }
-        val persistedPassword = persistedPasswordRef.get() ?: return false
-        return verifyPassword(candidate, persistedPassword)
-    }
-
     fun authorizeConfigCall(call: ApplicationCall): AuthDecision {
         return authorizeCall(call, "config") {
             isAuthorized(call.request.headers)
-        }
-    }
-
-    fun authorizeProxyCall(call: ApplicationCall): AuthDecision {
-        return authorizeCall(call, "proxy") {
-            isProxyAuthorized(call.request.headers)
         }
     }
 
@@ -192,26 +160,6 @@ object ConfigAuth {
                     decoded.substringAfter(':', "")
                 }.getOrNull()
             }
-    }
-
-    private fun proxyPasswordCandidate(headers: Headers): String? {
-        headers[Security.proxyAuthHeaderName]?.let { return it }
-        headers[headerName]?.let { return it }
-        headers["Proxy-Authorization"]?.let { value ->
-            if (value.startsWith("Basic ", ignoreCase = true)) {
-                return value.substring(6).trim().let { encoded ->
-                    runCatching {
-                        val decoded = String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
-                        decoded.substringAfter(':', "")
-                    }.getOrNull()
-                }
-            }
-            if (value.startsWith("Bearer ", ignoreCase = true)) {
-                return value.substring(7).trim()
-            }
-            return value.trim()
-        }
-        return null
     }
 
     private fun validateNewPassword(password: String): String? {
@@ -272,7 +220,6 @@ object ConfigAuth {
     }
 
     suspend fun reject(call: ApplicationCall) {
-        call.response.headers.append(HttpHeaders.WWWAuthenticate, """Basic realm="Kiyomizu Config"""", safeOnly = false)
         call.respondText(
             buildJsonObject {
                 put("error", "config password required")

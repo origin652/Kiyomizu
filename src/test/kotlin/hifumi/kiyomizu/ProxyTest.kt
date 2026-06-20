@@ -211,7 +211,6 @@ class ProxyTest {
             headersOf(
                 "Authorization" to listOf("Bearer upstream-key"),
                 ConfigAuth.headerName to listOf("config-secret-pass"),
-                Security.proxyAuthHeaderName to listOf("proxy-secret-pass"),
                 "Content-Type" to listOf("application/json")
             )
         )
@@ -219,7 +218,6 @@ class ProxyTest {
         assertTrue(cleaned.any { it.first == "Authorization" && it.second == "Bearer upstream-key" })
         assertTrue(cleaned.any { it.first == "Content-Type" && it.second == "application/json" })
         assertTrue(cleaned.none { it.first.equals(ConfigAuth.headerName, ignoreCase = true) })
-        assertTrue(cleaned.none { it.first.equals(Security.proxyAuthHeaderName, ignoreCase = true) })
     }
 
     @Test

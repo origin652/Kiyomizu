@@ -36,7 +36,6 @@ fun main() {
     println("Strip thinking: ${Config.stripThinking}")
     println("Model filter: ${Config.modelFilter}")
     if (Security.isPubliclyBound()) {
-        println("Security: public bind detected. Proxy authentication is required unless KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY=1 is set.")
         if (!Security.isRemotePasswordSetupAllowed() && !ConfigAuth.isConfigured()) {
             println("Security: remote first-run password setup is disabled. Set KIYOMIZU_CONFIG_PASSWORD before exposing this server.")
         }
@@ -55,7 +54,6 @@ fun main() {
                 allowHeader("x-title")
                 allowHeader("anthropic-beta")
                 allowHeader(ConfigAuth.headerName)
-                allowHeader(Security.proxyAuthHeaderName)
                 allowMethod(HttpMethod.Get)
                 allowMethod(HttpMethod.Post)
                 allowMethod(HttpMethod.Put)
@@ -319,9 +317,6 @@ fun main() {
             val modelPaths = listOf("/models", "/model", "/v1/models", "/v1/model", "/api/v1/models", "/api/v1/model")
             modelPaths.forEach { path ->
                 get(path) {
-                    if (!requireProxyAuth(call)) {
-                        return@get
-                    }
                     handleModelListProxy(call)
                 }
             }
@@ -436,34 +431,6 @@ private suspend fun requireConfigAuth(call: ApplicationCall): Boolean {
     }
 }
 
-private suspend fun requireProxyAuth(call: ApplicationCall): Boolean {
-    if (!Security.shouldRequireProxyAuth()) return true
-    if (!ConfigAuth.isProxyAuthConfigured()) {
-        ConfigAuth.setupRequired(call)
-        return false
-    }
-
-    return when (ConfigAuth.authorizeProxyCall(call)) {
-        ConfigAuth.AuthDecision.AUTHORIZED -> true
-        ConfigAuth.AuthDecision.RATE_LIMITED -> {
-            ConfigAuth.rejectRateLimited(call)
-            false
-        }
-        ConfigAuth.AuthDecision.UNAUTHORIZED -> {
-            call.respondText(
-                buildJsonObject {
-                    put("error", "proxy password required")
-                    put("proxy_password_required", true)
-                    put("proxy_password_header", Security.proxyAuthHeaderName)
-                }.toString(),
-                ContentType.Application.Json,
-                HttpStatusCode.Unauthorized
-            )
-            false
-        }
-    }
-}
-
 private suspend fun receiveTextLimited(call: ApplicationCall, maxBytes: Long): String? {
     val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
     if (contentLength != null && contentLength > maxBytes) {
@@ -560,9 +527,6 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
 private fun Route.fallbackProxyRoute() {
     route("{...}") {
         handle {
-            if (!requireProxyAuth(call)) {
-                return@handle
-            }
             val upstreamBase = Config.upstream
             if (upstreamBase.isBlank()) {
                 call.respondText("Upstream URL is not configured", ContentType.Text.Plain, HttpStatusCode.BadRequest)

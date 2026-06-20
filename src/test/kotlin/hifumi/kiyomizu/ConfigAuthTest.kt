@@ -12,7 +12,6 @@ class ConfigAuthTest {
     @AfterTest
     fun cleanup() {
         System.clearProperty("kiyomizu.config.password")
-        System.clearProperty("kiyomizu.proxy.password")
         System.clearProperty("kiyomizu.db.file")
         ConfigAuth.resetForTests()
     }
@@ -55,18 +54,6 @@ class ConfigAuthTest {
         assertTrue(ConfigAuth.isAuthorized(headersOf("Authorization", "Basic $encoded")))
         assertTrue(ConfigAuth.isAuthorized(headersOf("Authorization", "basic $encoded")))
         assertFalse(ConfigAuth.isAuthorized(headersOf("Authorization", "Basic not-base64")))
-    }
-
-    @Test
-    fun proxyAuthUsesDedicatedHeaderOrProxyAuthorization() {
-        System.setProperty("kiyomizu.config.password", "config-secret-pass")
-        System.setProperty("kiyomizu.proxy.password", "proxy-secret-pass")
-        val encoded = java.util.Base64.getEncoder().encodeToString(":proxy-secret-pass".toByteArray())
-
-        assertTrue(ConfigAuth.isProxyAuthorized(headersOf(Security.proxyAuthHeaderName, "proxy-secret-pass")))
-        assertTrue(ConfigAuth.isProxyAuthorized(headersOf("Proxy-Authorization", "Basic $encoded")))
-        assertFalse(ConfigAuth.isProxyAuthorized(headersOf(ConfigAuth.headerName, "config-secret-pass")))
-        assertFalse(ConfigAuth.isProxyAuthorized(headersOf("Authorization", "Bearer upstream-api-key")))
     }
 
     @Test
