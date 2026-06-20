@@ -197,7 +197,7 @@ label {
   background-color: var(--text-primary);
 }
 
-select, input[type=number], input[type=text], input[type=password] {
+select, input[type=number], input[type=text] {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -216,9 +216,15 @@ select {
   -webkit-appearance: none;
 }
 
-select:focus, input[type=number]:focus, input[type=text]:focus, input[type=password]:focus {
+select:focus, input[type=number]:focus, input[type=text]:focus {
   border-color: var(--input-focus);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+input[data-masked="true"] {
+  -webkit-text-security: disc;
+  text-security: disc;
+  letter-spacing: 0.08em;
 }
 
 textarea {
@@ -244,7 +250,6 @@ textarea:focus {
   width: 100%;
 }
 
-.password-shell input[type=password],
 .password-shell input[type=text] {
   padding-right: 48px;
   font-family: 'Fira Code', monospace;
@@ -1285,14 +1290,14 @@ button[type=submit]:active,
     </div>
     <div class="auth-panel-actions">
       <div class="password-shell">
-        <input type="password" id="config-auth-password" autocomplete="current-password" placeholder="Config password">
+        <input type="text" data-masked="true" id="config-auth-password" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Config password">
         <button class="password-toggle" type="button" data-toggle-password="config-auth-password">
           <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
         </button>
       </div>
       <div class="password-shell setup-only">
-        <input type="password" id="config-auth-password-confirm" autocomplete="new-password" placeholder="Confirm password">
+        <input type="text" data-masked="true" id="config-auth-password-confirm" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Confirm password">
         <button class="password-toggle" type="button" data-toggle-password="config-auth-password-confirm">
           <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -1495,7 +1500,7 @@ button[type=submit]:active,
               <label id="t-password-current-label">
                 Current password
                 <div class="password-shell" style="margin-top: 4px;">
-                  <input type="password" name="config_password_current" autocomplete="current-password">
+                  <input type="text" data-masked="true" name="config_password_current" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                   <button class="password-toggle" type="button" data-toggle-password-name="config_password_current">
                     <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -1505,7 +1510,7 @@ button[type=submit]:active,
               <label id="t-password-new-label">
                 New password
                 <div class="password-shell" style="margin-top: 4px;">
-                  <input type="password" name="config_password_new" autocomplete="new-password">
+                  <input type="text" data-masked="true" name="config_password_new" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                   <button class="password-toggle" type="button" data-toggle-password-name="config_password_new">
                     <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -1515,7 +1520,7 @@ button[type=submit]:active,
               <label id="t-password-confirm-label">
                 Confirm new password
                 <div class="password-shell" style="margin-top: 4px;">
-                  <input type="password" name="config_password_confirm" autocomplete="new-password">
+                  <input type="text" data-masked="true" name="config_password_confirm" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                   <button class="password-toggle" type="button" data-toggle-password-name="config_password_confirm">
                     <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -1553,7 +1558,7 @@ button[type=submit]:active,
                 Summarization API Key
                 <div class="secret-field">
                   <div class="password-shell">
-                    <input type="password" name="memory_summary_key" placeholder="API Key..." autocomplete="new-password">
+                    <input type="text" data-masked="true" name="memory_summary_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                     <button class="password-toggle" type="button" data-toggle-password-name="memory_summary_key">
                       <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                       <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -1595,7 +1600,7 @@ button[type=submit]:active,
                 Embedding API Key
                 <div class="secret-field">
                   <div class="password-shell">
-                    <input type="password" name="memory_embedding_key" placeholder="API Key..." autocomplete="new-password">
+                    <input type="text" data-masked="true" name="memory_embedding_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                     <button class="password-toggle" type="button" data-toggle-password-name="memory_embedding_key">
                       <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                       <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
@@ -2306,7 +2311,7 @@ function getPasswordToggleTarget(button) {
 function updatePasswordToggleButton(button) {
   const input = getPasswordToggleTarget(button);
   if (!input) return;
-  const visible = input.type === 'text';
+  const visible = input.dataset.masked !== 'true';
   const label = visible ? STRINGS[currentLang].secretHide : STRINGS[currentLang].secretShow;
   button.classList.toggle('is-visible', visible);
   button.setAttribute('aria-label', label);
@@ -3120,7 +3125,12 @@ document.querySelectorAll('.password-toggle').forEach(button => {
   button.addEventListener('click', () => {
     const selectionStart = input.selectionStart;
     const selectionEnd = input.selectionEnd;
-    input.type = input.type === 'password' ? 'text' : 'password';
+    const masked = input.dataset.masked === 'true';
+    if (masked) {
+      delete input.dataset.masked;
+    } else {
+      input.dataset.masked = 'true';
+    }
     updatePasswordToggleButton(button);
     input.focus();
     if (selectionStart !== null && selectionEnd !== null) {
