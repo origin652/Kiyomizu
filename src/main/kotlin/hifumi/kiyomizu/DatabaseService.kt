@@ -138,6 +138,22 @@ object DatabaseService {
                     )
                 """.trimIndent())
 
+                // 4. request_logs
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS request_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        at TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        pathname TEXT NOT NULL,
+                        patched INTEGER NOT NULL,
+                        removed_thinking_blocks INTEGER NOT NULL DEFAULT 0,
+                        model TEXT,
+                        message_count INTEGER,
+                        explicit_cache_blocks INTEGER,
+                        created_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS app_config (
                         id INTEGER PRIMARY KEY,
@@ -559,6 +575,116 @@ object DatabaseService {
                         list.add(rs.getString("diary_entry"))
                     }
                 }
+        }
+        return list
+    }
+
+    // --- Reflection detail CRUD ---
+    data class ReflectionRecord(
+        val id: Int,
+        val diaryEntry: String,
+        val createdAt: Long
+    )
+
+    fun getRecentReflectionsDetailed(limit: Int): List<ReflectionRecord> {
+        val list = mutableListOf<ReflectionRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT id, diary_entry, created_at FROM reflections ORDER BY created_at DESC LIMIT ?")
+                .use { pstmt ->
+                    pstmt.setInt(1, limit)
+                    val rs = pstmt.executeQuery()
+                    while (rs.next()) {
+                        list.add(ReflectionRecord(
+                            id = rs.getInt("id"),
+                            diaryEntry = rs.getString("diary_entry"),
+                            createdAt = rs.getLong("created_at")
+                        ))
+                    }
+                }
+        }
+        return list
+    }
+
+    fun getMemoryCount(): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM memories").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return 0
+    }
+
+    // --- Request logs CRUD ---
+    data class RequestLogRecord(
+        val id: Int,
+        val at: String,
+        val method: String,
+        val pathname: String,
+        val patched: Boolean,
+        val removedThinkingBlocks: Int,
+        val model: String?,
+        val messageCount: Int?,
+        val explicitCacheBlocks: Int?
+    )
+
+    fun insertRequestLog(
+        at: String,
+        method: String,
+        pathname: String,
+        patched: Boolean,
+        removedThinkingBlocks: Int,
+        model: String?,
+        messageCount: Int?,
+        explicitCacheBlocks: Int?
+    ) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO request_logs (at, method, pathname, patched, removed_thinking_blocks, model, message_count, explicit_cache_blocks, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, at)
+                pstmt.setString(2, method)
+                pstmt.setString(3, pathname)
+                pstmt.setInt(4, if (patched) 1 else 0)
+                pstmt.setInt(5, removedThinkingBlocks)
+                if (model != null) pstmt.setString(6, model) else pstmt.setNull(6, java.sql.Types.VARCHAR)
+                if (messageCount != null) pstmt.setInt(7, messageCount) else pstmt.setNull(7, java.sql.Types.INTEGER)
+                if (explicitCacheBlocks != null) pstmt.setInt(8, explicitCacheBlocks) else pstmt.setNull(8, java.sql.Types.INTEGER)
+                pstmt.setLong(9, now)
+                pstmt.executeUpdate()
+            }
+            // Keep only the newest 1000 entries
+            conn.createStatement().use { stmt ->
+                stmt.execute("DELETE FROM request_logs WHERE id NOT IN (SELECT id FROM request_logs ORDER BY id DESC LIMIT 1000)")
+            }
+        }
+    }
+
+    fun getRecentRequestLogs(limit: Int): List<RequestLogRecord> {
+        val list = mutableListOf<RequestLogRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT id, at, method, pathname, patched, removed_thinking_blocks, model, message_count, explicit_cache_blocks
+                FROM request_logs ORDER BY id DESC LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(RequestLogRecord(
+                        id = rs.getInt("id"),
+                        at = rs.getString("at"),
+                        method = rs.getString("method"),
+                        pathname = rs.getString("pathname"),
+                        patched = rs.getInt("patched") != 0,
+                        removedThinkingBlocks = rs.getInt("removed_thinking_blocks"),
+                        model = rs.getString("model"),
+                        messageCount = rs.getObject("message_count") as? Int,
+                        explicitCacheBlocks = rs.getObject("explicit_cache_blocks") as? Int
+                    ))
+                }
+            }
         }
         return list
     }

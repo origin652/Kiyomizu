@@ -109,25 +109,40 @@ object ProxyService {
         val patchedSummary = summarizeBody(patchedBody)
         val changed = originalSummary != patchedSummary
 
-        val originalThinking = MessagePatcher.countStrippedThinkingBlocks(
-            originalBody["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        )
-        val patchedThinking = MessagePatcher.countStrippedThinkingBlocks(
-            patchedBody["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        )
+        val originalMessages = originalBody["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        val patchedMessages = patchedBody["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
+        val originalThinking = MessagePatcher.countStrippedThinkingBlocks(originalMessages)
+        val patchedThinking = MessagePatcher.countStrippedThinkingBlocks(patchedMessages)
+        val removedThinking = if (originalThinking != null && patchedThinking != null) originalThinking - patchedThinking else 0
 
+        val atStr = Instant.now().toString()
         val logObj = buildJsonObject {
-            put("at", Instant.now().toString())
+            put("at", atStr)
             put("method", method)
             put("pathname", pathname)
             put("patched", changed)
             if (originalThinking != null && patchedThinking != null) {
-                put("removed_thinking_blocks", originalThinking - patchedThinking)
+                put("removed_thinking_blocks", removedThinking)
             }
             put("sent", patchedSummary)
         }
 
         println(json.encodeToString(JsonObject.serializer(), logObj))
+
+        try {
+            DatabaseService.insertRequestLog(
+                at = atStr,
+                method = method,
+                pathname = pathname,
+                patched = changed,
+                removedThinkingBlocks = removedThinking,
+                model = originalBody["model"]?.jsonPrimitive?.contentOrNull,
+                messageCount = patchedMessages?.size,
+                explicitCacheBlocks = MessagePatcher.countExplicitCacheBlocks(patchedMessages)
+            )
+        } catch (e: Exception) {
+            System.err.println("Failed to persist request log: ${e.message}")
+        }
     }
 
     private fun summarizeBody(body: JsonObject): JsonObject {

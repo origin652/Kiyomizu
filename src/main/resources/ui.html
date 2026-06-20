@@ -1065,6 +1065,178 @@ button[type=submit]:active,
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Export/Import buttons ── */
+.config-io-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.btn-secondary {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: all 0.2s ease;
+}
+.btn-secondary:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: rgba(37,99,235,0.04);
+}
+
+/* ── Companion / Logs panels ── */
+.companion-logs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+@media (max-width: 900px) {
+  .companion-logs-grid { grid-template-columns: 1fr; }
+}
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.panel-refresh-btn {
+  background: none;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.panel-refresh-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
+.stat-bar-row { margin-bottom: 14px; }
+.stat-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+.stat-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--input-border);
+  overflow: hidden;
+}
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+.stat-bar-fill.intimacy { background: linear-gradient(90deg,#f472b6,#ec4899); }
+.stat-bar-fill.trust { background: linear-gradient(90deg,#60a5fa,#2563eb); }
+.mood-badge {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: rgba(37,99,235,0.08);
+  color: var(--accent-color);
+  margin-bottom: 14px;
+}
+.companion-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px; }
+.reflections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.reflection-item {
+  background: rgba(37,99,235,0.03);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.reflection-time { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.log-table-wrap { overflow-x: auto; }
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.log-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--input-border);
+  white-space: nowrap;
+}
+.log-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+.log-table tr:last-child td { border-bottom: none; }
+.log-table .badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.log-table .badge.yes { background: rgba(5,150,105,0.1); color: #059669; }
+.log-table .badge.no  { background: rgba(100,116,139,0.1); color: var(--text-muted); }
+.log-table .model-cell {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.72rem;
+}
+.log-table-scroll { max-height: 320px; overflow-y: auto; }
+.empty-state {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.dashboard-wrapper.config-locked .companion-logs-grid {
+  opacity: 0.3;
+  pointer-events: none;
+}
 </style>
 </head>
 <body>
@@ -1518,11 +1690,96 @@ button[type=submit]:active,
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             Save Settings
           </button>
+
+          <div class="config-io-row">
+            <button type="button" class="btn-secondary" onclick="exportConfig()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span id="t-export-btn">Export Config</span>
+            </button>
+            <button type="button" class="btn-secondary" onclick="document.getElementById('import-file-input').click()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span id="t-import-btn">Import Config</span>
+            </button>
+            <input type="file" id="import-file-input" accept=".json" style="display:none;" onchange="importConfig(event)">
+          </div>
         </form>
         <div id="status"></div>
       </div>
     </div>
-    
+
+  <!-- Companion State + Request Logs -->
+  <div class="companion-logs-grid" id="companion-logs-grid" style="display:none;">
+
+    <!-- Companion State -->
+    <div class="dashboard-card">
+      <div class="panel-title-row">
+        <div class="panel-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span id="t-companion-panel-title">Companion State</span>
+        </div>
+        <button class="panel-refresh-btn" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+      </div>
+
+      <div id="companion-state-body">
+        <div class="stat-bar-row">
+          <div class="stat-bar-label">
+            <span id="t-intimacy-label">Intimacy</span>
+            <span id="companion-intimacy-val">—</span>
+          </div>
+          <div class="stat-bar-track"><div class="stat-bar-fill intimacy" id="companion-intimacy-bar" style="width:0%"></div></div>
+        </div>
+        <div class="stat-bar-row">
+          <div class="stat-bar-label">
+            <span id="t-trust-label">Trust</span>
+            <span id="companion-trust-val">—</span>
+          </div>
+          <div class="stat-bar-track"><div class="stat-bar-fill trust" id="companion-trust-bar" style="width:0%"></div></div>
+        </div>
+        <div id="companion-mood" class="mood-badge">—</div>
+        <div class="companion-meta">
+          <span id="t-memory-count-label">Memories: </span><span id="companion-memory-count">—</span>
+        </div>
+        <div class="section-label" id="t-reflections-label">Recent Reflections</div>
+        <div class="reflections-list" id="reflections-list">
+          <div class="empty-state" id="t-no-reflections">No reflections yet.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Request Logs -->
+    <div class="dashboard-card">
+      <div class="panel-title-row">
+        <div class="panel-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span id="t-logs-panel-title">Recent Requests</span>
+        </div>
+        <button class="panel-refresh-btn" onclick="loadLogs()" id="t-logs-refresh">Refresh</button>
+      </div>
+
+      <div class="log-table-wrap">
+        <div class="log-table-scroll">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th id="t-log-th-time">Time</th>
+                <th id="t-log-th-method">Method</th>
+                <th id="t-log-th-path">Path</th>
+                <th id="t-log-th-patched">Patched</th>
+                <th id="t-log-th-model">Model</th>
+                <th id="t-log-th-msgs">Msgs</th>
+                <th id="t-log-th-cache">Cache♦</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="7" class="empty-state" id="t-no-logs">No requests logged yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
   </div>
 </div>
 
@@ -1626,6 +1883,27 @@ const STRINGS = {
     autosaveSaved: '已保存',
     autosaveError: '保存失败',
     autosaveToggleLabel: '切换自动保存',
+    exportBtn: '导出配置',
+    importBtn: '导入配置',
+    importSuccess: '配置导入成功。',
+    importError: '导入失败：',
+    companionPanelTitle: '伴侣状态',
+    companionRefresh: '刷新',
+    intimacyLabel: '亲密度',
+    trustLabel: '信任度',
+    memoryCountLabel: '记忆数量：',
+    reflectionsLabel: '最近的日记',
+    noReflections: '暂无日记。',
+    logsPanelTitle: '最近请求',
+    logsRefresh: '刷新',
+    logThTime: '时间',
+    logThMethod: '方法',
+    logThPath: '路径',
+    logThPatched: '已处理',
+    logThModel: '模型',
+    logThMsgs: '消息数',
+    logThCache: '缓存♦',
+    noLogs: '暂无请求记录。',
   },
   en: {
     title: 'Kiyomizu Configuration Console',
@@ -1725,6 +2003,27 @@ const STRINGS = {
     autosaveSaved: 'Saved',
     autosaveError: 'Save failed',
     autosaveToggleLabel: 'Toggle autosave',
+    exportBtn: 'Export Config',
+    importBtn: 'Import Config',
+    importSuccess: 'Config imported successfully.',
+    importError: 'Import failed: ',
+    companionPanelTitle: 'Companion State',
+    companionRefresh: 'Refresh',
+    intimacyLabel: 'Intimacy',
+    trustLabel: 'Trust',
+    memoryCountLabel: 'Memories: ',
+    reflectionsLabel: 'Recent Reflections',
+    noReflections: 'No reflections yet.',
+    logsPanelTitle: 'Recent Requests',
+    logsRefresh: 'Refresh',
+    logThTime: 'Time',
+    logThMethod: 'Method',
+    logThPath: 'Path',
+    logThPatched: 'Patched',
+    logThModel: 'Model',
+    logThMsgs: 'Msgs',
+    logThCache: 'Cache♦',
+    noLogs: 'No requests logged yet.',
   },
   ja: {
     title: 'Kiyomizu 設定コントロールパネル',
@@ -1824,6 +2123,27 @@ const STRINGS = {
     autosaveSaved: '保存済み',
     autosaveError: '保存失敗',
     autosaveToggleLabel: 'AutoSaveを切り替え',
+    exportBtn: '設定をエクスポート',
+    importBtn: '設定をインポート',
+    importSuccess: '設定のインポートが完了しました。',
+    importError: 'インポート失敗：',
+    companionPanelTitle: 'コンパニオン状態',
+    companionRefresh: '更新',
+    intimacyLabel: '親密度',
+    trustLabel: '信頼度',
+    memoryCountLabel: 'メモリ数：',
+    reflectionsLabel: '最近の日記',
+    noReflections: 'まだ日記がありません。',
+    logsPanelTitle: '最近のリクエスト',
+    logsRefresh: '更新',
+    logThTime: '日時',
+    logThMethod: 'メソッド',
+    logThPath: 'パス',
+    logThPatched: '変換済み',
+    logThModel: 'モデル',
+    logThMsgs: 'メッセージ数',
+    logThCache: 'キャッシュ♦',
+    noLogs: 'まだリクエストがありません。',
   },
 };
 
@@ -2152,6 +2472,39 @@ function applyLang(lang) {
   const saveBtn = document.getElementById('t-save');
   const saveIcon = saveBtn.querySelector('svg').outerHTML;
   saveBtn.innerHTML = saveIcon + ' ' + s.save;
+
+  // Export / Import buttons
+  const exportEl = document.getElementById('t-export-btn');
+  if (exportEl) exportEl.textContent = s.exportBtn || 'Export Config';
+  const importEl = document.getElementById('t-import-btn');
+  if (importEl) importEl.textContent = s.importBtn || 'Import Config';
+
+  // Companion + Logs panel labels
+  const companionTitle = document.getElementById('t-companion-panel-title');
+  if (companionTitle) companionTitle.textContent = s.companionPanelTitle || 'Companion State';
+  const companionRefresh = document.getElementById('t-companion-refresh');
+  if (companionRefresh) companionRefresh.textContent = s.companionRefresh || 'Refresh';
+  const intimacyLbl = document.getElementById('t-intimacy-label');
+  if (intimacyLbl) intimacyLbl.textContent = s.intimacyLabel || 'Intimacy';
+  const trustLbl = document.getElementById('t-trust-label');
+  if (trustLbl) trustLbl.textContent = s.trustLabel || 'Trust';
+  const memCountLbl = document.getElementById('t-memory-count-label');
+  if (memCountLbl) memCountLbl.textContent = s.memoryCountLabel || 'Memories: ';
+  const reflectionsLbl = document.getElementById('t-reflections-label');
+  if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
+  const noReflEl = document.getElementById('t-no-reflections');
+  if (noReflEl) noReflEl.textContent = s.noReflections || 'No reflections yet.';
+  const logsPanelTitle = document.getElementById('t-logs-panel-title');
+  if (logsPanelTitle) logsPanelTitle.textContent = s.logsPanelTitle || 'Recent Requests';
+  const logsRefresh = document.getElementById('t-logs-refresh');
+  if (logsRefresh) logsRefresh.textContent = s.logsRefresh || 'Refresh';
+  const noLogsEl = document.getElementById('t-no-logs');
+  if (noLogsEl) noLogsEl.textContent = s.noLogs || 'No requests logged yet.';
+  ['t-log-th-time','t-log-th-method','t-log-th-path','t-log-th-patched','t-log-th-model','t-log-th-msgs','t-log-th-cache'].forEach((id, i) => {
+    const keys = ['logThTime','logThMethod','logThPath','logThPatched','logThModel','logThMsgs','logThCache'];
+    const el = document.getElementById(id);
+    if (el) el.textContent = s[keys[i]] || el.textContent;
+  });
 
   updateCacheModeOptions();
   updateVisualizer();
@@ -2514,12 +2867,151 @@ async function runAutoSave() {
   }
 }
 
+async function exportConfig() {
+  const r = await fetchConfig('/api/config/export');
+  if (!r.ok) {
+    const status = document.getElementById('status');
+    status.className = 'err';
+    status.textContent = (STRINGS[currentLang].error || 'Error: ') + 'Export failed (' + r.status + ')';
+    status.style.display = 'block';
+    return;
+  }
+  const d = await r.json();
+  const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'kiyomizu-config.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function importConfig(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  const text = await file.text();
+  const status = document.getElementById('status');
+  const str = STRINGS[currentLang];
+  let body;
+  try { body = JSON.parse(text); } catch (e) {
+    status.className = 'err';
+    status.textContent = (str.importError || 'Import failed: ') + 'Invalid JSON';
+    status.style.display = 'block';
+    return;
+  }
+  const r = await fetchConfig('/api/config/import', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: text
+  });
+  const d = await r.json();
+  if (r.ok) {
+    applyConfigData(d);
+    status.className = 'success';
+    status.textContent = str.importSuccess || 'Config imported successfully.';
+    status.style.display = 'block';
+    setTimeout(() => { status.style.display = 'none'; }, 4000);
+  } else {
+    const errors = d.errors || [d.error || 'Unknown error'];
+    status.className = 'err';
+    status.textContent = (str.importError || 'Import failed: ') + errors.join('; ');
+    status.style.display = 'block';
+  }
+}
+
+async function loadCompanionState() {
+  const r = await fetchConfig('/api/companion/state');
+  if (!r.ok) return;
+  const d = await r.json();
+
+  const intimacy = Math.round(d.intimacy || 0);
+  const trust = Math.round(d.trust || 0);
+  document.getElementById('companion-intimacy-bar').style.width = intimacy + '%';
+  document.getElementById('companion-intimacy-val').textContent = intimacy + ' / 100';
+  document.getElementById('companion-trust-bar').style.width = trust + '%';
+  document.getElementById('companion-trust-val').textContent = trust + ' / 100';
+  document.getElementById('companion-mood').textContent = d.mood || 'neutral';
+  document.getElementById('companion-memory-count').textContent = d.memory_count ?? '—';
+
+  const list = document.getElementById('reflections-list');
+  const noReflEl = document.getElementById('t-no-reflections');
+  const reflections = d.reflections || [];
+  if (reflections.length === 0) {
+    list.innerHTML = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.id = 't-no-reflections';
+    empty.textContent = STRINGS[currentLang].noReflections || 'No reflections yet.';
+    list.appendChild(empty);
+  } else {
+    list.innerHTML = '';
+    reflections.forEach(refl => {
+      const item = document.createElement('div');
+      item.className = 'reflection-item';
+      const text = document.createElement('div');
+      text.textContent = refl.diary_entry;
+      const time = document.createElement('div');
+      time.className = 'reflection-time';
+      time.textContent = new Date(refl.created_at * 1000).toLocaleString();
+      item.appendChild(text);
+      item.appendChild(time);
+      list.appendChild(item);
+    });
+  }
+
+  document.getElementById('companion-logs-grid').style.display = 'grid';
+}
+
+async function loadLogs() {
+  const r = await fetchConfig('/api/logs?limit=50');
+  if (!r.ok) return;
+  const d = await r.json();
+  const logs = d.logs || [];
+  const tbody = document.getElementById('logs-tbody');
+  tbody.innerHTML = '';
+
+  if (logs.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 7;
+    td.className = 'empty-state';
+    td.textContent = STRINGS[currentLang].noLogs || 'No requests logged yet.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    logs.forEach(l => {
+      const tr = document.createElement('tr');
+      const timeStr = new Date(l.at).toLocaleTimeString();
+      const badge = l.patched
+        ? '<span class="badge yes">✓</span>'
+        : '<span class="badge no">—</span>';
+      const modelShort = l.model ? l.model.split('/').pop() : '—';
+      tr.innerHTML = `
+        <td title="${l.at}">${timeStr}</td>
+        <td>${l.method}</td>
+        <td style="font-family:'Fira Code',monospace;font-size:0.72rem">${l.pathname}</td>
+        <td>${badge}</td>
+        <td class="model-cell" title="${l.model || ''}">${modelShort}</td>
+        <td>${l.message_count ?? '—'}</td>
+        <td>${l.explicit_cache_blocks ?? '—'}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('companion-logs-grid').style.display = 'grid';
+}
+
 async function load() {
   const r = await fetchConfig('/api/config');
   const d = await r.json();
   if (r.ok) {
     setAuthPanelVisible(false, 'unlock');
     applyConfigData(d);
+    loadCompanionState();
+    loadLogs();
     return;
   }
 
