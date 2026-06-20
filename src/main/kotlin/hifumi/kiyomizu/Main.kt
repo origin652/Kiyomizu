@@ -326,6 +326,97 @@ fun main() {
                 }
             }
 
+            get("/api/companion/state") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val state = DatabaseService.getRelationshipState()
+                val reflections = DatabaseService.getRecentReflectionsDetailed(20)
+                val memoryCount = DatabaseService.getMemoryCount()
+                call.respondText(buildJsonObject {
+                    put("intimacy", state.intimacy)
+                    put("trust", state.trust)
+                    put("mood", state.mood)
+                    put("last_interaction_at", state.lastInteractionAt)
+                    put("memory_count", memoryCount)
+                    put("reflections", buildJsonArray {
+                        reflections.forEach { r ->
+                            add(buildJsonObject {
+                                put("id", r.id)
+                                put("diary_entry", r.diaryEntry)
+                                put("created_at", r.createdAt)
+                            })
+                        }
+                    })
+                }.toString(), ContentType.Application.Json)
+            }
+
+            get("/api/companion/memories") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val memories = DatabaseService.getAllMemoriesForSearch().sortedByDescending { it.strength }
+                call.respondText(buildJsonObject {
+                    put("memories", buildJsonArray {
+                        memories.forEach { m ->
+                            add(buildJsonObject {
+                                put("id", m.id)
+                                put("content", m.content)
+                                put("type", m.type)
+                                put("emotion_tag", m.emotionTag)
+                                put("strength", m.strength)
+                                put("created_at", m.createdAt)
+                                put("last_accessed_at", m.lastAccessedAt)
+                            })
+                        }
+                    })
+                }.toString(), ContentType.Application.Json)
+            }
+
+            get("/api/logs") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 100
+                val logs = DatabaseService.getRecentRequestLogs(limit)
+                call.respondText(buildJsonObject {
+                    put("logs", buildJsonArray {
+                        logs.forEach { l ->
+                            add(buildJsonObject {
+                                put("id", l.id)
+                                put("at", l.at)
+                                put("method", l.method)
+                                put("pathname", l.pathname)
+                                put("patched", l.patched)
+                                put("removed_thinking_blocks", l.removedThinkingBlocks)
+                                if (l.model != null) put("model", l.model)
+                                if (l.messageCount != null) put("message_count", l.messageCount)
+                                if (l.explicitCacheBlocks != null) put("explicit_cache_blocks", l.explicitCacheBlocks)
+                            })
+                        }
+                    })
+                }.toString(), ContentType.Application.Json)
+            }
+
+            get("/api/config/export") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                call.respondText(Config.snapshot().toJson().toString(), ContentType.Application.Json)
+            }
+
+            post("/api/config/import") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                val updateResult = ConfigApi.applyUpdate(body)
+                if (updateResult.errors.isNotEmpty()) {
+                    call.respondText(buildJsonObject {
+                        put("errors", buildJsonArray { updateResult.errors.forEach { add(it) } })
+                    }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                } else {
+                    println("Config imported via /api/config/import")
+                    call.respondText(updateResult.responseBody.toString(), ContentType.Application.Json)
+                }
+            }
+
             fallbackProxyRoute()
         }
     }.start(wait = true)
