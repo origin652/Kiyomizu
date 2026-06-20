@@ -1103,11 +1103,8 @@ button[type=submit]:active,
 /* ── Companion / Logs panels ── */
 .companion-logs-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 28px;
-}
-@media (max-width: 900px) {
-  .companion-logs-grid { grid-template-columns: 1fr; }
 }
 .panel-title-row {
   display: flex;
@@ -1411,6 +1408,72 @@ button[type=submit]:active,
           </div>
         </div>
       </div>
+
+      <!-- Companion State + Request Logs -->
+      <div class="companion-logs-grid" id="companion-logs-grid" style="display:none;">
+        <div class="dashboard-card">
+          <div class="panel-title-row">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <span id="t-companion-panel-title">Companion State</span>
+            </div>
+            <button class="panel-refresh-btn" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+          </div>
+          <div id="companion-state-body">
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">
+                <span id="t-intimacy-label">Intimacy</span>
+                <span id="companion-intimacy-val">—</span>
+              </div>
+              <div class="stat-bar-track"><div class="stat-bar-fill intimacy" id="companion-intimacy-bar" style="width:0%"></div></div>
+            </div>
+            <div class="stat-bar-row">
+              <div class="stat-bar-label">
+                <span id="t-trust-label">Trust</span>
+                <span id="companion-trust-val">—</span>
+              </div>
+              <div class="stat-bar-track"><div class="stat-bar-fill trust" id="companion-trust-bar" style="width:0%"></div></div>
+            </div>
+            <div id="companion-mood" class="mood-badge">—</div>
+            <div class="companion-meta">
+              <span id="t-memory-count-label">Memories: </span><span id="companion-memory-count">—</span>
+            </div>
+            <div class="section-label" id="t-reflections-label">Recent Reflections</div>
+            <div class="reflections-list" id="reflections-list">
+              <div class="empty-state" id="t-no-reflections">No reflections yet.</div>
+            </div>
+          </div>
+        </div>
+        <div class="dashboard-card">
+          <div class="panel-title-row">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <span id="t-logs-panel-title">Recent Requests</span>
+            </div>
+            <button class="panel-refresh-btn" onclick="loadLogs()" id="t-logs-refresh">Refresh</button>
+          </div>
+          <div class="log-table-wrap">
+            <div class="log-table-scroll">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th id="t-log-th-time">Time</th>
+                    <th id="t-log-th-method">Method</th>
+                    <th id="t-log-th-path">Path</th>
+                    <th id="t-log-th-patched">Patched</th>
+                    <th id="t-log-th-model">Model</th>
+                    <th id="t-log-th-msgs">Msgs</th>
+                    <th id="t-log-th-cache">Cache♦</th>
+                  </tr>
+                </thead>
+                <tbody id="logs-tbody">
+                  <tr><td colspan="7" class="empty-state" id="t-no-logs">No requests logged yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Right Column: Configurations form -->
@@ -1711,81 +1774,8 @@ button[type=submit]:active,
         <div id="status"></div>
       </div>
     </div>
-
-  <!-- Companion State + Request Logs -->
-  <div class="companion-logs-grid" id="companion-logs-grid" style="display:none;">
-
-    <!-- Companion State -->
-    <div class="dashboard-card">
-      <div class="panel-title-row">
-        <div class="panel-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          <span id="t-companion-panel-title">Companion State</span>
-        </div>
-        <button class="panel-refresh-btn" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
-      </div>
-
-      <div id="companion-state-body">
-        <div class="stat-bar-row">
-          <div class="stat-bar-label">
-            <span id="t-intimacy-label">Intimacy</span>
-            <span id="companion-intimacy-val">—</span>
-          </div>
-          <div class="stat-bar-track"><div class="stat-bar-fill intimacy" id="companion-intimacy-bar" style="width:0%"></div></div>
-        </div>
-        <div class="stat-bar-row">
-          <div class="stat-bar-label">
-            <span id="t-trust-label">Trust</span>
-            <span id="companion-trust-val">—</span>
-          </div>
-          <div class="stat-bar-track"><div class="stat-bar-fill trust" id="companion-trust-bar" style="width:0%"></div></div>
-        </div>
-        <div id="companion-mood" class="mood-badge">—</div>
-        <div class="companion-meta">
-          <span id="t-memory-count-label">Memories: </span><span id="companion-memory-count">—</span>
-        </div>
-        <div class="section-label" id="t-reflections-label">Recent Reflections</div>
-        <div class="reflections-list" id="reflections-list">
-          <div class="empty-state" id="t-no-reflections">No reflections yet.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Request Logs -->
-    <div class="dashboard-card">
-      <div class="panel-title-row">
-        <div class="panel-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <span id="t-logs-panel-title">Recent Requests</span>
-        </div>
-        <button class="panel-refresh-btn" onclick="loadLogs()" id="t-logs-refresh">Refresh</button>
-      </div>
-
-      <div class="log-table-wrap">
-        <div class="log-table-scroll">
-          <table class="log-table">
-            <thead>
-              <tr>
-                <th id="t-log-th-time">Time</th>
-                <th id="t-log-th-method">Method</th>
-                <th id="t-log-th-path">Path</th>
-                <th id="t-log-th-patched">Patched</th>
-                <th id="t-log-th-model">Model</th>
-                <th id="t-log-th-msgs">Msgs</th>
-                <th id="t-log-th-cache">Cache♦</th>
-              </tr>
-            </thead>
-            <tbody id="logs-tbody">
-              <tr><td colspan="7" class="empty-state" id="t-no-logs">No requests logged yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
   </div>
 
-  </div>
 </div>
 
 <script>
