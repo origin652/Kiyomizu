@@ -29,8 +29,12 @@ You can customize Kiyomizu's behavior via environment variables at startup:
 
 | Variable | Default | Description |
 |---|---|---|
-| `HOST` | `127.0.0.1` | Set to `0.0.0.0` to expose Kiyomizu to your Local Area Network (LAN). |
+| `HOST` | `127.0.0.1` | Bind address. Public binds require proxy authentication by default. |
 | `PORT` | `8787` | Local port for the proxy server. |
+| `KIYOMIZU_CONFIG_PASSWORD` | empty | Config UI/API password, minimum 12 characters. Set this before exposing a VPS. |
+| `KIYOMIZU_PROXY_PASSWORD` | empty | Dedicated proxy password for public binds. If unset, the config password is accepted for proxy auth. |
+| `KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY` | `0` | Dangerous escape hatch; use only behind a trusted reverse proxy or firewall. |
+| `KIYOMIZU_ALLOW_PRIVATE_UPSTREAMS` | `0` | Allows `http`, localhost, private IPs, and metadata-like hosts for upstream/memory URLs. |
 | `STRIP_THINKING` | `1` | Set to `0` to keep reasoning/thinking blocks in history. |
 | `MODEL_FILTER` | `anthropic,claude` | Patch models containing these terms (for Claude logic). |
 | `GEMINI_MODEL_FILTER` | `google,gemini` | Patch models containing these terms (for Gemini logic). |
@@ -51,6 +55,8 @@ From this panel, you can:
 3. Toggle between **Claude** and **Gemini** providers.
 4. Customize caching parameters (TTL, Breakpoints count, Strategy).
 5. Instantly save settings without restarting the server.
+
+For VPS or LAN exposure, set `KIYOMIZU_CONFIG_PASSWORD` before startup. Remote first-run password setup is blocked by default, proxy routes require `X-Kiyomizu-Proxy-Password` or `Proxy-Authorization`, and outbound URLs are restricted to HTTPS public hosts unless `KIYOMIZU_ALLOW_PRIVATE_UPSTREAMS=1`.
 
 ---
 
