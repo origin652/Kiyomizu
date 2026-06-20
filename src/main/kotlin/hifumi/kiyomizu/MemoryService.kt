@@ -3,6 +3,7 @@ package hifumi.kiyomizu
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.utils.io.*
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
 import java.net.URI
@@ -11,6 +12,25 @@ import java.time.Instant
 object MemoryService {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private const val duplicateMemorySimilarityThreshold = 0.92
+    private const val maxUpstreamResponseBytes = 2 * 1024 * 1024 // 2 MiB cap for memory-service upstream replies
+
+    private suspend fun HttpResponse.boundedBodyAsText(maxBytes: Int = maxUpstreamResponseBytes): String {
+        val channel = bodyAsChannel()
+        val buffer = ByteArray(8192)
+        val out = java.io.ByteArrayOutputStream()
+        var total = 0
+        while (!channel.isClosedForRead) {
+            val read = channel.readAvailable(buffer, 0, buffer.size)
+            if (read < 0) break
+            if (read == 0) continue
+            if (total + read > maxBytes) {
+                throw IllegalStateException("upstream response exceeded $maxBytes bytes")
+            }
+            out.write(buffer, 0, read)
+            total += read
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
 
     fun startDecayJob(appScope: CoroutineScope) {
         appScope.launch {
@@ -148,7 +168,7 @@ object MemoryService {
                 setBody(requestBody.toString())
             }
 
-            val resText = response.bodyAsText()
+            val resText = response.boundedBodyAsText()
             val jsonEl = Json.parseToJsonElement(resText) as? JsonObject
             if (jsonEl != null) {
                 if (isGemini) {
@@ -227,7 +247,7 @@ object MemoryService {
                 setBody(requestBody.toString())
             }
 
-            val resText = response.bodyAsText()
+            val resText = response.boundedBodyAsText()
             val jsonEl = Json.parseToJsonElement(resText) as? JsonObject
             if (jsonEl != null) {
                 val contentString = if (isGeminiDirect) {
@@ -326,7 +346,7 @@ object MemoryService {
                 setBody(requestBody.toString())
             }
             
-            val resText = response.bodyAsText()
+            val resText = response.boundedBodyAsText()
             val jsonEl = Json.parseToJsonElement(resText) as? JsonObject
             if (jsonEl != null) {
                 val contentString = if (isGeminiDirect) {

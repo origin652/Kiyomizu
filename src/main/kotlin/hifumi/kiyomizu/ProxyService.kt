@@ -14,6 +14,11 @@ object ProxyService {
         engine {
             requestTimeout = 300000 // 5 minutes
         }
+        // Redirects are resolved by the validated proxy layer, never auto-followed,
+        // so an upstream cannot redirect us into a private/metadata address that
+        // bypassed Security.validateOutboundRequestUrl.
+        followRedirects = false
+        expectSuccess = false
     }
 
     private val hopByHopHeaders = setOf(
