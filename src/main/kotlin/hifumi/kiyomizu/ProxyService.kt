@@ -77,17 +77,20 @@ object ProxyService {
         cleanedHeaders.forEach { (k, v) ->
             val lk = k.lowercase()
             if (lk == "authorization") {
-                if (v.startsWith("Bearer ", ignoreCase = true)) {
-                    apiKey = v.substring(7).trim()
+                val trimmed = v.trim()
+                if (trimmed.startsWith("Bearer ", ignoreCase = true)) {
+                    apiKey = trimmed.substring(7).trim()
                 } else {
-                    apiKey = v.trim()
+                    // Non-Bearer Authorization is not an Anthropic API key; forward
+                    // it verbatim instead of corrupting x-api-key with the full value.
+                    result.add(k to v)
                 }
             } else {
                 result.add(k to v)
             }
         }
 
-        if (apiKey.isNotEmpty()) {
+        if (apiKey.isNotEmpty() && result.none { it.first.lowercase() == "x-api-key" }) {
             result.add("x-api-key" to apiKey)
         }
         if (result.none { it.first.lowercase() == "anthropic-version" }) {

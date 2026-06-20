@@ -173,6 +173,39 @@ class ProxyTest {
     }
 
     @Test
+    fun anthropicPresetForwardsNonBearerAuthorizationVerbatim() {
+        resetConfig()
+        Config.preset = "anthropic"
+
+        // A non-Bearer Authorization (e.g. Basic) must not be stuffed into
+        // x-api-key as a literal string; pass it through unchanged instead.
+        val adjusted = ProxyService.adjustHeadersForUpstream(
+            ProxyService.cleanHeaders(headersOf("Authorization", "Basic dXNlcjpwYXNz"))
+        )
+        assertTrue(adjusted.any { it.first.equals("Authorization", ignoreCase = true) && it.second == "Basic dXNlcjpwYXNz" })
+        assertTrue(adjusted.none { it.first.equals("x-api-key", ignoreCase = true) })
+        assertTrue(adjusted.any { it.first.equals("anthropic-version", ignoreCase = true) })
+    }
+
+    @Test
+    fun anthropicPresetPreservesExistingXApiKey() {
+        resetConfig()
+        Config.preset = "anthropic"
+
+        val adjusted = ProxyService.adjustHeadersForUpstream(
+            ProxyService.cleanHeaders(
+                headersOf(
+                    "Authorization" to listOf("Bearer should-be-overridden-by-existing"),
+                    "x-api-key" to listOf("explicit-key")
+                )
+            )
+        )
+        val apiKeys = adjusted.filter { it.first.equals("x-api-key", ignoreCase = true) }
+        assertEquals(1, apiKeys.size, "explicit x-api-key must not be duplicated by the Authorization rewrite")
+        assertEquals("explicit-key", apiKeys.single().second)
+    }
+
+    @Test
     fun cleanHeadersStripsInternalAuthHeaders() {
         val cleaned = ProxyService.cleanHeaders(
             headersOf(
