@@ -123,6 +123,30 @@ class ConfigApiTest {
     }
 
     @Test
+    fun loadPersistedDiscardsUnsafeUrls() {
+        withIsolatedDb {
+            resetConfig()
+
+            val poisoned = buildJsonObject {
+                put("preset", "custom")
+                put("upstream", "http://169.254.169.254")
+                put("memory_summary_url", "http://localhost:11434")
+                put("memory_embedding_url", "https://generativelanguage.googleapis.com")
+            }.toString()
+
+            Config.loadPersisted(poisoned)
+
+            assertEquals("", Config.upstream, "private-network upstream from DB must be discarded on load")
+            assertEquals("", Config.memorySummaryUrl, "loopback memory_summary_url from DB must be discarded on load")
+            assertEquals(
+                "https://generativelanguage.googleapis.com",
+                Config.memoryEmbeddingUrl,
+                "safe persisted URLs must be retained"
+            )
+        }
+    }
+
+    @Test
     fun applyUpdatePersistsConfigAcrossReload() {
         withIsolatedDb {
             resetConfig()

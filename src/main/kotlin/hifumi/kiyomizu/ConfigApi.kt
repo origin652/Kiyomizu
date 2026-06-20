@@ -126,7 +126,7 @@ object ConfigApi {
             nextMemoryEnabled = it
         }
         body.readString("memory_summary_url", errors) {
-            nextMemorySummaryUrl = it
+            nextMemorySummaryUrl = it.trim()
         }
         body.readString("memory_summary_model", errors) {
             nextMemorySummaryModel = it
@@ -135,7 +135,7 @@ object ConfigApi {
             nextMemorySummaryPrompt = it
         }
         body.readString("memory_embedding_url", errors) {
-            nextMemoryEmbeddingUrl = it
+            nextMemoryEmbeddingUrl = it.trim()
         }
         body.readString("memory_embedding_model", errors) {
             nextMemoryEmbeddingModel = it
@@ -220,6 +220,18 @@ object ConfigApi {
 
         if (nextPreset == "custom" && nextUpstream.isBlank()) {
             errors.add("upstream is required when preset is custom")
+        }
+
+        if (nextUpstream.isNotBlank()) {
+            Security.validateOutboundBaseUrl(nextUpstream, "upstream")?.let { errors.add(it) }
+        }
+
+        if (nextMemorySummaryUrl.isNotBlank()) {
+            Security.validateOutboundBaseUrl(nextMemorySummaryUrl, "memory_summary_url")?.let { errors.add(it) }
+        }
+
+        if (nextMemoryEmbeddingUrl.isNotBlank()) {
+            Security.validateOutboundBaseUrl(nextMemoryEmbeddingUrl, "memory_embedding_url")?.let { errors.add(it) }
         }
 
         if (nextPreset != "anthropic" && nextCacheMode == "automatic") {

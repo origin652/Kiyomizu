@@ -294,17 +294,17 @@ object Config {
             applySnapshot(
                 Snapshot(
                     preset = body.stringValue("preset") ?: preset,
-                    upstream = body.stringValue("upstream") ?: upstreamRef.get().trim(),
+                    upstream = body.stringValue("upstream")?.let { sanitizePersistedUrl(it, "upstream") } ?: upstreamRef.get().trim(),
                     cacheTtl = body.stringValue("cache_ttl") ?: cacheTtl,
                     cacheMode = body.stringValue("cache_mode") ?: cacheMode,
                     cacheStrategy = body.stringValue("cache_strategy") ?: cacheStrategy,
                     cacheBreakpoints = body.intValue("cache_breakpoints") ?: cacheBreakpoints,
                     memoryEnabled = body.booleanValue("memory_enabled") ?: memoryEnabled,
-                    memorySummaryUrl = body.stringValue("memory_summary_url") ?: memorySummaryUrl,
+                    memorySummaryUrl = body.stringValue("memory_summary_url")?.let { sanitizePersistedUrl(it, "memory_summary_url") } ?: memorySummaryUrl,
                     memorySummaryKey = body.stringValue("memory_summary_key") ?: memorySummaryKey,
                     memorySummaryModel = body.stringValue("memory_summary_model") ?: memorySummaryModel,
                     memorySummaryPrompt = body.stringValue("memory_summary_prompt") ?: memorySummaryPrompt,
-                    memoryEmbeddingUrl = body.stringValue("memory_embedding_url") ?: memoryEmbeddingUrl,
+                    memoryEmbeddingUrl = body.stringValue("memory_embedding_url")?.let { sanitizePersistedUrl(it, "memory_embedding_url") } ?: memoryEmbeddingUrl,
                     memoryEmbeddingKey = body.stringValue("memory_embedding_key") ?: memoryEmbeddingKey,
                     memoryEmbeddingModel = body.stringValue("memory_embedding_model") ?: memoryEmbeddingModel,
                     memoryDecayIntervalHours = body.intValue("memory_decay_interval_hours") ?: memoryDecayIntervalHours,
@@ -321,6 +321,17 @@ object Config {
         } catch (e: Exception) {
             System.err.println("Failed to load persisted config: ${e.message}")
         }
+    }
+
+    private fun sanitizePersistedUrl(value: String, fieldName: String): String {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return ""
+        val error = Security.validateOutboundBaseUrl(trimmed, fieldName)
+        if (error != null) {
+            System.err.println("Discarding persisted $fieldName: $error")
+            return ""
+        }
+        return trimmed
     }
 
     private fun JsonObject.stringValue(field: String): String? {
