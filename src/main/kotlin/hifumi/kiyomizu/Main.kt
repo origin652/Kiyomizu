@@ -12,6 +12,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.utils.io.*
 import kotlinx.serialization.json.*
+import java.io.ByteArrayOutputStream
 import java.net.URI
 
 fun main() {
@@ -34,34 +35,62 @@ fun main() {
     println("Dynamic tail messages: ${Config.dynamicTailMessages}")
     println("Strip thinking: ${Config.stripThinking}")
     println("Model filter: ${Config.modelFilter}")
+    if (Security.isPubliclyBound()) {
+        println("Security: public bind detected. Proxy authentication is required unless KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY=1 is set.")
+        if (!Security.isRemotePasswordSetupAllowed() && !ConfigAuth.isConfigured()) {
+            println("Security: remote first-run password setup is disabled. Set KIYOMIZU_CONFIG_PASSWORD before exposing this server.")
+        }
+    }
 
     embeddedServer(Netty, port = Config.port, host = Config.host) {
         MemoryService.startDecayJob(this)
 
-        install(CORS) {
-            allowHost("localhost")
-            allowHost("127.0.0.1")
-            allowHeader(HttpHeaders.Authorization)
-            allowHeader(HttpHeaders.ContentType)
-            allowHeader("http-referer")
-            allowHeader("x-title")
-            allowHeader("anthropic-beta")
-            allowHeader(ConfigAuth.headerName)
-            allowMethod(HttpMethod.Get)
-            allowMethod(HttpMethod.Post)
-            allowMethod(HttpMethod.Put)
-            allowMethod(HttpMethod.Patch)
-            allowMethod(HttpMethod.Delete)
-            allowMethod(HttpMethod.Options)
-            allowCredentials = true
-            allowNonSimpleContentTypes = true
+        if (Security.shouldAllowBrowserCors()) {
+            install(CORS) {
+                allowHost("localhost")
+                allowHost("127.0.0.1")
+                allowHeader(HttpHeaders.Authorization)
+                allowHeader(HttpHeaders.ContentType)
+                allowHeader("http-referer")
+                allowHeader("x-title")
+                allowHeader("anthropic-beta")
+                allowHeader(ConfigAuth.headerName)
+                allowHeader(Security.proxyAuthHeaderName)
+                allowMethod(HttpMethod.Get)
+                allowMethod(HttpMethod.Post)
+                allowMethod(HttpMethod.Put)
+                allowMethod(HttpMethod.Patch)
+                allowMethod(HttpMethod.Delete)
+                allowMethod(HttpMethod.Options)
+                allowCredentials = true
+                allowNonSimpleContentTypes = true
+            }
         }
 
-        install(createApplicationPlugin("PrivateNetworkCORS") {
+        install(createApplicationPlugin("SecurityHeaders") {
             onCallRespond { call ->
-                call.response.headers.append("Access-Control-Allow-Private-Network", "true", safeOnly = true)
+                call.response.headers.append("X-Content-Type-Options", "nosniff", safeOnly = true)
+                call.response.headers.append("X-Frame-Options", "DENY", safeOnly = true)
+                call.response.headers.append("Referrer-Policy", "no-referrer", safeOnly = true)
+                call.response.headers.append("Permissions-Policy", "geolocation=(), microphone=(), camera=()", safeOnly = true)
+                call.response.headers.append(
+                    "Content-Security-Policy",
+                    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                    safeOnly = true
+                )
+                if (call.request.path().startsWith("/api/")) {
+                    call.response.headers.append(HttpHeaders.CacheControl, "no-store", safeOnly = true)
+                }
             }
         })
+
+        if (Security.shouldAllowBrowserCors()) {
+            install(createApplicationPlugin("PrivateNetworkCORS") {
+                onCallRespond { call ->
+                    call.response.headers.append("Access-Control-Allow-Private-Network", "true", safeOnly = true)
+                }
+            })
+        }
 
         routing {
             options("{...}") {
@@ -69,19 +98,23 @@ fun main() {
             }
 
             get("/health") {
-                val healthText = listOf(
-                    "Kiyomizu Cache Proxy is running.",
-                    "Preset: ${Config.preset}",
-                    "Upstream: ${Config.upstream}",
-                    "Prompt cache TTL: ${Config.cacheTtl}",
-                    "Cache mode: ${Config.cacheMode}",
-                    "Send top-level cache_control: ${Config.sendTopLevelCacheControl}",
-                    "Cache strategy: ${Config.cacheStrategy}",
-                    "Cache breakpoints: ${Config.cacheBreakpoints}",
-                    "Dynamic tail messages: ${Config.dynamicTailMessages}",
-                    "Strip thinking: ${Config.stripThinking}",
-                    "Model filter: ${Config.modelFilter}"
-                ).joinToString("\n")
+                val healthText = if (System.getenv("KIYOMIZU_VERBOSE_HEALTH") == "1") {
+                    listOf(
+                        "Kiyomizu Cache Proxy is running.",
+                        "Preset: ${Config.preset}",
+                        "Upstream: ${Config.upstream}",
+                        "Prompt cache TTL: ${Config.cacheTtl}",
+                        "Cache mode: ${Config.cacheMode}",
+                        "Send top-level cache_control: ${Config.sendTopLevelCacheControl}",
+                        "Cache strategy: ${Config.cacheStrategy}",
+                        "Cache breakpoints: ${Config.cacheBreakpoints}",
+                        "Dynamic tail messages: ${Config.dynamicTailMessages}",
+                        "Strip thinking: ${Config.stripThinking}",
+                        "Model filter: ${Config.modelFilter}"
+                    ).joinToString("\n")
+                } else {
+                    "ok\n"
+                }
                 call.respondText(healthText, ContentType.Text.Plain)
             }
 
@@ -101,8 +134,7 @@ fun main() {
                         ConfigAuth.setupRequired(call)
                         return@get
                     }
-                    if (!ConfigAuth.isAuthorized(call.request.headers)) {
-                        ConfigAuth.reject(call)
+                    if (!requireConfigAuth(call)) {
                         return@get
                     }
                     call.respondText(ConfigApi.publicConfigJson().toString(), ContentType.Application.Json)
@@ -112,11 +144,10 @@ fun main() {
                         ConfigAuth.setupRequired(call)
                         return@post
                     }
-                    if (!ConfigAuth.isAuthorized(call.request.headers)) {
-                        ConfigAuth.reject(call)
+                    if (!requireConfigAuth(call)) {
                         return@post
                     }
-                    val bodyText = call.receiveText()
+                    val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
                     val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
                     val updateResult = ConfigApi.applyUpdate(body)
                     if (updateResult.errors.isNotEmpty()) {
@@ -146,8 +177,19 @@ fun main() {
                     )
                     return@post
                 }
+                if (!Security.isRemotePasswordSetupAllowed()) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("error", "remote first-run password setup is disabled; set KIYOMIZU_CONFIG_PASSWORD before exposing the server")
+                            put("config_password_setup_required", true)
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.Forbidden
+                    )
+                    return@post
+                }
 
-                val bodyText = call.receiveText()
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
                 val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
                 val password = (body?.get("password") as? JsonPrimitive)?.contentOrNull?.trim()
                 val confirmPassword = (body?.get("confirm_password") as? JsonPrimitive)?.contentOrNull?.trim()
@@ -203,8 +245,7 @@ fun main() {
                     ConfigAuth.setupRequired(call)
                     return@post
                 }
-                if (!ConfigAuth.isAuthorized(call.request.headers)) {
-                    ConfigAuth.reject(call)
+                if (!requireConfigAuth(call)) {
                     return@post
                 }
                 if (!ConfigAuth.isChangeable()) {
@@ -219,7 +260,7 @@ fun main() {
                     return@post
                 }
 
-                val bodyText = call.receiveText()
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
                 val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch(e: Exception) { null }
                 val currentPassword = (body?.get("current_password") as? JsonPrimitive)?.contentOrNull?.trim()
                 val newPassword = (body?.get("new_password") as? JsonPrimitive)?.contentOrNull?.trim()
@@ -278,6 +319,9 @@ fun main() {
             val modelPaths = listOf("/models", "/model", "/v1/models", "/v1/model", "/api/v1/models", "/api/v1/model")
             modelPaths.forEach { path ->
                 get(path) {
+                    if (!requireProxyAuth(call)) {
+                        return@get
+                    }
                     handleModelListProxy(call)
                 }
             }
@@ -285,6 +329,86 @@ fun main() {
             fallbackProxyRoute()
         }
     }.start(wait = true)
+}
+
+private suspend fun requireConfigAuth(call: ApplicationCall): Boolean {
+    return when (ConfigAuth.authorizeConfigCall(call)) {
+        ConfigAuth.AuthDecision.AUTHORIZED -> true
+        ConfigAuth.AuthDecision.RATE_LIMITED -> {
+            ConfigAuth.rejectRateLimited(call)
+            false
+        }
+        ConfigAuth.AuthDecision.UNAUTHORIZED -> {
+            ConfigAuth.reject(call)
+            false
+        }
+    }
+}
+
+private suspend fun requireProxyAuth(call: ApplicationCall): Boolean {
+    if (!Security.shouldRequireProxyAuth()) return true
+    if (!ConfigAuth.isProxyAuthConfigured()) {
+        ConfigAuth.setupRequired(call)
+        return false
+    }
+
+    return when (ConfigAuth.authorizeProxyCall(call)) {
+        ConfigAuth.AuthDecision.AUTHORIZED -> true
+        ConfigAuth.AuthDecision.RATE_LIMITED -> {
+            ConfigAuth.rejectRateLimited(call)
+            false
+        }
+        ConfigAuth.AuthDecision.UNAUTHORIZED -> {
+            call.respondText(
+                buildJsonObject {
+                    put("error", "proxy password required")
+                    put("proxy_password_required", true)
+                    put("proxy_password_header", Security.proxyAuthHeaderName)
+                }.toString(),
+                ContentType.Application.Json,
+                HttpStatusCode.Unauthorized
+            )
+            false
+        }
+    }
+}
+
+private suspend fun receiveTextLimited(call: ApplicationCall, maxBytes: Long): String? {
+    val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
+    if (contentLength != null && contentLength > maxBytes) {
+        respondPayloadTooLarge(call, maxBytes)
+        return null
+    }
+
+    val channel = call.receiveChannel()
+    val buffer = ByteArray(8192)
+    val out = ByteArrayOutputStream()
+    var total = 0L
+
+    while (!channel.isClosedForRead) {
+        val read = channel.readAvailable(buffer, 0, buffer.size)
+        if (read < 0) break
+        if (read == 0) continue
+        total += read
+        if (total > maxBytes) {
+            respondPayloadTooLarge(call, maxBytes)
+            return null
+        }
+        out.write(buffer, 0, read)
+    }
+
+    return out.toString(Charsets.UTF_8.name())
+}
+
+private suspend fun respondPayloadTooLarge(call: ApplicationCall, maxBytes: Long) {
+    call.respondText(
+        buildJsonObject {
+            put("error", "request body is too large")
+            put("max_bytes", maxBytes)
+        }.toString(),
+        ContentType.Application.Json,
+        HttpStatusCode.PayloadTooLarge
+    )
 }
 
 private suspend fun serveUi(call: ApplicationCall) {
@@ -317,6 +441,11 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
     }
     val query = call.request.queryString()
     val upstreamUrl = "$upstream${ProxyService.normalizeUpstreamPath(call.request.path())}${if (query.isNotEmpty()) "?$query" else ""}"
+    val validationError = Security.validateOutboundRequestUrl(upstreamUrl, "upstream")
+    if (validationError != null) {
+        call.respondText(validationError, ContentType.Text.Plain, HttpStatusCode.BadRequest)
+        return
+    }
     val cleanedHeaders = ProxyService.cleanHeaders(call.request.headers)
     val finalHeaders = ProxyService.adjustHeadersForUpstream(cleanedHeaders)
     try {
@@ -332,26 +461,40 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
         val statusVal = response.status.value
         call.respondText(text, response.contentType() ?: ContentType.Application.Json, HttpStatusCode.fromValue(statusVal))
     } catch (e: Exception) {
-        e.printStackTrace()
-        call.respondText("Proxy error: ${e.message}", ContentType.Text.Plain, HttpStatusCode.BadGateway)
+        System.err.println("Model list proxy failed: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")
+        call.respondText("Proxy error", ContentType.Text.Plain, HttpStatusCode.BadGateway)
     }
 }
 
 private fun Route.fallbackProxyRoute() {
     route("{...}") {
         handle {
+            if (!requireProxyAuth(call)) {
+                return@handle
+            }
             val upstreamBase = Config.upstream
             if (upstreamBase.isBlank()) {
                 call.respondText("Upstream URL is not configured", ContentType.Text.Plain, HttpStatusCode.BadRequest)
                 return@handle
             }
+            val methodStr = call.request.httpMethod.value
             val path = call.request.path()
             val query = call.request.queryString()
             val upstreamPath = ProxyService.normalizeUpstreamPath(path)
             val upstreamUrl = "$upstreamBase$upstreamPath${if (query.isNotEmpty()) "?$query" else ""}"
+            val validationError = Security.validateOutboundRequestUrl(upstreamUrl, "upstream")
+            if (validationError != null) {
+                call.respondText(validationError, ContentType.Text.Plain, HttpStatusCode.BadRequest)
+                return@handle
+            }
             
             val cleanedHeaders = ProxyService.cleanHeaders(call.request.headers)
-            val requestBodyText = call.receiveText()
+            val mayHaveRequestBody = methodStr != "GET" && methodStr != "HEAD"
+            val requestBodyText = if (mayHaveRequestBody) {
+                receiveTextLimited(call, Config.maxProxyRequestBytes) ?: return@handle
+            } else {
+                ""
+            }
             var finalBodyBytes = requestBodyText.toByteArray(Charsets.UTF_8)
             var hasBetaHeader = false
             var originalJson: JsonObject? = null
@@ -376,7 +519,6 @@ private fun Route.fallbackProxyRoute() {
             }
 
             try {
-                val methodStr = call.request.httpMethod.value
                 val finalHeaders = ProxyService.adjustHeadersForUpstream(cleanedHeaders)
                 val upstreamResponse = ProxyService.client.request(upstreamUrl) {
                     this.method = HttpMethod.parse(methodStr)
@@ -389,7 +531,7 @@ private fun Route.fallbackProxyRoute() {
                     if (hasBetaHeader) {
                         header("anthropic-beta", Config.betaHeader)
                     }
-                    if (methodStr != "GET" && methodStr != "HEAD" && finalBodyBytes.isNotEmpty()) {
+                    if (mayHaveRequestBody && finalBodyBytes.isNotEmpty()) {
                         setBody(finalBodyBytes)
                     }
                 }
@@ -421,8 +563,8 @@ private fun Route.fallbackProxyRoute() {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                call.respondText("Proxy error: ${e.message}", ContentType.Text.Plain, HttpStatusCode.BadGateway)
+                System.err.println("Proxy request failed: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")
+                call.respondText("Proxy error", ContentType.Text.Plain, HttpStatusCode.BadGateway)
             }
         }
     }

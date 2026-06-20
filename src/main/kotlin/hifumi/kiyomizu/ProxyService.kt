@@ -29,6 +29,11 @@ object ProxyService {
         "upgrade"
     )
 
+    private val internalHeaders = setOf(
+        ConfigAuth.headerName,
+        Security.proxyAuthHeaderName
+    )
+
     fun normalizeUpstreamPath(pathname: String): String {
         return pathname
     }
@@ -47,7 +52,10 @@ object ProxyService {
         val list = mutableListOf<Pair<String, String>>()
         headers.forEach { key, values ->
             val lowerKey = key.lowercase()
-            if (!hopByHopHeaders.contains(lowerKey) && !lowerKey.startsWith("access-control-")) {
+            if (!hopByHopHeaders.contains(lowerKey) &&
+                !internalHeaders.contains(lowerKey) &&
+                !lowerKey.startsWith("access-control-")
+            ) {
                 list.add(key to values.joinToString(", "))
             }
         }

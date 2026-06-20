@@ -20,6 +20,12 @@ object Config {
     val stripThinking = System.getenv("STRIP_THINKING") != "0"
     val modelFilter = System.getenv("MODEL_FILTER") ?: "anthropic,claude"
     val betaHeader = System.getenv("ANTHROPIC_BETA") ?: "extended-cache-ttl-2025-04-11"
+    val maxProxyRequestBytes = System.getenv("KIYOMIZU_MAX_PROXY_REQUEST_BYTES")?.toLongOrNull()
+        ?.coerceIn(1024L, 100L * 1024L * 1024L)
+        ?: (25L * 1024L * 1024L)
+    val maxConfigRequestBytes = System.getenv("KIYOMIZU_MAX_CONFIG_REQUEST_BYTES")?.toLongOrNull()
+        ?.coerceIn(1024L, 1024L * 1024L)
+        ?: (128L * 1024L)
 
     private val presetRef = AtomicReference(System.getenv("PRESET") ?: "custom")
     private val upstreamRef = AtomicReference(
