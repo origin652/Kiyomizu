@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFilePermission
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
@@ -60,7 +61,10 @@ object DatabaseService {
 
     private fun prepareDatabasePath(path: Path, migrateLegacy: Boolean): Path {
         val normalized = path.toAbsolutePath().normalize()
-        normalized.parent?.let { Files.createDirectories(it) }
+        normalized.parent?.let {
+            Files.createDirectories(it)
+            restrictDirectoryPermissions(it)
+        }
         if (migrateLegacy) {
             migrateLegacyDatabaseIfNeeded(normalized)
         }
@@ -90,6 +94,7 @@ object DatabaseService {
     }
 
     fun initDatabase() {
+        val dbPath = Paths.get(databaseFilePath())
         getConnection().use { conn ->
             conn.createStatement().use { stmt ->
                 // WAL allows the async memory-extraction writer to coexist with the
@@ -162,6 +167,41 @@ object DatabaseService {
                     """.trimIndent())
                 }
             }
+        }
+        restrictFilePermissions(dbPath)
+        restrictFilePermissions(Paths.get("${dbPath}-wal"))
+        restrictFilePermissions(Paths.get("${dbPath}-shm"))
+    }
+
+    private fun restrictDirectoryPermissions(path: Path) {
+        setPosixPermissionsIfSupported(
+            path,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+    }
+
+    private fun restrictFilePermissions(path: Path) {
+        if (!Files.exists(path)) return
+        setPosixPermissionsIfSupported(
+            path,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE
+            )
+        )
+    }
+
+    private fun setPosixPermissionsIfSupported(path: Path, permissions: Set<PosixFilePermission>) {
+        try {
+            Files.setPosixFilePermissions(path, permissions)
+        } catch (_: UnsupportedOperationException) {
+            // Windows and some filesystems do not support POSIX permissions.
+        } catch (_: Exception) {
+            // Permission tightening is best-effort; failure must not prevent startup.
         }
     }
 
