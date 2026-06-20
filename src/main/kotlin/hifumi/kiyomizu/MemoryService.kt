@@ -5,11 +5,11 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.*
+import java.net.URI
 import java.time.Instant
 
 object MemoryService {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val debugJson = Json { prettyPrint = false }
     private const val duplicateMemorySimilarityThreshold = 0.92
 
     fun startDecayJob(appScope: CoroutineScope) {
@@ -91,6 +91,15 @@ object MemoryService {
             .maxByOrNull { it.second }
     }
 
+    private fun isGoogleGenerativeLanguageUrl(url: String): Boolean {
+        val host = runCatching { URI(url).host?.lowercase() }.getOrNull() ?: return false
+        return host == "generativelanguage.googleapis.com"
+    }
+
+    private fun logRejectedOutboundUrl(fieldName: String, error: String) {
+        System.err.println("Rejected $fieldName outbound URL: $error")
+    }
+
     suspend fun fetchEmbedding(text: String): FloatArray? {
         val url = Config.memoryEmbeddingUrl
         val key = Config.memoryEmbeddingKey
@@ -98,13 +107,17 @@ object MemoryService {
 
         if (key.isEmpty()) return null
 
-        val isGemini = url.contains("generativelanguage.googleapis.com") || url.contains("google")
+        val isGemini = isGoogleGenerativeLanguageUrl(url)
         val finalUrl = if (isGemini) {
             val baseUrl = url.trimEnd('/')
             if (baseUrl.contains("/models/")) baseUrl else "$baseUrl/v1beta/models/$model:embedContent"
         } else {
             val baseUrl = url.trimEnd('/')
             if (baseUrl.endsWith("/embeddings")) baseUrl else "$baseUrl/v1/embeddings"
+        }
+        Security.validateOutboundRequestUrl(finalUrl, "memory_embedding_url")?.let {
+            logRejectedOutboundUrl("memory_embedding_url", it)
+            return null
         }
 
         try {
@@ -114,9 +127,6 @@ object MemoryService {
                     header("x-goog-api-key", key)
                 } else {
                     header("Authorization", "Bearer $key")
-                }
-                if (isGemini && !finalUrl.contains("key=")) {
-                    url { parameters.append("key", key) }
                 }
                 
                 val requestBody = if (isGemini) {
@@ -150,7 +160,7 @@ object MemoryService {
                 }
             }
         } catch (e: Exception) {
-            System.err.println("Error fetching embedding for '$text': ${e.message}")
+            System.err.println("Error fetching embedding: ${e.message}")
         }
         return null
     }
@@ -163,7 +173,7 @@ object MemoryService {
 
         if (key.isEmpty()) return null
 
-        val isGeminiDirect = url.contains("generativelanguage.googleapis.com") && !url.contains("/v1/")
+        val isGeminiDirect = isGoogleGenerativeLanguageUrl(url) && !url.contains("/v1/")
         val finalUrl = if (isGeminiDirect) {
             val baseUrl = url.trimEnd('/')
             "$baseUrl/v1beta/models/$model:generateContent"
@@ -171,15 +181,16 @@ object MemoryService {
             val baseUrl = url.trimEnd('/')
             if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/v1/chat/completions"
         }
+        Security.validateOutboundRequestUrl(finalUrl, "memory_summary_url")?.let {
+            logRejectedOutboundUrl("memory_summary_url", it)
+            return null
+        }
 
         try {
             val response = ProxyService.client.post(finalUrl) {
                 header("Content-Type", "application/json")
-                if (url.contains("google") || url.contains("generativelanguage")) {
+                if (isGeminiDirect) {
                     header("x-goog-api-key", key)
-                    if (isGeminiDirect && !finalUrl.contains("key=")) {
-                        url { parameters.append("key", key) }
-                    }
                 } else {
                     header("Authorization", "Bearer $key")
                 }
@@ -233,10 +244,10 @@ object MemoryService {
                 val cleaned = cleanJsonString(contentString)
                 val parsed = Json.parseToJsonElement(cleaned) as? JsonObject
                 if (parsed == null) {
-                    System.err.println("Summarization response was not a JSON object. Raw content: $cleaned")
+                    System.err.println("Summarization response was not a JSON object.")
                 } else {
                     val memoryCount = parsed["memories"]?.jsonArray?.size ?: -1
-                    println("Summarization extracted memory_count=$memoryCount payload=${debugJson.encodeToString(JsonObject.serializer(), parsed)}")
+                    println("Summarization extracted memory_count=$memoryCount")
                 }
                 return parsed
             }
@@ -266,7 +277,7 @@ object MemoryService {
             Keep it authentic, deep, and warm. Respond with ONLY the diary entry text. Do not write any markdown or introductory phrases.
         """.trimIndent()
         
-        val isGeminiDirect = url.contains("generativelanguage.googleapis.com") && !url.contains("/v1/")
+        val isGeminiDirect = isGoogleGenerativeLanguageUrl(url) && !url.contains("/v1/")
         val finalUrl = if (isGeminiDirect) {
             val baseUrl = url.trimEnd('/')
             "$baseUrl/v1beta/models/$model:generateContent"
@@ -274,15 +285,16 @@ object MemoryService {
             val baseUrl = url.trimEnd('/')
             if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/v1/chat/completions"
         }
+        Security.validateOutboundRequestUrl(finalUrl, "memory_summary_url")?.let {
+            logRejectedOutboundUrl("memory_summary_url", it)
+            return
+        }
         
         try {
             val response = ProxyService.client.post(finalUrl) {
                 header("Content-Type", "application/json")
-                if (url.contains("google") || url.contains("generativelanguage")) {
+                if (isGeminiDirect) {
                     header("x-goog-api-key", key)
-                    if (isGeminiDirect && !finalUrl.contains("key=")) {
-                        url { parameters.append("key", key) }
-                    }
                 } else {
                     header("Authorization", "Bearer $key")
                 }
@@ -331,7 +343,7 @@ object MemoryService {
                 val cleanStr = contentString.trim()
                 if (cleanStr.isNotEmpty()) {
                     DatabaseService.insertReflection(cleanStr)
-                    println("Generated internal reflection diary entry: '$cleanStr'")
+                    println("Generated internal reflection diary entry.")
                 }
             }
         } catch (e: Exception) {
@@ -389,7 +401,7 @@ object MemoryService {
                                 maxStrength = Config.memoryMaxStrength
                             )
                             println(
-                                "Merged duplicate memory into id=${existingMemory.id}: '$content' " +
+                                "Merged duplicate memory into id=${existingMemory.id} " +
                                     "[type=$type, similarity=${"%.3f".format(similarity)}]"
                             )
                         } else {
@@ -412,15 +424,14 @@ object MemoryService {
                                     lastAccessedAt = 0
                                 )
                             )
-                            println("Inserted memory: '$content' [type=$type, emotion=$emotionTag]")
+                            println("Inserted memory [type=$type, emotion=$emotionTag]")
                         }
                     } else {
-                        System.err.println("Embedding lookup returned null for memory candidate: '$content'")
+                        System.err.println("Embedding lookup returned null for a memory candidate.")
                     }
                 }
             } catch (e: Exception) {
                 System.err.println("Error in extractAndSaveMemoriesAsync: ${e.message}")
-                e.printStackTrace()
             }
         }
     }
