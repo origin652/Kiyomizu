@@ -173,6 +173,23 @@ class ProxyTest {
     }
 
     @Test
+    fun cleanHeadersStripsInternalAuthHeaders() {
+        val cleaned = ProxyService.cleanHeaders(
+            headersOf(
+                "Authorization" to listOf("Bearer upstream-key"),
+                ConfigAuth.headerName to listOf("config-secret-pass"),
+                Security.proxyAuthHeaderName to listOf("proxy-secret-pass"),
+                "Content-Type" to listOf("application/json")
+            )
+        )
+
+        assertTrue(cleaned.any { it.first == "Authorization" && it.second == "Bearer upstream-key" })
+        assertTrue(cleaned.any { it.first == "Content-Type" && it.second == "application/json" })
+        assertTrue(cleaned.none { it.first.equals(ConfigAuth.headerName, ignoreCase = true) })
+        assertTrue(cleaned.none { it.first.equals(Security.proxyAuthHeaderName, ignoreCase = true) })
+    }
+
+    @Test
     fun explicitCacheOmitsTtlWhenConfiguredNone() {
         resetConfig()
         Config.preset = "anthropic"

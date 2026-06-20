@@ -105,6 +105,24 @@ class ConfigApiTest {
     }
 
     @Test
+    fun applyUpdateRejectsUnsafeOutboundUrls() {
+        withIsolatedDb {
+            resetConfig()
+
+            val result = ConfigApi.applyUpdate(buildJsonObject {
+                put("upstream", "http://169.254.169.254")
+                put("memory_summary_url", "https://localhost:11434")
+                put("memory_embedding_url", "https://example.com/path?key=secret")
+            })
+
+            assertTrue(result.errors.any { it.contains("upstream must use https") })
+            assertTrue(result.errors.any { it.contains("memory_summary_url must not target localhost") })
+            assertTrue(result.errors.any { it.contains("memory_embedding_url must be a base URL without a query string") })
+            assertEquals("https://example.com", Config.upstream, "invalid updates must not mutate config")
+        }
+    }
+
+    @Test
     fun applyUpdatePersistsConfigAcrossReload() {
         withIsolatedDb {
             resetConfig()

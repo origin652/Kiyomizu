@@ -12,6 +12,7 @@ class ConfigAuthTest {
     @AfterTest
     fun cleanup() {
         System.clearProperty("kiyomizu.config.password")
+        System.clearProperty("kiyomizu.proxy.password")
         System.clearProperty("kiyomizu.db.file")
         ConfigAuth.resetForTests()
     }
@@ -40,19 +41,32 @@ class ConfigAuthTest {
 
     @Test
     fun customHeaderAuthorizesConfigApi() {
-        System.setProperty("kiyomizu.config.password", "secret-pass")
+        System.setProperty("kiyomizu.config.password", "secret-pass-123")
 
-        assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass")))
+        assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass-123")))
         assertFalse(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "wrong-pass")))
     }
 
     @Test
     fun basicAuthAlsoWorks() {
-        System.setProperty("kiyomizu.config.password", "swordfish")
-        val encoded = java.util.Base64.getEncoder().encodeToString(":swordfish".toByteArray())
+        System.setProperty("kiyomizu.config.password", "swordfish-pass")
+        val encoded = java.util.Base64.getEncoder().encodeToString(":swordfish-pass".toByteArray())
 
         assertTrue(ConfigAuth.isAuthorized(headersOf("Authorization", "Basic $encoded")))
+        assertTrue(ConfigAuth.isAuthorized(headersOf("Authorization", "basic $encoded")))
         assertFalse(ConfigAuth.isAuthorized(headersOf("Authorization", "Basic not-base64")))
+    }
+
+    @Test
+    fun proxyAuthUsesDedicatedHeaderOrProxyAuthorization() {
+        System.setProperty("kiyomizu.config.password", "config-secret-pass")
+        System.setProperty("kiyomizu.proxy.password", "proxy-secret-pass")
+        val encoded = java.util.Base64.getEncoder().encodeToString(":proxy-secret-pass".toByteArray())
+
+        assertTrue(ConfigAuth.isProxyAuthorized(headersOf(Security.proxyAuthHeaderName, "proxy-secret-pass")))
+        assertTrue(ConfigAuth.isProxyAuthorized(headersOf("Proxy-Authorization", "Basic $encoded")))
+        assertFalse(ConfigAuth.isProxyAuthorized(headersOf(ConfigAuth.headerName, "config-secret-pass")))
+        assertFalse(ConfigAuth.isProxyAuthorized(headersOf("Authorization", "Bearer upstream-api-key")))
     }
 
     @Test
@@ -60,10 +74,10 @@ class ConfigAuthTest {
         withIsolatedDb {
             assertFalse(ConfigAuth.isConfigured())
 
-            val result = ConfigAuth.configureInitialPassword("secret-pass")
+            val result = ConfigAuth.configureInitialPassword("secret-pass-123")
             assertTrue(result.errors.isEmpty(), "initial password setup should succeed: ${result.errors}")
             assertTrue(ConfigAuth.isConfigured())
-            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass")))
+            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass-123")))
             assertFalse(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "wrong-pass")))
 
             ConfigAuth.resetForTests()
@@ -71,7 +85,7 @@ class ConfigAuthTest {
 
             ConfigAuth.loadPersisted(DatabaseService.loadConfigPassword())
             assertTrue(ConfigAuth.isConfigured(), "stored password hash should be loaded from the database")
-            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass")))
+            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass-123")))
             assertFalse(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "wrong-pass")))
         }
     }
@@ -83,10 +97,14 @@ class ConfigAuthTest {
             assertTrue(blank.errors.contains("config password must not be blank"))
             assertFalse(ConfigAuth.isConfigured())
 
-            val first = ConfigAuth.configureInitialPassword("secret-pass")
+            val short = ConfigAuth.configureInitialPassword("short")
+            assertTrue(short.errors.contains("config password must be at least 12 characters"))
+            assertFalse(ConfigAuth.isConfigured())
+
+            val first = ConfigAuth.configureInitialPassword("secret-pass-123")
             assertTrue(first.errors.isEmpty())
 
-            val second = ConfigAuth.configureInitialPassword("other-pass")
+            val second = ConfigAuth.configureInitialPassword("other-pass-123")
             assertTrue(second.errors.contains("config password is already configured"))
         }
     }
@@ -94,22 +112,22 @@ class ConfigAuthTest {
     @Test
     fun persistedPasswordCanBeChangedWithCurrentPassword() {
         withIsolatedDb {
-            val first = ConfigAuth.configureInitialPassword("secret-pass")
+            val first = ConfigAuth.configureInitialPassword("secret-pass-123")
             assertTrue(first.errors.isEmpty())
             assertTrue(ConfigAuth.isChangeable())
 
-            val wrongCurrent = ConfigAuth.changePassword("wrong-pass", "new-secret")
+            val wrongCurrent = ConfigAuth.changePassword("wrong-pass", "new-secret-pass")
             assertTrue(wrongCurrent.errors.contains("current password is incorrect"))
-            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass")))
+            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass-123")))
 
-            val changed = ConfigAuth.changePassword("secret-pass", "new-secret")
+            val changed = ConfigAuth.changePassword("secret-pass-123", "new-secret-pass")
             assertTrue(changed.errors.isEmpty(), "password change should succeed: ${changed.errors}")
-            assertFalse(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass")))
-            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "new-secret")))
+            assertFalse(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "secret-pass-123")))
+            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "new-secret-pass")))
 
             ConfigAuth.resetForTests()
             ConfigAuth.loadPersisted(DatabaseService.loadConfigPassword())
-            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "new-secret")))
+            assertTrue(ConfigAuth.isAuthorized(headersOf(ConfigAuth.headerName, "new-secret-pass")))
         }
     }
 
