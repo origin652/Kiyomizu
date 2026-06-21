@@ -656,6 +656,29 @@ input[disabled], textarea[disabled], select[disabled] {
   white-space: nowrap;
 }
 
+.auth-panel-status {
+  display: none;
+  width: 100%;
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.auth-panel-status.is-visible { display: block; }
+.auth-panel-status.err {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.auth-panel-status.success {
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
 #status {
   padding: var(--sp-4);
   border-radius: var(--r-md);
@@ -1372,6 +1395,7 @@ input[disabled], textarea[disabled], select[disabled] {
       </div>
       <button id="btn-auth-unlock" class="btn btn-primary auth-primary-button" type="button">Unlock</button>
     </div>
+    <div class="auth-panel-status" id="auth-status" role="status" aria-live="polite"></div>
   </div>
 
   <div class="app-body">
@@ -1987,6 +2011,7 @@ const STRINGS = {
     authSetupMismatch: '两次输入的密码不一致。',
     authSetupRequired: '请先设置配置密码。',
     authSetupSaved: '配置密码已设置。',
+    authRemoteSetupDisabled: '远程首次设置已被禁用。请在启动时设置 KIYOMIZU_CONFIG_PASSWORD，或通过 localhost 完成首次设置。',
     secretShow: '显示密码',
     secretHide: '隐藏密码',
     passwordChangeTitle: '配置密码',
@@ -2120,6 +2145,7 @@ const STRINGS = {
     authSetupMismatch: 'The two passwords do not match.',
     authSetupRequired: 'Set a config password first.',
     authSetupSaved: 'Config password set.',
+    authRemoteSetupDisabled: 'Remote first-run password setup is disabled. Set KIYOMIZU_CONFIG_PASSWORD before startup, or complete first-run setup from localhost.',
     secretShow: 'Show password',
     secretHide: 'Hide password',
     passwordChangeTitle: 'Config Password',
@@ -2253,6 +2279,7 @@ const STRINGS = {
     authSetupMismatch: '2つのパスワードが一致しません。',
     authSetupRequired: '先に設定パスワードを作成してください。',
     authSetupSaved: '設定パスワードを作成しました。',
+    authRemoteSetupDisabled: 'リモートからの初回パスワード設定は無効です。起動時に KIYOMIZU_CONFIG_PASSWORD を設定するか、localhost から初回設定してください。',
     secretShow: 'パスワードを表示',
     secretHide: 'パスワードを隠す',
     passwordChangeTitle: '設定パスワード',
@@ -2368,6 +2395,18 @@ function setAuthPanelVisible(visible, mode = configAuthMode) {
   panel.classList.toggle('setup', mode === 'setup');
   document.querySelector('.app').classList.toggle('config-locked', visible);
   applyAuthPanelCopy();
+}
+
+function setAuthStatus(msg, kind = 'err') {
+  const status = document.getElementById('auth-status');
+  status.className = 'auth-panel-status ' + (kind === 'success' ? 'success' : 'err') + ' is-visible';
+  status.textContent = msg;
+}
+
+function clearAuthStatus() {
+  const status = document.getElementById('auth-status');
+  status.className = 'auth-panel-status';
+  status.textContent = '';
 }
 
 function persistConfigPassword(value) {
@@ -2986,6 +3025,18 @@ function setStatus(msg, kind, autoHideMs) {
   if (autoHideMs) setTimeout(() => { status.classList.remove('is-visible'); }, autoHideMs);
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text();
+  if (!text.trim()) {
+    return { error: `Empty response from server (HTTP ${response.status})` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return { error: `Non-JSON response from server (HTTP ${response.status}): ${text.slice(0, 240)}` };
+  }
+}
+
 async function saveConfig(options = {}) {
   const manual = options.manual === true;
   const payload = buildConfigPayload(manual);
@@ -2999,13 +3050,13 @@ async function saveConfig(options = {}) {
       headers: {'content-type':'application/json'},
       body: JSON.stringify(payload)
     });
-    d = await r.json();
+    d = await readJsonResponse(r);
   } catch (e) {
     setStatus(str.error + (e && e.message ? e.message : 'Failed to save config'), 'err');
     return false;
   }
 
-  if (r.ok) {
+  if (r.ok && !d.error) {
     setAuthPanelVisible(false, 'unlock');
     applyConfigData(d);
     if (manual) {
@@ -3245,9 +3296,10 @@ async function load() {
     updateStatusSummary();
     return;
   }
-  const d = await r.json();
+  const d = await readJsonResponse(r);
   if (r.ok) {
     setAuthPanelVisible(false, 'unlock');
+    clearAuthStatus();
     applyConfigData(d);
     loadCompanionState();
     loadLogs();
@@ -3256,12 +3308,14 @@ async function load() {
 
   if (r.status === 401) {
     const str = STRINGS[currentLang];
+    setAuthStatus(str.authInvalid, 'err');
     setStatus(str.error + str.authInvalid, 'err');
     return;
   }
 
   if (r.status === 428 && d.config_password_setup_required) {
     setAuthPanelVisible(true, 'setup');
+    setAuthStatus(STRINGS[currentLang].authSetupRequired, 'err');
     setStatus(STRINGS[currentLang].authSetupRequired, 'err');
     return;
   }
@@ -3288,21 +3342,29 @@ document.getElementById('btn-auth-unlock').addEventListener('click', async () =>
   if (configAuthMode === 'setup') {
     const confirmPassword = confirmInput.value.trim();
     if (!password || password !== confirmPassword) {
-      setStatus(!password ? str.authSetupRequired : str.authSetupMismatch, 'err');
+      setAuthStatus(!password ? str.authSetupRequired : str.authSetupMismatch, 'err');
       return;
     }
 
-    const r = await fetch('/api/config/password', {
-      method: 'POST',
-      headers: {'content-type':'application/json'},
-      body: JSON.stringify({ password, confirm_password: confirmPassword })
-    });
-    const d = await r.json();
+    let r;
+    let d;
+    try {
+      r = await fetch('/api/config/password', {
+        method: 'POST',
+        headers: {'content-type':'application/json'},
+        body: JSON.stringify({ password, confirm_password: confirmPassword })
+      });
+      d = await readJsonResponse(r);
+    } catch (e) {
+      setAuthStatus(e && e.message ? e.message : str.authSetupRequired, 'err');
+      return;
+    }
     if (r.ok) {
       persistConfigPassword(password);
       input.value = '';
       confirmInput.value = '';
       await load();
+      clearAuthStatus();
       setStatus(str.authSetupSaved, 'success', 4000);
       return;
     }
@@ -3310,13 +3372,20 @@ document.getElementById('btn-auth-unlock').addEventListener('click', async () =>
     if (r.status === 409) {
       setAuthPanelVisible(true, 'unlock');
     }
-    const errors = d.errors || [d.error || str.authSetupRequired];
-    setStatus(str.error + errors.join('; '), 'err');
+    const errors = d.errors || [
+      (r.status === 403 && d.config_password_setup_required)
+        ? str.authRemoteSetupDisabled
+        : (d.error || str.authSetupRequired)
+    ];
+    setAuthStatus(errors.join('; '), 'err');
     return;
   }
 
   persistConfigPassword(password);
   await load();
+  if (configAuthRequired) {
+    setAuthStatus(str.authInvalid, 'err');
+  }
 });
 
 document.getElementById('config-auth-password').addEventListener('keydown', async e => {
