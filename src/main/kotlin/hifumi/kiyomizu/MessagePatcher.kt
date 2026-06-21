@@ -367,9 +367,21 @@ object MessagePatcher {
         }
     }
 
+    private fun affectLabel(memory: DatabaseService.MemoryRecord): String {
+        val v = memory.emotionValence
+        val a = memory.emotionArousal
+        val valenceWord = when {
+            v >= 0.66 -> "positive"
+            v <= 0.34 -> "negative"
+            else -> "neutral-valence"
+        }
+        val arousalWord = if (a >= 0.6) "intense" else "calm"
+        return "$valenceWord/$arousal"
+    }
+
     private fun buildCompanionPrompt(
         state: DatabaseService.RelationshipState,
-        recalled: List<DatabaseService.MemoryRecord>,
+        recalled: List<MemoryService.RecalledMemory>,
         reflections: List<String>
     ): String {
         val intimacyStage = when {
@@ -380,7 +392,7 @@ object MessagePatcher {
 
         var spontaneousRecallStr = ""
         if (Math.random() < Config.spontaneousRecallProbability) {
-            val candidates = recalled.filter { it.type == "episodic" }
+            val candidates = recalled.filter { !it.associated && it.memory.type == "episodic" }.map { it.memory }
             val chosen = if (candidates.isNotEmpty()) candidates.random() else {
                 val allEpisodic = DatabaseService.getAllMemoriesForSearch().filter { it.type == "episodic" }
                 if (allEpisodic.isNotEmpty()) allEpisodic.random() else null
@@ -398,8 +410,9 @@ object MessagePatcher {
             append("Current mood: ${state.mood}\n")
             if (recalled.isNotEmpty()) {
                 append("Relevant memories:\n")
-                recalled.forEach {
-                    append("  - ${it.content} (emotion: ${it.emotionTag})\n")
+                recalled.forEach { rm ->
+                    val tag = if (rm.associated) " (associated recall)" else ""
+                    append("  - ${rm.memory.content} (emotion: ${affectLabel(rm.memory)})$tag\n")
                 }
             }
             if (reflections.isNotEmpty()) {

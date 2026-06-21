@@ -46,6 +46,11 @@ class CompanionTest {
         Config.intimacyDecayRate = 0.5
         Config.spontaneousRecallProbability = 0.0
         Config.maxRecalledMemories = 5
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        Config.memoryConsolidationIdleMinutes = 30
+        Config.memoryAssociationSpread = 3
+        Config.memorySemanticDedupThreshold = 0.80
     }
 
     @Test
@@ -89,29 +94,43 @@ class CompanionTest {
             vector = dummyVector,
             type = "semantic",
             emotionTag = "joy",
-            initialStrength = 1.0
+            initialStrength = 1.0,
+            emotionValence = 0.85,
+            emotionArousal = 0.6
         )
 
         val memories = DatabaseService.getAllMemoriesForSearch()
         assertEquals(1, memories.size)
         assertEquals("User loves Kotlin", memories[0].content)
         assertEquals(1.0, memories[0].strength)
+        assertEquals(0.85, memories[0].emotionValence, 1e-5, "valence persisted")
+        assertEquals(0.6, memories[0].emotionArousal, 1e-5, "arousal persisted")
 
-        // 4. Memory reinforcement
+        // 4. Memory reinforcement (also bumps access_count)
         DatabaseService.updateMemoryAccessAndStrength(memories[0].id, 0.2, 1.0)
         val reinforcedMemories = DatabaseService.getAllMemoriesForSearch()
         assertEquals(1.0, reinforcedMemories[0].strength, "Should not exceed max strength")
+        assertEquals(1, reinforcedMemories[0].accessCount, "access_count incremented on recall")
 
-        // 5. Memory decay
+        // 5. decayAllMemories now only garbage-collects below-threshold memories
+        // (Ebbinghaus decay is lazy at read time). A strength-1.0 memory is not deleted.
         DatabaseService.decayAllMemories(decayRate = 0.2, threshold = 0.1)
         val decayedMemories = DatabaseService.getAllMemoriesForSearch()
         assertEquals(1, decayedMemories.size)
-        assertEquals(0.8, decayedMemories[0].strength, 1e-5, "Strength reduced by decayRate")
+        assertEquals(1.0, decayedMemories[0].strength, 1e-5, "strength unchanged by lazy decay")
 
-        // 6. Memory forget (below threshold)
+        // 6. Memory forget (a low-strength memory below threshold is deleted)
+        DatabaseService.insertMemory(
+            content = "Trivial ephemeral note",
+            vector = dummyVector,
+            type = "semantic",
+            emotionTag = "neutral",
+            initialStrength = 0.05
+        )
         DatabaseService.decayAllMemories(decayRate = 0.75, threshold = 0.1)
         val forgottenMemories = DatabaseService.getAllMemoriesForSearch()
-        assertEquals(0, forgottenMemories.size, "Memory below threshold should be deleted")
+        assertEquals(1, forgottenMemories.size, "Only the below-threshold memory is deleted")
+        assertEquals("User loves Kotlin", forgottenMemories[0].content)
 
         // Cleanup
         resetDbFiles()
@@ -338,5 +357,99 @@ class CompanionTest {
         assertEquals(afterFirstDecay.lastDecayAt, afterSecondDecay.lastDecayAt)
 
         resetDbFiles()
+    }
+
+    @Test
+    fun testEmotionalSalience() {
+        // Neutral valence (0.5) contributes only the base 0.5 regardless of arousal baseline weighting.
+        val neutral = MemoryService.emotionalSalience(0.5, 0.3)
+        assertEquals(0.3 * 0.5, neutral, 1e-5, "neutral valence -> arousal * 0.5")
+        // High arousal + extreme valence => maximal salience.
+        val intense = MemoryService.emotionalSalience(0.0, 1.0)
+        assertEquals(1.0 * (0.5 + 0.5), intense, 1e-5, "extreme valence & max arousal => salience 1.0")
+        // Low arousal => low salience even with extreme valence.
+        val calm = MemoryService.emotionalSalience(0.0, 0.1)
+        assertEquals(0.1 * 1.0, calm, 1e-5, "low arousal dampens salience")
+    }
+
+    @Test
+    fun testLazyEbbinghausDecayFallsOverTime() {
+        val mem = DatabaseService.MemoryRecord(
+            id = 1,
+            content = "x",
+            vector = FloatArray(4),
+            type = "semantic",
+            emotionTag = "neutral",
+            strength = 1.0,
+            createdAt = 0,
+            lastAccessedAt = Instant.now().epochSecond - 3600L, // 1 hour ago
+            relatedIds = emptyList(),
+            accessCount = 0,
+            emotionValence = 0.5,
+            emotionArousal = 0.3
+        )
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        val now = Instant.now().epochSecond
+        val decayed = MemoryService.lazyStrength(mem, now)
+        // tau_eff = 360 * (1 + 1*0.15) = 414h; 1h elapsed => exp(-1/414) ~ 0.9976
+        assertEquals(Math.exp(-1.0 / 414.0), decayed, 1e-3, "lazy decay over 1h at tau=414h")
+        assertTrue(decayed < 1.0, "decayed strength is below stored strength")
+        // Just-accessed memory decays negligibly.
+        val fresh = mem.copy(lastAccessedAt = now)
+        assertEquals(1.0, MemoryService.lazyStrength(fresh, now), 1e-9, "freshly accessed memory is full strength")
+    }
+
+    @Test
+    fun testConsolidationCandidatesFilterReactivatedAndAffective() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val vec = FloatArray(8) { 0.1f }
+        // Reactivated + high arousal (candidate)
+        val reactiveId = DatabaseService.insertMemory("late-night vent about work", vec, "episodic", "anxiety", 1.0, 0.2, 0.9)
+        DatabaseService.updateMemoryAccessAndStrength(reactiveId, 0.1, 1.0) // bump access_count
+        // Episodic but neutral affect + never reactivated (excluded)
+        DatabaseService.insertMemory("a passing neutral comment", vec, "episodic", "neutral", 1.0, 0.5, 0.3)
+        // Semantic (excluded by type)
+        val semId = DatabaseService.insertMemory("user likes tea", vec, "semantic", "joy", 1.0, 0.7, 0.3)
+        DatabaseService.updateMemoryAccessAndStrength(semId, 0.1, 1.0)
+
+        val candidates = DatabaseService.getConsolidationCandidates(windowSeconds = 3600L, limit = 10)
+        assertEquals(1, candidates.size, "only reactivated affective episodic memory qualifies")
+        assertEquals("late-night vent about work", candidates[0].content)
+
+        resetDbFiles()
+    }
+
+    @Test
+    fun testSemanticDedupUsesLooseThreshold() {
+        val existing = listOf(
+            DatabaseService.MemoryRecord(
+                id = 1,
+                content = "User is under a lot of work pressure and vents late at night.",
+                vector = floatArrayOf(1.0f, 0.0f, 0.0f),
+                type = "semantic",
+                emotionTag = "neutral",
+                strength = 0.8,
+                createdAt = 0,
+                lastAccessedAt = 0,
+                relatedIds = emptyList(),
+                accessCount = 0,
+                emotionValence = 0.5,
+                emotionArousal = 0.3
+            )
+        )
+        // Candidate rephrases; cosine ~0.7 between (1,0,0) and (0.7,0.7,0).
+        val candidateVec = floatArrayOf(0.7f, 0.7f, 0.0f)
+        val sim = MemoryService.cosineSimilarity(candidateVec, existing[0].vector)
+        assertTrue(sim < 0.92, "below the strict 0.92 threshold")
+        assertTrue(sim >= 0.7, "above the loose 0.80-ish band")
+
+        val strict = MemoryService.findDuplicateMemory(existing, "User's job stresses them out", candidateVec, "semantic", 0.92)
+        assertEquals(null, strict, "strict threshold does not merge a rephrase")
+        val loose = MemoryService.findDuplicateMemory(existing, "User's job stresses them out", candidateVec, "semantic", 0.80)
+        assertTrue(loose != null, "loose semantic threshold merges a near-duplicate rephrase")
     }
 }

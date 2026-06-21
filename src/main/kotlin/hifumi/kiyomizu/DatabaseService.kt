@@ -10,6 +10,9 @@ import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Instant
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 object DatabaseService {
     private const val DEFAULT_DB_FILE = "kiyomizu_companion.db"
@@ -128,6 +131,7 @@ object DatabaseService {
                         last_accessed_at INTEGER NOT NULL
                     )
                 """.trimIndent())
+                ensureMemoriesSchema(conn)
 
                 // 3. reflections
                 stmt.execute("""
@@ -318,6 +322,67 @@ object DatabaseService {
         }
     }
 
+    /**
+     * Incrementally evolve the memories table:
+     *   - related_ids        : JSON array of associated memory ids (association graph edges)
+     *   - access_count       : working-memory activation counter
+     *   - emotion_valence    : continuous affect valence 0..1 (negative..positive)
+     *   - emotion_arousal    : continuous affect arousal 0..1 (calm..intense)
+     * Legacy discrete emotion_tag values are migrated once into valence/arousal.
+     */
+    private fun ensureMemoriesSchema(conn: Connection) {
+        val columns = mutableSetOf<String>()
+        conn.prepareStatement("PRAGMA table_info(memories)").use { pstmt ->
+            val rs = pstmt.executeQuery()
+            while (rs.next()) {
+                columns.add(rs.getString("name"))
+            }
+        }
+
+        if ("related_ids" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memories ADD COLUMN related_ids TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+        if ("access_count" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        // Track whether valence/arousal already exist before adding, so the one-shot
+        // legacy emotion_tag -> valence/arousal migration only runs the first time.
+        val hadValence = "emotion_valence" in columns
+        if ("emotion_valence" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memories ADD COLUMN emotion_valence REAL NOT NULL DEFAULT 0.5")
+            }
+        }
+        if ("emotion_arousal" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memories ADD COLUMN emotion_arousal REAL NOT NULL DEFAULT 0.3")
+            }
+        }
+
+        if (!hadValence && "emotion_tag" in columns) {
+            // One-shot migration of discrete emotion tags to the 2D affect space.
+            conn.createStatement().use { stmt ->
+                stmt.execute("""
+                    UPDATE memories SET emotion_valence = 0.85, emotion_arousal = 0.60 WHERE emotion_tag = 'joy' AND emotion_valence = 0.5
+                """.trimIndent())
+                stmt.execute("""
+                    UPDATE memories SET emotion_valence = 0.20, emotion_arousal = 0.30 WHERE emotion_tag = 'sadness' AND emotion_valence = 0.5
+                """.trimIndent())
+                stmt.execute("""
+                    UPDATE memories SET emotion_valence = 0.25, emotion_arousal = 0.85 WHERE emotion_tag = 'anxiety' AND emotion_valence = 0.5
+                """.trimIndent())
+                stmt.execute("""
+                    UPDATE memories SET emotion_valence = 0.75, emotion_arousal = 0.35 WHERE emotion_tag = 'warmth' AND emotion_valence = 0.5
+                """.trimIndent())
+            }
+        }
+    }
+
     // Helper functions for Vector float array conversion
     fun floatArrayToBytes(floats: FloatArray): ByteArray {
         val buffer = ByteBuffer.allocate(floats.size * 4)
@@ -467,16 +532,30 @@ object DatabaseService {
         val emotionTag: String,
         val strength: Double,
         val createdAt: Long,
-        val lastAccessedAt: Long
+        val lastAccessedAt: Long,
+        val relatedIds: List<Int> = emptyList(),
+        val accessCount: Int = 0,
+        val emotionValence: Double = 0.5,
+        val emotionArousal: Double = 0.3
     )
 
-    fun insertMemory(content: String, vector: FloatArray, type: String, emotionTag: String, initialStrength: Double) {
+    fun insertMemory(
+        content: String,
+        vector: FloatArray,
+        type: String,
+        emotionTag: String,
+        initialStrength: Double,
+        emotionValence: Double = 0.5,
+        emotionArousal: Double = 0.3,
+        relatedIds: List<Int> = emptyList()
+    ): Int {
         val now = Instant.now().epochSecond
         val vectorBytes = floatArrayToBytes(vector)
+        val relatedJson = relatedIds.joinToString(prefix = "[", postfix = "]")
         getConnection().use { conn ->
             conn.prepareStatement("""
-                INSERT INTO memories (content, vector, type, emotion_tag, strength, created_at, last_accessed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO memories (content, vector, type, emotion_tag, strength, created_at, last_accessed_at, related_ids, access_count, emotion_valence, emotion_arousal)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, content)
                 pstmt.setBytes(2, vectorBytes)
@@ -485,17 +564,25 @@ object DatabaseService {
                 pstmt.setDouble(5, initialStrength.coerceIn(0.0, 1.0))
                 pstmt.setLong(6, now)
                 pstmt.setLong(7, now)
+                pstmt.setString(8, relatedJson)
+                pstmt.setDouble(9, emotionValence.coerceIn(0.0, 1.0))
+                pstmt.setDouble(10, emotionArousal.coerceIn(0.0, 1.0))
                 pstmt.executeUpdate()
             }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
         }
+        return -1
     }
 
     fun updateMemoryAccessAndStrength(id: Int, strengthDelta: Double, maxStrength: Double) {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
             conn.prepareStatement("""
-                UPDATE memories 
-                SET strength = MIN(strength + ?, ?), last_accessed_at = ? 
+                UPDATE memories
+                SET strength = MIN(strength + ?, ?), last_accessed_at = ?, access_count = access_count + 1
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, strengthDelta)
@@ -507,14 +594,38 @@ object DatabaseService {
         }
     }
 
-    fun decayAllMemories(decayRate: Double, threshold: Double) {
+    /**
+     * Merge a list of associated memory ids into a memory's related_ids (deduped).
+     */
+    fun addRelatedIds(id: Int, additionalIds: List<Int>) {
+        if (additionalIds.isEmpty()) return
         getConnection().use { conn ->
-            // 1. Decay memory strengths
-            conn.prepareStatement("UPDATE memories SET strength = strength - ?").use { pstmt ->
-                pstmt.setDouble(1, decayRate)
-                pstmt.executeUpdate()
+            conn.prepareStatement("SELECT related_ids FROM memories WHERE id = ?").use { pstmt ->
+                pstmt.setInt(1, id)
+                val rs = pstmt.executeQuery()
+                if (!rs.next()) return
+                val existing = parseRelatedIds(rs.getString("related_ids"))
+                val merged = (existing + additionalIds).distinct().filter { it != id }
+                conn.prepareStatement("UPDATE memories SET related_ids = ? WHERE id = ?").use { upd ->
+                    upd.setString(1, merged.joinToString(prefix = "[", postfix = "]"))
+                    upd.setInt(2, id)
+                    upd.executeUpdate()
+                }
             }
-            // 2. Delete memories below threshold
+        }
+    }
+
+    private fun parseRelatedIds(json: String?): List<Int> {
+        if (json.isNullOrBlank()) return emptyList()
+        return json.trim().trim('[', ']').split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+    }
+
+    fun decayAllMemories(decayRate: Double, threshold: Double) {
+        // Decay is now lazy (Ebbinghaus exponential at read time). The periodic job
+        // only garbage-collects memories whose lazy-decayed strength has fallen below
+        // the threshold. decayRate is retained for API/compat but no longer subtracts.
+        getConnection().use { conn ->
             conn.prepareStatement("DELETE FROM memories WHERE strength < ?").use { pstmt ->
                 pstmt.setDouble(1, threshold)
                 pstmt.executeUpdate()
@@ -526,7 +637,8 @@ object DatabaseService {
         val list = mutableListOf<MemoryRecord>()
         getConnection().use { conn ->
             conn.prepareStatement("""
-                SELECT id, content, vector, type, emotion_tag, strength, created_at, last_accessed_at 
+                SELECT id, content, vector, type, emotion_tag, strength, created_at, last_accessed_at,
+                       related_ids, access_count, emotion_valence, emotion_arousal
                 FROM memories
             """.trimIndent()).use { pstmt ->
                 val rs = pstmt.executeQuery()
@@ -542,13 +654,105 @@ object DatabaseService {
                             emotionTag = rs.getString("emotion_tag"),
                             strength = rs.getDouble("strength"),
                             createdAt = rs.getLong("created_at"),
-                            lastAccessedAt = rs.getLong("last_accessed_at")
+                            lastAccessedAt = rs.getLong("last_accessed_at"),
+                            relatedIds = parseRelatedIds(rs.getString("related_ids")),
+                            accessCount = rs.getInt("access_count"),
+                            emotionValence = rs.getDouble("emotion_valence"),
+                            emotionArousal = rs.getDouble("emotion_arousal")
                         )
                     )
                 }
             }
         }
         return list
+    }
+
+    /**
+     * Consolidation candidates: episodic memories reactivated (access_count > 0) within
+     * [windowSeconds] whose affect is non-neutral (salience > 0), ordered by salience.
+     */
+    fun getConsolidationCandidates(windowSeconds: Long, limit: Int): List<MemoryRecord> {
+        val cutoff = Instant.now().epochSecond - windowSeconds
+        val list = mutableListOf<MemoryRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT id, content, vector, type, emotion_tag, strength, created_at, last_accessed_at,
+                       related_ids, access_count, emotion_valence, emotion_arousal
+                FROM memories
+                WHERE type = 'episodic'
+                  AND last_accessed_at >= ?
+                  AND access_count > 0
+                  AND (emotion_arousal > 0.3 OR emotion_valence < 0.45 OR emotion_valence > 0.55)
+                ORDER BY emotion_arousal DESC, access_count DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, cutoff)
+                pstmt.setInt(2, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    val vectorBytes = rs.getBytes("vector") ?: continue
+                    list.add(
+                        MemoryRecord(
+                            id = rs.getInt("id"),
+                            content = rs.getString("content"),
+                            vector = bytesToFloatArray(vectorBytes),
+                            type = rs.getString("type"),
+                            emotionTag = rs.getString("emotion_tag"),
+                            strength = rs.getDouble("strength"),
+                            createdAt = rs.getLong("created_at"),
+                            lastAccessedAt = rs.getLong("last_accessed_at"),
+                            relatedIds = parseRelatedIds(rs.getString("related_ids")),
+                            accessCount = rs.getInt("access_count"),
+                            emotionValence = rs.getDouble("emotion_valence"),
+                            emotionArousal = rs.getDouble("emotion_arousal")
+                        )
+                    )
+                }
+            }
+        }
+        return list
+    }
+
+    fun getRelatedEdgesTotal(): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT related_ids FROM memories").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                var total = 0
+                while (rs.next()) {
+                    total += parseRelatedIds(rs.getString("related_ids")).size
+                }
+                return total
+            }
+        }
+    }
+
+    fun getAffectDistribution(): JsonObject {
+        // Coarse buckets over all memories.
+        val buckets = mutableMapOf(
+            "positive_calm" to 0, "positive_intense" to 0,
+            "negative_calm" to 0, "negative_intense" to 0,
+            "neutral" to 0
+        )
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT emotion_valence, emotion_arousal FROM memories").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    val v = rs.getDouble("emotion_valence")
+                    val a = rs.getDouble("emotion_arousal")
+                    val key = when {
+                        v >= 0.55 && a >= 0.5 -> "positive_intense"
+                        v >= 0.55 -> "positive_calm"
+                        v <= 0.45 && a >= 0.5 -> "negative_intense"
+                        v <= 0.45 -> "negative_calm"
+                        else -> "neutral"
+                    }
+                    buckets[key] = (buckets[key] ?: 0) + 1
+                }
+            }
+        }
+        return buildJsonObject {
+            buckets.forEach { (k, c) -> put(k, c) }
+        }
     }
 
     // --- Reflections CRUD ---

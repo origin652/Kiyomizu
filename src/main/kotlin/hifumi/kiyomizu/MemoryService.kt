@@ -14,6 +14,25 @@ object MemoryService {
     private const val duplicateMemorySimilarityThreshold = 0.92
     private const val maxUpstreamResponseBytes = 2 * 1024 * 1024 // 2 MiB cap for memory-service upstream replies
 
+    // Last proxy request timestamp (epoch ms). Maintained by Main.kt's proxy path to
+    // drive sleep/idle detection for offline consolidation.
+    private val lastRequestAtMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+    // Last successful consolidation timestamp (epoch ms) + counters, surfaced to the UI.
+    private val lastConsolidationAtMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val lastConsolidationNodes = java.util.concurrent.atomic.AtomicInteger(0)
+    private val lastConsolidationEdges = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun touchLastRequest() {
+        lastRequestAtMs.set(System.currentTimeMillis())
+    }
+
+    fun lastConsolidationAt(): Long = lastConsolidationAtMs.get()
+    fun lastConsolidationSummary(): JsonObject = buildJsonObject {
+        put("at", lastConsolidationAtMs.get())
+        put("nodes", lastConsolidationNodes.get())
+        put("edges", lastConsolidationEdges.get())
+    }
+
     private suspend fun HttpResponse.boundedBodyAsText(maxBytes: Int = maxUpstreamResponseBytes): String {
         val channel = bodyAsChannel()
         val buffer = ByteArray(8192)
@@ -62,6 +81,182 @@ object MemoryService {
         }
     }
 
+    /**
+     * Sleep/offline consolidation loop (hipocampal-replay analog). When the proxy has
+     * been idle (no traffic) for at least [Config.memoryConsolidationIdleMinutes], run a
+     * single consolidation pass over recently-reactivated, affect-salient episodic
+     * memories, abstracting them into higher-order semantic nodes and linking them in
+     * the association graph. Decoupled from the decay job; safe to interrupt; re-runnable.
+     */
+    fun startConsolidationJob(appScope: CoroutineScope) {
+        appScope.launch {
+            while (isActive) {
+                delay(60_000L) // poll once per minute
+                if (!Config.memoryEnabled) continue
+                try {
+                    val idleMs = System.currentTimeMillis() - lastRequestAtMs.get()
+                    val idleTarget = Config.memoryConsolidationIdleMinutes * 60_000L
+                    if (idleMs < idleTarget) continue
+                    // Avoid re-triggering within the same idle window.
+                    if (lastConsolidationAtMs.get() > lastRequestAtMs.get()) continue
+                    consolidateOnce()
+                } catch (e: Exception) {
+                    System.err.println("Error in consolidation job: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private suspend fun consolidateOnce() {
+        val idleSeconds = (Config.memoryConsolidationIdleMinutes * 2L * 60L)
+        val candidates = DatabaseService.getConsolidationCandidates(idleSeconds, limit = 20)
+        if (candidates.isEmpty()) return
+
+        val existingSemantic = DatabaseService.getAllMemoriesForSearch().filter { it.type == "semantic" }
+        val tauBase = Config.memoryDecayTauHours
+        var nodesCreated = 0
+        var edgesCreated = 0
+
+        // Cluster candidates by vector similarity, then abstract each cluster.
+        val clustered = clusterBySimilarity(candidates, 0.65)
+        for (cluster in clustered) {
+            try {
+                val episodicIds = cluster.map { it.id }
+                val clusterText = cluster.joinToString("\n") { "- ${it.content}" }
+                val abstraction = fetchSemanticAbstraction(clusterText) ?: continue
+                val vector = fetchEmbedding(abstraction) ?: continue
+
+                val dup = findDuplicateMemory(existingSemantic, abstraction, vector, "semantic", Config.memorySemanticDedupThreshold)
+                val semanticId: Int
+                if (dup != null) {
+                    val (existing, _) = dup
+                    semanticId = existing.id
+                    val salience = cluster.map { emotionalSalience(it.emotionValence, it.emotionArousal) }.average()
+                    val boost = Config.memoryRecoveryAmount * (1.0 + Config.memorySalienceK * salience)
+                    DatabaseService.updateMemoryAccessAndStrength(existing.id, boost, Config.memoryMaxStrength)
+                    DatabaseService.addRelatedIds(existing.id, episodicIds)
+                    println("Consolidation merged cluster into semantic id=${existing.id} (+${episodicIds.size} links)")
+                } else {
+                    val avgV = cluster.map { it.emotionValence }.average()
+                    val avgA = cluster.map { it.emotionArousal }.average()
+                    semanticId = DatabaseService.insertMemory(
+                        content = abstraction,
+                        vector = vector,
+                        type = "semantic",
+                        emotionTag = "consolidated",
+                        initialStrength = Config.memoryInitialStrength,
+                        emotionValence = avgV,
+                        emotionArousal = avgA,
+                        relatedIds = episodicIds
+                    )
+                    nodesCreated++
+                    println("Consolidation created semantic node id=$semanticId from ${episodicIds.size} episodic memories")
+                }
+
+                // Bidirectional edges: link episodic memories to the semantic node and to each other.
+                for (eid in episodicIds) {
+                    DatabaseService.addRelatedIds(eid, listOf(semanticId))
+                    edgesCreated++
+                }
+                // Inter-link episodic memories within the cluster.
+                for (eid in episodicIds) {
+                    DatabaseService.addRelatedIds(eid, episodicIds - eid)
+                }
+            } catch (e: Exception) {
+                System.err.println("Consolidation of a cluster failed: ${e.message}")
+            }
+        }
+
+        lastConsolidationAtMs.set(System.currentTimeMillis())
+        lastConsolidationNodes.set(nodesCreated)
+        lastConsolidationEdges.set(edgesCreated)
+        println("Consolidation pass done: clusters=${clustered.size}, newNodes=$nodesCreated, links=$edgesCreated (tau_base=${tauBase}h)")
+    }
+
+    private fun clusterBySimilarity(memories: List<DatabaseService.MemoryRecord>, threshold: Double): List<List<DatabaseService.MemoryRecord>> {
+        val clusters = mutableListOf<MutableList<DatabaseService.MemoryRecord>>()
+        for (m in memories) {
+            val home = clusters.firstOrNull { group ->
+                group.any { cosineSimilarity(it.vector, m.vector) >= threshold }
+            }
+            if (home != null) home.add(m) else clusters.add(mutableListOf(m))
+        }
+        return clusters
+    }
+
+    /**
+     * Ask the summarization model to abstract a cluster of episodic memories into one
+     * higher-order semantic statement. Reuses the summary model HTTP plumbing.
+     */
+    private suspend fun fetchSemanticAbstraction(clusterText: String): String? {
+        val url = Config.memorySummaryUrl
+        val key = Config.memorySummaryKey
+        val model = Config.memorySummaryModel
+        if (key.isEmpty()) return null
+
+        val isGeminiDirect = isGoogleGenerativeLanguageUrl(url) && !url.contains("/v1/")
+        val finalUrl = if (isGeminiDirect) {
+            val baseUrl = url.trimEnd('/')
+            "$baseUrl/v1beta/models/$model:generateContent"
+        } else {
+            val baseUrl = url.trimEnd('/')
+            if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/v1/chat/completions"
+        }
+        Security.validateOutboundRequestUrl(finalUrl, "memory_summary_url")?.let {
+            logRejectedOutboundUrl("memory_summary_url", it)
+            return null
+        }
+
+        val prompt = """
+            You are consolidating an AI companion's episodic memories during an offline "sleep" phase.
+            Below are several related atomic episodic memories. Abstract them into ONE higher-order semantic statement
+            that captures the durable pattern/fact they collectively imply about the user or the relationship.
+            Keep it short, atomic, and in the same language as the memories. Output ONLY the single statement, no JSON, no markdown.
+            Episodic memories:
+            $clusterText
+        """.trimIndent()
+
+        return try {
+            val response = ProxyService.client.post(finalUrl) {
+                header("Content-Type", "application/json")
+                if (isGeminiDirect) header("x-goog-api-key", key) else header("Authorization", "Bearer $key")
+                val requestBody = if (isGeminiDirect) {
+                    buildJsonObject {
+                        put("contents", buildJsonArray {
+                            add(buildJsonObject {
+                                put("role", "user")
+                                put("parts", buildJsonArray { add(buildJsonObject { put("text", prompt) }) })
+                            })
+                        })
+                    }
+                } else {
+                    buildJsonObject {
+                        put("model", model)
+                        put("messages", buildJsonArray {
+                            add(buildJsonObject { put("role", "user"); put("content", prompt) })
+                        })
+                    }
+                }
+                setBody(requestBody.toString())
+            }
+            val resText = response.boundedBodyAsText()
+            val jsonEl = Json.parseToJsonElement(resText) as? JsonObject ?: return null
+            if (isGeminiDirect) {
+                jsonEl["candidates"]?.jsonArray?.getOrNull(0)?.jsonObject
+                    ?.get("content")?.jsonObject
+                    ?.get("parts")?.jsonArray?.getOrNull(0)?.jsonObject
+                    ?.get("text")?.jsonPrimitive?.contentOrNull?.trim()
+            } else {
+                jsonEl["choices"]?.jsonArray?.getOrNull(0)?.jsonObject
+                    ?.get("message")?.jsonObject
+                    ?.get("content")?.jsonPrimitive?.contentOrNull?.trim()
+            }?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            System.err.println("Error fetching semantic abstraction: ${e.message}")
+            null
+        }
+    }
+
     fun cleanJsonString(str: String): String {
         var s = str.trim()
         if (s.startsWith("```")) {
@@ -97,7 +292,8 @@ object MemoryService {
         existing: List<DatabaseService.MemoryRecord>,
         candidateContent: String,
         candidateVector: FloatArray,
-        candidateType: String
+        candidateType: String,
+        threshold: Double = duplicateMemorySimilarityThreshold
     ): Pair<DatabaseService.MemoryRecord, Double>? {
         val normalizedCandidate = normalizeMemoryContent(candidateContent)
         return existing.asSequence()
@@ -107,8 +303,39 @@ object MemoryService {
                 val similarity = if (exactTextMatch) 1.0 else cosineSimilarity(candidateVector, memory.vector)
                 memory to similarity
             }
-            .filter { it.second >= duplicateMemorySimilarityThreshold }
+            .filter { it.second >= threshold }
             .maxByOrNull { it.second }
+    }
+
+    /**
+     * Emotional salience (amygdala-style amplification): arousal dominates, and valence
+     * far from neutral (0.5) adds weight. salience = arousal * (0.5 + |valence - 0.5|).
+     */
+    fun emotionalSalience(valence: Double, arousal: Double): Double {
+        val v = valence.coerceIn(0.0, 1.0)
+        val a = arousal.coerceIn(0.0, 1.0)
+        return a * (0.5 + Math.abs(v - 0.5))
+    }
+
+    /**
+     * Effective Ebbinghaus decay time-constant, expanded by emotional salience so that
+     * high-arousal / extreme-valence memories forget more slowly.
+     */
+    private fun effectiveTauHours(memory: DatabaseService.MemoryRecord): Double {
+        val base = Config.memoryDecayTauHours.coerceAtLeast(1.0)
+        val k = Config.memorySalienceK
+        val salience = emotionalSalience(memory.emotionValence, memory.emotionArousal)
+        return base * (1.0 + k * salience)
+    }
+
+    /**
+     * Lazy Ebbinghaus decayed strength: stored strength * exp(-elapsedHours / tau_eff).
+     * Computed at read time instead of via periodic writes.
+     */
+    fun lazyStrength(memory: DatabaseService.MemoryRecord, nowEpochSecond: Long = Instant.now().epochSecond): Double {
+        val tauHours = effectiveTauHours(memory)
+        val elapsedHours = ((nowEpochSecond - memory.lastAccessedAt).coerceAtLeast(0)) / 3600.0
+        return memory.strength * Math.exp(-elapsedHours / tauHours)
     }
 
     private fun isGoogleGenerativeLanguageUrl(url: String): Boolean {
@@ -408,16 +635,20 @@ object MemoryService {
                     val content = mObj["content"]?.jsonPrimitive?.contentOrNull ?: continue
                     val type = mObj["type"]?.jsonPrimitive?.contentOrNull ?: "semantic"
                     val emotionTag = mObj["emotion_tag"]?.jsonPrimitive?.contentOrNull ?: "neutral"
+                    val emotionValence = mObj["emotion_valence"]?.jsonPrimitive?.doubleOrNull?.coerceIn(0.0, 1.0) ?: 0.5
+                    val emotionArousal = mObj["emotion_arousal"]?.jsonPrimitive?.doubleOrNull?.coerceIn(0.0, 1.0) ?: 0.3
                     val importance = mObj["importance"]?.jsonPrimitive?.doubleOrNull ?: 0.5
-                    
+
                     val vector = fetchEmbedding(content)
                     if (vector != null) {
                         val duplicate = findDuplicateMemory(existingMemories, content, vector, type)
                         if (duplicate != null) {
                             val (existingMemory, similarity) = duplicate
+                            val salience = emotionalSalience(emotionValence, emotionArousal)
+                            val strengthDelta = importance * Config.memoryRecoveryAmount * (1.0 + Config.memorySalienceK * salience)
                             DatabaseService.updateMemoryAccessAndStrength(
                                 id = existingMemory.id,
-                                strengthDelta = importance * Config.memoryRecoveryAmount,
+                                strengthDelta = strengthDelta,
                                 maxStrength = Config.memoryMaxStrength
                             )
                             println(
@@ -425,26 +656,32 @@ object MemoryService {
                                     "[type=$type, similarity=${"%.3f".format(similarity)}]"
                             )
                         } else {
-                            DatabaseService.insertMemory(
+                            val newId = DatabaseService.insertMemory(
                                 content = content,
                                 vector = vector,
                                 type = type,
                                 emotionTag = emotionTag,
-                                initialStrength = importance * Config.memoryInitialStrength
+                                initialStrength = importance * Config.memoryInitialStrength,
+                                emotionValence = emotionValence,
+                                emotionArousal = emotionArousal
                             )
                             existingMemories.add(
                                 DatabaseService.MemoryRecord(
-                                    id = -1,
+                                    id = newId,
                                     content = content,
                                     vector = vector,
                                     type = type,
                                     emotionTag = emotionTag,
                                     strength = importance * Config.memoryInitialStrength,
                                     createdAt = 0,
-                                    lastAccessedAt = 0
+                                    lastAccessedAt = 0,
+                                    relatedIds = emptyList(),
+                                    accessCount = 0,
+                                    emotionValence = emotionValence,
+                                    emotionArousal = emotionArousal
                                 )
                             )
-                            println("Inserted memory [type=$type, emotion=$emotionTag]")
+                            println("Inserted memory [type=$type, valence=${"%.2f".format(emotionValence)}, arousal=${"%.2f".format(emotionArousal)}]")
                         }
                     } else {
                         System.err.println("Embedding lookup returned null for a memory candidate.")
@@ -456,30 +693,50 @@ object MemoryService {
         }
     }
 
-    suspend fun recallMemories(userQuery: String): List<DatabaseService.MemoryRecord> {
+    data class RecalledMemory(
+        val memory: DatabaseService.MemoryRecord,
+        val associated: Boolean
+    )
+
+    suspend fun recallMemories(userQuery: String): List<RecalledMemory> {
         if (!Config.memoryEnabled) return emptyList()
         val recallLimit = Config.maxRecalledMemories.coerceAtLeast(0)
         if (recallLimit == 0) return emptyList()
         val queryVector = fetchEmbedding(userQuery) ?: return emptyList()
-        
+
         val allMemories = DatabaseService.getAllMemoriesForSearch()
         if (allMemories.isEmpty()) return emptyList()
-        
-        // Calculate similarity for each memory
+        val now = Instant.now().epochSecond
+
+        // Score by Ebbinghaus-lazy strength (recency + affect-modulated forgetting).
         val scored = allMemories.map { memory ->
             val similarity = cosineSimilarity(queryVector, memory.vector)
-            // Weigh similarity by memory strength
-            val score = similarity * memory.strength
+            val score = similarity * lazyStrength(memory, now)
             memory to score
         }
-        
-        // Retrieve top N memories that meet a reasonable threshold (e.g. score > 0.3)
+
         val sorted = scored.filter { it.second > 0.3 }
             .sortedByDescending { it.second }
             .map { it.first }
             .take(recallLimit)
-            
-        // For each recalled memory, slightly increase its strength (reinforce memory)
+
+        // Association-graph spread: one hop along related_ids, deduped, capped.
+        val spread = Config.memoryAssociationSpread.coerceAtLeast(0)
+        val primaryIds = sorted.map { it.id }.toMutableSet()
+        val associated = LinkedHashMap<Int, DatabaseService.MemoryRecord>()
+        if (spread > 0) {
+            val byId = allMemories.associateBy { it.id }
+            for (primary in sorted) {
+                for (rid in primary.relatedIds) {
+                    if (associated.size >= spread) break
+                    if (rid in primaryIds || associated.containsKey(rid)) continue
+                    byId[rid]?.let { associated[rid] = it }
+                }
+                if (associated.size >= spread) break
+            }
+        }
+
+        // Reinforce both primary and associated memories (re-activation).
         for (m in sorted) {
             DatabaseService.updateMemoryAccessAndStrength(
                 id = m.id,
@@ -487,7 +744,19 @@ object MemoryService {
                 maxStrength = Config.memoryMaxStrength
             )
         }
-        
-        return sorted
+        for (m in associated.values) {
+            DatabaseService.updateMemoryAccessAndStrength(
+                id = m.id,
+                strengthDelta = Config.memoryRecoveryAmount * 0.5,
+                maxStrength = Config.memoryMaxStrength
+            )
+        }
+
+        val result = sorted.map { RecalledMemory(it, associated = false) } +
+            associated.values.map { RecalledMemory(it, associated = true) }
+        if (associated.isNotEmpty()) {
+            println("Recalled ${sorted.size} primary + ${associated.size} associated memories via association graph.")
+        }
+        return result
     }
 }

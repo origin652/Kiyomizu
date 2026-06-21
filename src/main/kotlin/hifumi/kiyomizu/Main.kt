@@ -43,6 +43,7 @@ fun main() {
 
     embeddedServer(Netty, port = Config.port, host = Config.host) {
         MemoryService.startDecayJob(this)
+        MemoryService.startConsolidationJob(this)
 
         if (Security.shouldAllowBrowserCors()) {
             install(CORS) {
@@ -327,12 +328,20 @@ fun main() {
                 val state = DatabaseService.getRelationshipState()
                 val reflections = DatabaseService.getRecentReflectionsDetailed(20)
                 val memoryCount = DatabaseService.getMemoryCount()
+                val relatedEdges = DatabaseService.getRelatedEdgesTotal()
+                val affect = DatabaseService.getAffectDistribution()
+                val consolidation = MemoryService.lastConsolidationSummary()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
                     put("trust", state.trust)
                     put("mood", state.mood)
                     put("last_interaction_at", state.lastInteractionAt)
                     put("memory_count", memoryCount)
+                    put("related_edges_total", relatedEdges)
+                    put("last_consolidation_at", consolidation["at"]?.jsonPrimitive?.longOrNull ?: 0L)
+                    put("last_consolidation_nodes", consolidation["nodes"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_consolidation_edges", consolidation["edges"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
                             add(buildJsonObject {
@@ -357,7 +366,11 @@ fun main() {
                                 put("content", m.content)
                                 put("type", m.type)
                                 put("emotion_tag", m.emotionTag)
+                                put("emotion_valence", m.emotionValence)
+                                put("emotion_arousal", m.emotionArousal)
                                 put("strength", m.strength)
+                                put("access_count", m.accessCount)
+                                put("related_ids", buildJsonArray { m.relatedIds.forEach { add(it) } })
                                 put("created_at", m.createdAt)
                                 put("last_accessed_at", m.lastAccessedAt)
                             })
@@ -527,6 +540,7 @@ private suspend fun handleModelListProxy(call: ApplicationCall) {
 private fun Route.fallbackProxyRoute() {
     route("{...}") {
         handle {
+            MemoryService.touchLastRequest()
             val upstreamBase = Config.upstream
             if (upstreamBase.isBlank()) {
                 call.respondText("Upstream URL is not configured", ContentType.Text.Plain, HttpStatusCode.BadRequest)

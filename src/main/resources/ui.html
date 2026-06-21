@@ -9,23 +9,64 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 :root {
-  --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  --card-bg: rgba(255, 255, 255, 0.85);
-  --card-border: rgba(0, 0, 0, 0.05);
-  --card-border-hover: rgba(37, 99, 235, 0.15);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --accent-color: #2563eb;
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  --accent-hover: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
-  --input-bg: #ffffff;
-  --input-border: #cbd5e1;
-  --input-focus: #2563eb;
-  --success-color: #059669;
-  --success-glow: rgba(16, 185, 129, 0.08);
-  --error-color: #dc2626;
-  --error-glow: rgba(239, 68, 68, 0.08);
+  /* Surfaces */
+  --surface-0: #f6f7f9;
+  --surface-1: #ffffff;
+  --surface-2: #f1f3f6;
+  --surface-3: #e9edf2;
+
+  /* Text */
+  --text-primary: #1a2233;
+  --text-secondary: #5a6577;
+  --text-muted: #8a94a6;
+
+  /* Borders */
+  --border-default: #e2e6ec;
+  --border-subtle: #eef0f4;
+  --border-strong: #d2d8e0;
+
+  /* Accent (indigo) */
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.08);
+  --accent-border: rgba(79, 70, 229, 0.22);
+
+  /* Semantic */
+  --success: #059669;
+  --success-soft: rgba(5, 150, 105, 0.10);
+  --success-border: rgba(5, 150, 105, 0.25);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.10);
+  --warning-border: rgba(180, 83, 9, 0.25);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.08);
+  --danger-border: rgba(220, 38, 38, 0.25);
+
+  /* Cache diagram */
+  --cache-active: #10b981;
+  --cache-active-soft: rgba(16, 185, 129, 0.12);
+  --cache-idle: var(--border-default);
+
+  /* Spacing (8px base) */
+  --sp-1: 4px;  --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px;  --sp-7: 32px;  --sp-8: 40px; --sp-9: 56px;
+
+  /* Radius */
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px; --r-2xl: 22px; --r-pill: 999px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.03);
+  --shadow-2: 0 6px 24px -8px rgba(16,24,40,.10), 0 1px 3px rgba(16,24,40,.04);
+  --focus-ring: 0 0 0 3px var(--accent-soft);
+
+  /* Type */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Fira Code', monospace;
+  --fs-xs: 0.72rem; --fs-sm: 0.8rem; --fs-md: 0.875rem; --fs-lg: 0.95rem; --fs-xl: 1.05rem; --fs-2xl: 1.3rem;
+  --lh-tight: 1.3; --lh-base: 1.55;
+
+  /* Motion */
+  --t-fast: 0.15s ease; --t-base: 0.22s cubic-bezier(0.4,0,0.2,1);
 }
 
 * {
@@ -35,140 +76,150 @@
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg-gradient);
-  background-attachment: fixed;
+  font-family: var(--font-sans);
+  background: var(--surface-0);
   color: var(--text-primary);
   min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 40px 20px;
-  position: relative;
-  overflow-x: hidden;
+  font-size: var(--fs-md);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
 }
 
-.glow-orb {
-  position: fixed;
-  width: 450px;
-  height: 450px;
-  border-radius: 50%;
-  filter: blur(150px);
-  opacity: 0.12;
-  z-index: -1;
-  pointer-events: none;
-}
-.glow-1 {
-  background: #60a5fa;
-  top: -5%;
-  left: 10%;
-  animation: float 25s infinite alternate;
-}
-.glow-2 {
-  background: #c084fc;
-  bottom: -5%;
-  right: 10%;
-  animation: float 30s infinite alternate-reverse;
-}
-@keyframes float {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(40px, 30px) scale(1.08); }
-}
-
-.dashboard-wrapper {
-  width: 100%;
-  max-width: 1100px;
+/* ── App shell ── */
+.app {
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  z-index: 1;
 }
-
-.dashboard-header {
+.app-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #cbd5e1;
-  padding-bottom: 24px;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-default);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
-
 .brand-section {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
 }
-
 .kiyomizu-logo {
-  width: 36px;
-  height: 36px;
-  filter: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.3));
+  width: 32px;
+  height: 32px;
 }
-
 .brand-text {
-  font-size: 1.4rem;
+  font-size: var(--fs-xl);
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.04em;
+  color: var(--accent-strong);
+  line-height: 1.1;
 }
-
 #t-title {
-  font-size: 0.95rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  margin-top: 2px;
 }
-
-.dashboard-grid {
+.app-body {
+  flex: 1;
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: 28px;
+  grid-template-columns: 232px 1fr;
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  gap: 0;
 }
-
-@media (max-width: 900px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.dashboard-card {
-  background: var(--card-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--card-border);
-  border-radius: 24px;
-  padding: 28px;
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.nav-rail {
+  border-right: 1px solid var(--border-default);
+  padding: var(--sp-5) var(--sp-3);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--sp-1);
+  position: sticky;
+  top: 65px;
+  align-self: start;
+  height: calc(100vh - 65px);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.nav-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+.nav-item svg { flex: 0 0 auto; }
+.content {
+  padding: var(--sp-6);
+  min-width: 0;
+}
+.pane { display: none; flex-direction: column; gap: var(--sp-6); animation: fadeIn var(--t-base); }
+.pane.is-active { display: flex; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.app.config-locked .app-body .nav-rail,
+.app.config-locked .app-body .content {
+  opacity: 0.4;
+  pointer-events: none;
+  user-select: none;
+}
+.app.config-locked #config-auth-panel {
+  pointer-events: auto;
+  opacity: 1;
 }
 
-.dashboard-card:hover {
-  border-color: var(--card-border-hover);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.08), 0 0 20px rgba(37, 99, 235, 0.03);
-  transform: translateY(-2px);
-}
-
-.dashboard-sidebar {
+/* ── Card ── */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-xl);
+  padding: var(--sp-6);
+  box-shadow: var(--shadow-2);
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--sp-5);
+}
+.card-inset {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
 }
 
 form {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--sp-5);
 }
 
 label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 0.875rem;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text-secondary);
   position: relative;
@@ -176,21 +227,21 @@ label {
 
 .select-wrapper {
   position: relative;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
 }
 
 .select-wrapper::after {
   content: "";
   position: absolute;
-  right: 16px;
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
   width: 8px;
   height: 5px;
-  background-color: var(--text-secondary);
+  background-color: var(--text-muted);
   clip-path: polygon(100% 0, 0 0, 50% 100%);
   pointer-events: none;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--t-fast);
 }
 
 .select-wrapper:hover::after {
@@ -199,26 +250,26 @@ label {
 
 select, input[type=number], input[type=text] {
   width: 100%;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
-  padding: 13px 16px;
-  border-radius: 12px;
+  padding: 11px var(--sp-4);
+  border-radius: var(--r-md);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: var(--fs-md);
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 
 select {
-  padding-right: 40px;
+  padding-right: 38px;
   appearance: none;
   -webkit-appearance: none;
 }
 
 select:focus, input[type=number]:focus, input[type=text]:focus {
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 input[data-masked="true"] {
@@ -229,20 +280,20 @@ input[data-masked="true"] {
 
 textarea {
   width: 100%;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
-  padding: 13px 16px;
-  border-radius: 12px;
+  padding: 11px var(--sp-4);
+  border-radius: var(--r-md);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: var(--fs-md);
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 
 textarea:focus {
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .password-shell {
@@ -251,76 +302,66 @@ textarea:focus {
 }
 
 .password-shell input[type=text] {
-  padding-right: 48px;
-  font-family: 'Fira Code', monospace;
-  font-size: 0.85rem;
+  padding-right: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
 }
 
 .password-shell:focus-within input {
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .password-toggle {
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   transform: translateY(-50%);
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
 
 .password-toggle:hover {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
+  background: var(--surface-2);
+  border-color: var(--border-default);
   color: var(--text-primary);
 }
 
 .password-toggle:focus-visible,
-.secondary-button:focus-visible,
+.btn:focus-visible,
 #lang-bar button:focus-visible,
-.tab-btn:focus-visible,
-button[type=submit]:focus-visible,
-.auth-primary-button:focus-visible {
-  outline: 2px solid rgba(37, 99, 235, 0.65);
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent-border);
   outline-offset: 2px;
 }
 
-.password-toggle .icon-hide {
-  display: none;
-}
-
-.password-toggle.is-visible .icon-show {
-  display: none;
-}
-
-.password-toggle.is-visible .icon-hide {
-  display: block;
-}
+.password-toggle .icon-hide { display: none; }
+.password-toggle.is-visible .icon-show { display: none; }
+.password-toggle.is-visible .icon-hide { display: block; }
 
 .secret-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
 }
 
 .secret-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  min-height: 24px;
-  font-size: 0.75rem;
+  gap: var(--sp-3);
+  min-height: 22px;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
 
@@ -336,14 +377,14 @@ button[type=submit]:focus-visible,
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
+  background: var(--text-muted);
+  box-shadow: 0 0 0 3px rgba(138, 148, 166, 0.14);
   flex: 0 0 auto;
 }
 
 .secret-status.configured::before {
-  background: var(--success-color);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.14);
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
 }
 
 .secret-clear {
@@ -352,7 +393,7 @@ button[type=submit]:focus-visible,
   justify-content: flex-end;
   gap: 7px;
   margin: 0;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -360,16 +401,16 @@ button[type=submit]:focus-visible,
 }
 
 .secret-clear input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--error-color);
+  width: 15px;
+  height: 15px;
+  accent-color: var(--danger);
   cursor: pointer;
 }
 
 input[disabled], textarea[disabled], select[disabled] {
-  background: #e2e8f0;
-  color: #64748b;
-  border-color: #cbd5e1;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  border-color: var(--border-default);
   cursor: not-allowed;
   opacity: 1;
   box-shadow: none;
@@ -377,7 +418,7 @@ input[disabled], textarea[disabled], select[disabled] {
 
 .field-hint {
   margin-top: 6px;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -386,170 +427,177 @@ input[disabled], textarea[disabled], select[disabled] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
   margin-bottom: -4px;
 }
 
 .field-group-title {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-secondary);
 }
 
-.secondary-button {
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  background: rgba(37, 99, 235, 0.06);
-  color: var(--accent-color);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 0.78rem;
-  font-weight: 700;
+/* ── Buttons ── */
+.btn {
+  font-family: inherit;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  border-radius: var(--r-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+  border: 1px solid transparent;
+  text-decoration: none;
+  line-height: 1;
 }
-
-.secondary-button:hover {
-  background: rgba(37, 99, 235, 0.1);
-  border-color: rgba(37, 99, 235, 0.28);
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  padding: 12px var(--sp-5);
+  font-size: var(--fs-md);
+  box-shadow: 0 2px 10px var(--accent-soft);
+  width: 100%;
+  margin-top: var(--sp-2);
 }
-
-.secondary-button:active {
-  transform: translateY(1px);
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-primary:disabled { background: var(--surface-3); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+.btn-secondary {
+  flex: 1;
+  padding: 11px var(--sp-4);
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-1);
+  color: var(--text-secondary);
 }
-
-.secondary-button:disabled {
-  background: #e2e8f0;
-  border-color: #cbd5e1;
-  color: #64748b;
-  cursor: not-allowed;
-  transform: none;
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  padding: 5px 10px;
+  font-size: var(--fs-xs);
 }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.btn-accent-soft {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-radius: var(--r-pill);
+  padding: 7px 14px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.btn-accent-soft:hover { background: rgba(79,70,229,0.14); border-color: var(--accent); }
+.btn-accent-soft:disabled { background: var(--surface-3); border-color: var(--border-default); color: var(--text-muted); cursor: not-allowed; }
 
 .field-warning {
   display: none;
   margin-top: -4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(217, 119, 6, 0.22);
-  background: rgba(245, 158, 11, 0.08);
-  color: #92400e;
-  font-size: 0.76rem;
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
 .security-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  background: #f8fafc;
+  gap: var(--sp-4);
 }
 
 .security-title-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
 .security-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   color: var(--text-primary);
-  font-size: 0.9rem;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 700;
 }
 
 .security-body {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
 }
 
 .security-fields {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
-.security-fields label {
-  font-size: 0.78rem;
-}
+.security-fields label { font-size: var(--fs-sm); }
 
 .security-actions {
   display: flex;
   justify-content: flex-end;
 }
 
-.security-section.is-disabled {
-  opacity: 0.58;
-}
-
+.security-section.is-disabled { opacity: 0.58; }
 .security-section.is-disabled .security-fields,
-.security-section.is-disabled .security-actions {
-  pointer-events: none;
-}
+.security-section.is-disabled .security-actions { pointer-events: none; }
 
 .autosave-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #f8fafc;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
 }
 
-.autosave-copy {
-  min-width: 0;
-}
+.autosave-copy { min-width: 0; }
 
 .autosave-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   color: var(--text-primary);
-  font-size: 0.86rem;
-  font-weight: 800;
+  font-size: var(--fs-sm);
+  font-weight: 700;
 }
 
 .autosave-body {
   margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
 .autosave-state {
   color: var(--text-muted);
-  font-family: 'Fira Code', monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   font-weight: 700;
   white-space: nowrap;
 }
 
-.autosave-state.saving {
-  color: var(--accent-color);
-}
-
-.autosave-state.saved {
-  color: var(--success-color);
-}
-
-.autosave-state.err {
-  color: var(--error-color);
-}
+.autosave-state.saving { color: var(--accent); }
+.autosave-state.saved { color: var(--success); }
+.autosave-state.err { color: var(--danger); }
 
 .switch-control {
   position: relative;
-  width: 46px;
-  height: 26px;
+  width: 44px;
+  height: 24px;
   flex: 0 0 auto;
+  display: inline-flex;
 }
 
 .switch-control input {
@@ -557,34 +605,35 @@ input[disabled], textarea[disabled], select[disabled] {
   inset: 0;
   opacity: 0;
   cursor: pointer;
+  margin: 0;
 }
 
 .switch-track {
   position: absolute;
   inset: 0;
-  border-radius: 999px;
-  border: 1px solid #cbd5e1;
-  background: #e2e8f0;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-3);
   pointer-events: none;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background var(--t-fast), border-color var(--t-fast);
 }
 
 .switch-track::after {
   content: "";
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   left: 2px;
   top: 2px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
-  transition: transform 0.2s ease;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(16,24,40,0.18);
+  transition: transform var(--t-fast);
 }
 
 .switch-control input:checked + .switch-track {
-  background: var(--accent-color);
-  border-color: var(--accent-color);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .switch-control input:checked + .switch-track::after {
@@ -592,74 +641,40 @@ input[disabled], textarea[disabled], select[disabled] {
 }
 
 .switch-control input:focus-visible + .switch-track {
-  outline: 2px solid rgba(37, 99, 235, 0.65);
+  outline: 2px solid var(--accent-border);
   outline-offset: 2px;
 }
 
 @media (max-width: 620px) {
-  .autosave-panel {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+  .autosave-panel { align-items: flex-start; flex-direction: column; }
 }
 
-button[type=submit],
 .auth-primary-button {
-  width: 100%;
-  background: var(--accent-gradient);
-  border: none;
-  color: #ffffff;
-  padding: 15px;
-  border-radius: 12px;
-  font-family: inherit;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
-  margin-top: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-}
-
-button[type=submit]:hover,
-.auth-primary-button:hover {
-  background: var(--accent-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
-}
-
-button[type=submit]:active,
-.auth-primary-button:active {
-  transform: translateY(1px);
+  min-width: 116px;
+  height: 44px;
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 #status {
-  padding: 16px;
-  border-radius: 12px;
-  font-size: 0.85rem;
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
   line-height: 1.4;
   display: none;
   word-break: break-all;
   border: 1px solid transparent;
-  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
-
 #status.success {
-  background: rgba(5, 150, 105, 0.08);
-  border-color: rgba(5, 150, 105, 0.25);
-  color: #047857;
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.02);
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success);
 }
-
 #status.err {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.25);
-  color: #b91c1c;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.02);
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 @keyframes slideUp {
@@ -669,124 +684,75 @@ button[type=submit]:active,
 
 #lang-bar {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-1);
 }
 
 #lang-bar button {
-  background: rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: transparent;
+  border: 1px solid var(--border-default);
   color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 0.75rem;
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
   outline: none;
   appearance: none;
   -webkit-appearance: none;
-}
-
-#lang-bar button:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-primary);
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
-#lang-bar button.active {
-  background: rgba(37, 99, 235, 0.08);
-  border-color: rgba(37, 99, 235, 0.25);
-  color: #2563eb;
-  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.05);
-}
-
-.tabs {
-  display: flex;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  padding: 4px;
-  border-radius: 14px;
-  margin-bottom: 8px;
-}
-
-.tab-btn {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  padding: 11px;
-  border-radius: 10px;
   font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-.tab-btn:hover {
+#lang-bar button:hover {
+  background: var(--surface-2);
   color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.03);
+}
+#lang-bar button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-strong);
 }
 
-.tab-btn.active {
-  background: var(--accent-gradient);
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
-}
-
-.tab-content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Sidebar Widgets styling */
+/* ── Status / badges ── */
 .status-summary-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--sp-4);
 }
 
 .status-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--sp-3);
 }
 
 .status-title {
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.status-pulse-badge {
+.badge-live {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  color: #059669;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.75rem;
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 
-.pulse-dot {
+.badge-dot {
   width: 6px;
   height: 6px;
-  background: #10b981;
+  background: var(--success);
   border-radius: 50%;
-  box-shadow: 0 0 8px #10b981;
-  animation: pulse-dot-anim 1.5s infinite;
+  box-shadow: 0 0 8px var(--success);
+  animation: pulse-dot-anim 1.6s infinite;
 }
 
 @keyframes pulse-dot-anim {
@@ -798,103 +764,94 @@ button[type=submit]:active,
 .status-badges-grid {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
-.status-badge-item {
+.stat-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  padding: 12px 16px;
-  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
 }
 
-.badge-label {
-  font-size: 0.8rem;
+.stat-label {
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.badge-value {
-  font-size: 0.8rem;
+.stat-value {
+  font-size: var(--fs-sm);
   font-weight: 600;
-  font-family: 'Fira Code', monospace;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
 }
 
-.text-success {
-  color: #059669;
-}
-
-.text-muted {
-  color: var(--text-muted);
-}
+.text-success { color: var(--success); }
+.text-muted { color: var(--text-muted); }
 
 /* SVG diagram animation */
-.flow-line {
-  animation: flow-dash 1.8s linear infinite;
-}
+.flow-line { animation: flow-dash 1.8s linear infinite; }
+@keyframes flow-dash { to { stroke-dashoffset: -20; } }
 
-@keyframes flow-dash {
-  to {
-    stroke-dashoffset: -20;
-  }
-}
-
-/* Visualizer Card */
+/* Visualizer */
 .visualizer-title {
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
-.visualizer-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 20px;
+.diagram-frame {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .timeline-track {
   display: flex;
   gap: 6px;
   height: 32px;
-  margin-bottom: 14px;
+  margin-bottom: var(--sp-4);
   position: relative;
 }
 
 .timeline-msg {
   flex: 1;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   position: relative;
-  transition: all 0.3s ease;
+  transition: all var(--t-base);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .timeline-msg .msg-num {
-  font-size: 0.7rem;
-  font-family: 'Fira Code', monospace;
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
   color: var(--text-muted);
   opacity: 0.6;
 }
 
 .timeline-msg.stable {
-  background: rgba(37, 99, 235, 0.08);
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
 }
 
 .timeline-msg.tail {
-  background: rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--surface-3);
+  border: 1px solid var(--border-default);
 }
 
-/* Cache pin placement */
 .cache-pin {
   position: absolute;
   top: 50%;
@@ -902,22 +859,22 @@ button[type=submit]:active,
   transform: translate(-50%, -50%);
   width: 10px;
   height: 10px;
-  background: #10b981;
+  background: var(--cache-active);
   border-radius: 50%;
-  box-shadow: 0 0 10px #10b981;
+  box-shadow: 0 0 10px var(--cache-active);
   animation: pulse-pin 2s infinite;
 }
 
 @keyframes pulse-pin {
-  0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px #10b981; }
-  50% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 14px #10b981; }
-  100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px #10b981; }
+  0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px var(--cache-active); }
+  50% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 14px var(--cache-active); }
+  100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 8px var(--cache-active); }
 }
 
 .timeline-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
 }
 
 #visualizer-container.disabled {
@@ -927,12 +884,12 @@ button[type=submit]:active,
 }
 
 #msg-not-applicable {
-  padding: 16px;
-  border-radius: 12px;
-  font-size: 0.85rem;
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   font-weight: 500;
   text-align: center;
@@ -941,36 +898,31 @@ button[type=submit]:active,
 .auth-panel {
   display: none;
   align-items: stretch;
-  gap: 22px;
-  padding: 22px;
-  border-color: rgba(37, 99, 235, 0.16);
-  background: rgba(255, 255, 255, 0.92);
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+  background: var(--surface-1);
+  border: 1px solid var(--accent-border);
+  box-shadow: var(--shadow-2);
+  border-radius: var(--r-xl);
+  margin-bottom: var(--sp-6);
 }
 
-.auth-panel.visible {
-  display: flex;
-}
-
-.dashboard-wrapper.config-locked .dashboard-grid {
-  opacity: 0.32;
-  pointer-events: none;
-  user-select: none;
-}
+.auth-panel.visible { display: flex; }
 
 .auth-panel-copy {
   flex: 1;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 
 .auth-panel-icon {
   width: 38px;
   height: 38px;
-  border-radius: 12px;
-  background: rgba(37, 99, 235, 0.08);
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  color: var(--accent-color);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -984,13 +936,13 @@ button[type=submit]:active,
 }
 
 .auth-panel-title {
-  font-size: 0.98rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .auth-panel-body {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -999,32 +951,16 @@ button[type=submit]:active,
   width: min(100%, 520px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: var(--sp-3);
   align-items: center;
 }
 
-.auth-panel-actions .password-shell {
-  min-width: 0;
-}
+.auth-panel-actions .password-shell { min-width: 0; }
 
-.auth-panel .setup-only {
-  display: none;
-}
-
-.auth-panel.setup .setup-only {
-  display: block;
-}
-
+.auth-panel .setup-only { display: none; }
+.auth-panel.setup .setup-only { display: block; }
 .auth-panel.setup .auth-panel-actions {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-}
-
-.auth-primary-button {
-  width: auto;
-  min-width: 116px;
-  height: 44px;
-  margin-top: 0;
-  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
@@ -1034,19 +970,10 @@ button[type=submit]:active,
     flex-direction: column;
     align-items: stretch;
   }
-
-  .auth-panel-copy {
-    flex-direction: row;
-  }
-
+  .auth-panel-copy { flex-direction: row; }
   .auth-panel-actions,
-  .auth-panel.setup .auth-panel-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-primary-button {
-    width: 100%;
-  }
+  .auth-panel.setup .auth-panel-actions { grid-template-columns: 1fr; }
+  .auth-primary-button { width: 100%; }
 }
 
 @media (max-width: 620px) {
@@ -1074,191 +1001,331 @@ button[type=submit]:active,
 /* ── Export/Import buttons ── */
 .config-io-row {
   display: flex;
-  gap: 10px;
-  margin-top: 8px;
-}
-.btn-secondary {
-  flex: 1;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  transition: all 0.2s ease;
-}
-.btn-secondary:hover {
-  border-color: var(--accent-color);
-  color: var(--accent-color);
-  background: rgba(37,99,235,0.04);
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
 }
 
 /* ── Companion / Logs panels ── */
 .companion-logs-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
 }
 .panel-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18px;
+  margin-bottom: var(--sp-5);
 }
 .panel-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.95rem;
+  gap: var(--sp-2);
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-primary);
 }
-.panel-refresh-btn {
-  background: none;
-  border: 1px solid var(--input-border);
-  border-radius: 8px;
-  padding: 5px 10px;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  font-family: inherit;
-  transition: all 0.2s ease;
-}
-.panel-refresh-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
-.stat-bar-row { margin-bottom: 14px; }
-.stat-bar-label {
+.panel-title svg { color: var(--accent); }
+
+.bar-row { margin-bottom: var(--sp-4); }
+.bar-label {
   display: flex;
   justify-content: space-between;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 5px;
 }
-.stat-bar-track {
+.bar-track {
   height: 8px;
-  border-radius: 4px;
-  background: var(--input-border);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
   overflow: hidden;
 }
-.stat-bar-fill {
+.bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   transition: width 0.5s ease;
 }
-.stat-bar-fill.intimacy { background: linear-gradient(90deg,#f472b6,#ec4899); }
-.stat-bar-fill.trust { background: linear-gradient(90deg,#60a5fa,#2563eb); }
-.mood-badge {
+.bar-fill.intimacy { background: linear-gradient(90deg,#f472b6,#ec4899); }
+.bar-fill.trust { background: linear-gradient(90deg,#818cf8,#4f46e5); }
+.badge-mood {
   display: inline-block;
   padding: 3px 12px;
-  border-radius: 20px;
-  font-size: 0.78rem;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
   font-weight: 600;
-  background: rgba(37,99,235,0.08);
-  color: var(--accent-color);
-  margin-bottom: 14px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  margin-bottom: var(--sp-4);
 }
-.companion-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 14px; }
+.companion-meta { font-size: var(--fs-sm); color: var(--text-muted); margin-bottom: var(--sp-4); }
 .reflections-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 200px;
+  gap: var(--sp-2);
+  max-height: 220px;
   overflow-y: auto;
 }
 .reflection-item {
-  background: rgba(37,99,235,0.03);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 0.82rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
   line-height: 1.5;
 }
-.reflection-time { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
-.section-label {
-  font-size: 0.75rem;
+.reflection-time { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px; }
+.eyebrow {
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  margin-bottom: 10px;
+  margin-bottom: var(--sp-3);
 }
 .log-table-wrap { overflow-x: auto; }
-.log-table {
+.table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }
-.log-table th {
+.table th {
   text-align: left;
   color: var(--text-muted);
   font-weight: 600;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--input-border);
+  border-bottom: 1px solid var(--border-default);
   white-space: nowrap;
 }
-.log-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid rgba(0,0,0,0.04);
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   vertical-align: middle;
 }
-.log-table tr:last-child td { border-bottom: none; }
-.log-table .badge {
+.table tr:last-child td { border-bottom: none; }
+.tag {
   display: inline-block;
-  padding: 2px 7px;
-  border-radius: 6px;
-  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
-.log-table .badge.yes { background: rgba(5,150,105,0.1); color: #059669; }
-.log-table .badge.no  { background: rgba(100,116,139,0.1); color: var(--text-muted); }
-.log-table .model-cell {
+.tag-yes { background: var(--success-soft); color: var(--success); }
+.tag-no  { background: var(--surface-3); color: var(--text-muted); }
+.model-cell {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: 'Fira Code', monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
 }
 .log-table-scroll { max-height: 320px; overflow-y: auto; }
-.empty-state {
+.empty {
   text-align: center;
-  padding: 24px;
+  padding: var(--sp-6);
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
 }
-.dashboard-wrapper.config-locked .companion-logs-grid {
-  opacity: 0.3;
-  pointer-events: none;
+
+/* ── Collapsible config sections ── */
+.collapsible {
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.collapsible + .collapsible { margin-top: var(--sp-4); }
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  cursor: pointer;
+  user-select: none;
+  background: var(--surface-1);
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+.collapsible-header:hover { background: var(--surface-2); }
+.collapsible-chevron {
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+  transition: transform var(--t-base);
+  flex: 0 0 auto;
+}
+.collapsible.is-open .collapsible-chevron { transform: rotate(90deg); }
+.collapsible-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+}
+.collapsible-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.collapsible-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--t-base);
+}
+.collapsible.is-open .collapsible-body { grid-template-rows: 1fr; }
+.collapsible-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.collapsible.is-open .collapsible-body-inner {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.cache-note {
+  margin-top: var(--sp-2);
+  color: var(--warning);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.4;
+}
+.companion-block {
+  border: 1px dashed var(--accent-border);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.companion-block-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+.companion-block-title svg { color: var(--accent); }
+.field-pair-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+@media (max-width: 560px) {
+  .field-pair-grid { grid-template-columns: 1fr; }
+}
+
+.input-mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.input-mono-sm { font-family: var(--font-mono); font-size: var(--fs-xs); margin-top: var(--sp-1); }
+.label-inline {
+  flex-direction: row !important;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-3);
+  cursor: pointer;
+  margin-bottom: 0;
+}
+.cb-accent { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+#companion-fields-wrapper { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* ── Diagram token-driven classes ── */
+.diagram-node { fill: var(--surface-1); stroke: var(--border-strong); stroke-width: 1.5; }
+.diagram-text { fill: var(--text-primary); }
+.diagram-proxy { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; transition: fill var(--t-base), stroke var(--t-base); }
+.diagram-proxy-text { fill: var(--accent-strong); }
+.cache-cyl { transition: opacity var(--t-base); }
+.cache-cyl-fill { fill: var(--cache-active-soft); stroke: var(--cache-active); stroke-width: 1.5; }
+.cache-cyl-line { stroke: var(--cache-active); stroke-width: 1.5; }
+.cache-cyl-text { fill: var(--cache-active); }
+.flow-edge { stroke: var(--accent-border); stroke-width: 2; }
+.flow-edge-dashed { stroke: var(--cache-idle); stroke-width: 1.5; transition: stroke var(--t-base), opacity var(--t-base); }
+.flow-arrow { fill: var(--accent); }
+.cache-on .cache-cyl-fill { fill: var(--cache-active-soft); }
+.cache-off .cache-cyl-fill { fill: var(--surface-3); stroke: var(--border-strong); }
+.cache-off .cache-cyl-line { stroke: var(--border-strong); }
+.cache-off .cache-cyl-text { fill: var(--text-muted); }
+.cache-off.diagram-proxy, .diagram-proxy.cache-off { fill: var(--accent-soft); stroke: var(--accent); }
+#cache-cylinder.cache-on { opacity: 1; }
+#cache-cylinder.cache-off { opacity: 0.5; }
+.flow-edge-dashed.flow-active { stroke: var(--cache-active); opacity: 1; }
+.flow-edge-dashed.flow-idle { stroke: var(--cache-idle); opacity: 0.5; }
+.tl-stable { color: var(--accent); }
+.tl-tail { color: var(--text-muted); }
+
+/* ── App-shell responsive ── */
+@media (max-width: 880px) {
+  .app-body {
+    grid-template-columns: 1fr;
+  }
+  .nav-rail {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+    padding: var(--sp-2) var(--sp-3);
+    gap: var(--sp-1);
+  }
+  .nav-item {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .content { padding: var(--sp-5); }
+}
+@media (max-width: 620px) {
+  .bar-row + .bar-row,
+  .companion-meta { font-size: var(--fs-xs); }
+}
+@media (max-width: 520px) {
+  .companion-num-grid { grid-template-columns: 1fr; }
+}
+
+.flow-svg { width: 100%; max-width: 400px; height: auto; display: block; }
+.title-icon-row { display: flex; align-items: center; gap: var(--sp-2); }
+.icon-accent { color: var(--accent); flex-shrink: 0; }
+.is-hidden { display: none !important; }
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+.field-stack { display: flex; flex-direction: column; gap: var(--sp-5); }
+.bar-fill-zero { width: 0%; }
+.companion-meta-gap { margin-left: var(--sp-3); }
+#status.is-visible { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .flow-line { animation: none !important; }
+  .badge-dot { animation: none !important; }
 }
 </style>
 </head>
 <body>
-<div class="glow-orb glow-1"></div>
-<div class="glow-orb glow-2"></div>
-
-<div class="dashboard-wrapper">
-  <!-- Header -->
-  <header class="dashboard-header">
+<div class="app">
+  <!-- Brand bar -->
+  <header class="app-bar">
     <div class="brand-section">
       <svg class="kiyomizu-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M20,60 C30,45 40,45 50,60 C60,75 70,75 80,60" stroke="url(#logo-grad)" stroke-width="8" stroke-linecap="round"/>
-        <path d="M15,40 C27,22 43,22 55,40 C67,58 83,58 95,40" stroke="url(#logo-grad)" stroke-width="6" stroke-opacity="0.6" stroke-linecap="round"/>
-        <path d="M25,80 C33,70 41,70 49,80 C57,90 65,90 73,80" stroke="url(#logo-grad)" stroke-width="5" stroke-opacity="0.3" stroke-linecap="round"/>
-        <defs>
-          <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#3b82f6" />
-            <stop offset="100%" stop-color="#1d4ed8" />
-          </linearGradient>
-        </defs>
+        <path d="M20,60 C30,45 40,45 50,60 C60,75 70,75 80,60" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>
+        <path d="M15,40 C27,22 43,22 55,40 C67,58 83,58 95,40" stroke="var(--accent)" stroke-width="6" stroke-opacity="0.6" stroke-linecap="round"/>
+        <path d="M25,80 C33,70 41,70 49,80 C57,90 65,90 73,80" stroke="var(--accent)" stroke-width="5" stroke-opacity="0.3" stroke-linecap="round"/>
       </svg>
       <div>
         <span class="brand-text">Kiyomizu</span>
@@ -1272,7 +1339,7 @@ button[type=submit]:active,
     </div>
   </header>
 
-  <div class="dashboard-card auth-panel" id="config-auth-panel">
+  <div class="auth-panel auth-pane-allow" id="config-auth-panel">
     <div class="auth-panel-copy">
       <div class="auth-panel-icon" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -1300,97 +1367,121 @@ button[type=submit]:active,
           <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
         </button>
       </div>
-      <button id="btn-auth-unlock" class="auth-primary-button" type="button">Unlock</button>
+      <button id="btn-auth-unlock" class="btn btn-primary auth-primary-button" type="button">Unlock</button>
     </div>
   </div>
 
-  <!-- Grid Content -->
-  <div class="dashboard-grid">
-    
-    <!-- Left Column: Status / Diagrams -->
-    <div class="dashboard-sidebar">
-      
-      <!-- Card 1: System Status & Overview -->
-      <div class="dashboard-card">
+  <div class="app-body">
+    <!-- Left navigation rail -->
+    <nav class="nav-rail" aria-label="sections">
+      <button type="button" class="nav-item is-active" data-nav="status">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        <span id="t-nav-status">System Status</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="cache">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span id="t-nav-cache">Cache Visualizer</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="companion">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        <span id="t-nav-companion">Companion</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="logs">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span id="t-nav-logs">Request Logs</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="config">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span id="t-nav-config">Configuration</span>
+      </button>
+    </nav>
+
+    <!-- Right content -->
+    <div class="content">
+      <!-- Pane: System Status -->
+      <section class="pane is-active" data-pane="status">
+        <div class="card">
         <div class="status-summary-card">
           <div class="status-title-row">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line><line x1="10" y1="6" x2="10.01" y2="6"></line><line x1="10" y1="18" x2="10.01" y2="18"></line></svg>
+            <div class="title-icon-row">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-accent"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line><line x1="10" y1="6" x2="10.01" y2="6"></line><line x1="10" y1="18" x2="10.01" y2="18"></line></svg>
               <span class="status-title" id="lbl-status-title">System Status</span>
             </div>
-            <span class="status-pulse-badge">
-              <span class="pulse-dot"></span>
+            <span class="badge-live">
+              <span class="badge-dot"></span>
               <span id="lbl-status-active">Running</span>
             </span>
           </div>
-          
+
           <div class="status-badges-grid">
-            <div class="status-badge-item">
-              <span class="badge-label" id="lbl-status-upstream-label">Active Upstream</span>
-              <span class="badge-value" id="val-status-upstream">-</span>
+            <div class="stat-row">
+              <span class="stat-label" id="lbl-status-upstream-label">Active Upstream</span>
+              <span class="stat-value" id="val-status-upstream">-</span>
             </div>
-            <div class="status-badge-item">
-              <span class="badge-label" id="lbl-status-cache-label">Smart Caching</span>
-              <span class="badge-value" id="val-status-cache">-</span>
+            <div class="stat-row">
+              <span class="stat-label" id="lbl-status-cache-label">Smart Caching</span>
+              <span class="stat-value" id="val-status-cache">-</span>
             </div>
-            <div class="status-badge-item">
-              <span class="badge-label" id="lbl-status-thinking-label">Reasoning Optimization</span>
-              <span class="badge-value text-success" id="val-status-thinking">Active (Stripping thinking)</span>
+            <div class="stat-row">
+              <span class="stat-label" id="lbl-status-thinking-label">Reasoning Optimization</span>
+              <span class="stat-value text-success" id="val-status-thinking">Active (Stripping thinking)</span>
             </div>
           </div>
         </div>
       </div>
-      
+      </section>
+
+      <!-- Pane: Cache Visualizer -->
+      <section class="pane" data-pane="cache">
       <!-- Card 2: Interactive SVG Traffic Proxy Flow -->
-      <div class="dashboard-card">
-        <h3 class="visualizer-title" style="margin-bottom: 8px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+      <div class="card">
+        <h3 class="visualizer-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
           <span id="lbl-dashboard-title">Proxy Traffic Flow</span>
         </h3>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; display: flex; justify-content: center; align-items: center;">
-          <svg class="flow-svg" viewBox="0 0 400 135" xmlns="http://www.w3.org/2000/svg" style="width: 100%; max-width: 400px; height: auto;">
-            <!-- Nodes -->
+        <div class="diagram-frame">
+          <svg class="flow-svg" viewBox="0 0 400 135" xmlns="http://www.w3.org/2000/svg" >
             <!-- Client Node -->
-            <rect x="15" y="25" width="75" height="40" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-            <text id="flow-lbl-client" x="52" y="49" font-size="10" fill="#0f172a" text-anchor="middle" font-weight="600">Client</text>
-            
+            <rect x="15" y="25" width="75" height="40" rx="8" class="diagram-node"/>
+            <text id="flow-lbl-client" x="52" y="49" font-size="10" class="diagram-text" text-anchor="middle" font-weight="600">Client</text>
+
             <!-- Proxy Node (Kiyomizu) -->
-            <rect id="node-proxy" x="150" y="15" width="100" height="60" rx="10" fill="rgba(37, 99, 235, 0.04)" stroke="#3b82f6" stroke-width="2" style="transition: all 0.3s ease;" />
-            <text x="200" y="45" font-size="11" fill="#1d4ed8" text-anchor="middle" font-weight="bold">Kiyomizu</text>
-            <text id="flow-lbl-proxy" x="200" y="59" font-size="9" fill="#475569" text-anchor="middle">Proxy Cache</text>
-            
+            <rect id="node-proxy" x="150" y="15" width="100" height="60" rx="10" class="diagram-proxy"/>
+            <text x="200" y="45" font-size="11" class="diagram-proxy-text" text-anchor="middle" font-weight="bold">Kiyomizu</text>
+            <text id="flow-lbl-proxy" x="200" y="59" font-size="9" class="diagram-text" text-anchor="middle">Proxy Cache</text>
+
             <!-- Upstream Node -->
-            <rect x="310" y="25" width="75" height="40" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-            <text id="flow-lbl-upstream" x="347" y="49" font-size="9" fill="#0f172a" text-anchor="middle" font-weight="600">Upstream</text>
-            
+            <rect x="310" y="25" width="75" height="40" rx="8" class="diagram-node"/>
+            <text id="flow-lbl-upstream" x="347" y="49" font-size="9" class="diagram-text" text-anchor="middle" font-weight="600">Upstream</text>
+
             <!-- Cache Cylinder -->
-            <g id="cache-cylinder" transform="translate(185, 96)" style="transition: all 0.3s ease;">
-              <ellipse cx="15" cy="5" rx="15" ry="5" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="1.5"/>
-              <path d="M0,5 V18 A15,5 0 0,0 30,18 V5" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="1.5"/>
-              <path d="M0,11 A15,5 0 0,0 30,11" fill="none" stroke="#10b981" stroke-width="1.5"/>
-              <text id="flow-lbl-cache" x="15" y="-3" font-size="8" fill="#10b981" text-anchor="middle" font-weight="bold">CACHE</text>
+            <g id="cache-cylinder" transform="translate(185, 96)" class="cache-cyl cache-off">
+              <ellipse cx="15" cy="5" rx="15" ry="5" class="cache-cyl-fill"/>
+              <path d="M0,5 V18 A15,5 0 0,0 30,18 V5" class="cache-cyl-fill"/>
+              <path d="M0,11 A15,5 0 0,0 30,11" fill="none" class="cache-cyl-line"/>
+              <text id="flow-lbl-cache" x="15" y="-3" font-size="8" class="cache-cyl-text" text-anchor="middle" font-weight="bold">CACHE</text>
             </g>
-            
+
             <!-- Flow Lines -->
-            <path d="M90,45 L150,45" fill="none" stroke="rgba(37, 99, 235, 0.4)" stroke-width="2" stroke-dasharray="5 5" class="flow-line" />
-            <polygon points="150,45 144,41 144,49" fill="#2563eb" />
-            
-            <path id="line-proxy-upstream" d="M250,45 L310,45" fill="none" stroke="rgba(37, 99, 235, 0.4)" stroke-width="2" stroke-dasharray="5 5" class="flow-line" />
-            <polygon points="310,45 304,41 304,49" fill="#2563eb" />
-            
-            <path id="line-proxy-cache" d="M200,75 L200,96" fill="none" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="3 3" style="transition: all 0.3s ease;" />
+            <path d="M90,45 L150,45" fill="none" class="flow-edge flow-line" />
+            <polygon points="150,45 144,41 144,49" class="flow-arrow" />
+
+            <path id="line-proxy-upstream" d="M250,45 L310,45" fill="none" class="flow-edge flow-line" />
+            <polygon points="310,45 304,41 304,49" class="flow-arrow" />
+
+            <path id="line-proxy-cache" d="M200,75 L200,96" fill="none" stroke-dasharray="3 3" class="flow-edge-dashed flow-idle" />
           </svg>
         </div>
       </div>
-      
+
       <!-- Card 3: Cache Breakpoint Visualizer -->
-      <div class="dashboard-card" id="visualizer-container">
+      <div class="card" id="visualizer-container">
         <div class="visualizer-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
           <span id="lbl-visualizer-title">Cache Breakpoints Visualizer</span>
         </div>
-        
-        <div class="visualizer-card">
+
+        <div class="card-inset">
           <div class="timeline-track" id="timeline-track">
             <div class="timeline-msg stable"><span class="msg-num">1</span></div>
             <div class="timeline-msg stable"><span class="msg-num">2</span></div>
@@ -1401,60 +1492,72 @@ button[type=submit]:active,
             <div class="timeline-msg stable"><span class="msg-num">7</span></div>
             <div class="timeline-msg tail"><span class="msg-num">8</span></div>
           </div>
-          
+
           <div class="timeline-labels">
-            <span id="lbl-visualizer-stable" style="color: #38bdf8;">Stable Prefix (Cached)</span>
-            <span id="lbl-visualizer-tail" style="color: var(--text-muted);">Dynamic Tail (Uncached)</span>
+            <span id="lbl-visualizer-stable" class="tl-stable">Stable Prefix (Cached)</span>
+            <span id="lbl-visualizer-tail" class="tl-tail">Dynamic Tail (Uncached)</span>
           </div>
         </div>
       </div>
+      </section>
 
-      <!-- Companion State + Request Logs -->
-      <div class="companion-logs-grid" id="companion-logs-grid" style="display:none;">
-        <div class="dashboard-card">
+      <!-- Pane: Companion -->
+      <section class="pane" data-pane="companion">
+        <div class="card" id="companion-logs-grid">
           <div class="panel-title-row">
             <div class="panel-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <span id="t-companion-panel-title">Companion State</span>
             </div>
-            <button class="panel-refresh-btn" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+            <button class="btn btn-ghost" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
           </div>
           <div id="companion-state-body">
-            <div class="stat-bar-row">
-              <div class="stat-bar-label">
+            <div class="bar-row">
+              <div class="bar-label">
                 <span id="t-intimacy-label">Intimacy</span>
                 <span id="companion-intimacy-val">—</span>
               </div>
-              <div class="stat-bar-track"><div class="stat-bar-fill intimacy" id="companion-intimacy-bar" style="width:0%"></div></div>
+              <div class="bar-track"><div class="bar-fill intimacy bar-fill-zero" id="companion-intimacy-bar"></div></div>
             </div>
-            <div class="stat-bar-row">
-              <div class="stat-bar-label">
+            <div class="bar-row">
+              <div class="bar-label">
                 <span id="t-trust-label">Trust</span>
                 <span id="companion-trust-val">—</span>
               </div>
-              <div class="stat-bar-track"><div class="stat-bar-fill trust" id="companion-trust-bar" style="width:0%"></div></div>
+              <div class="bar-track"><div class="bar-fill trust bar-fill-zero" id="companion-trust-bar"></div></div>
             </div>
-            <div id="companion-mood" class="mood-badge">—</div>
+            <div id="companion-mood" class="badge-mood">—</div>
             <div class="companion-meta">
               <span id="t-memory-count-label">Memories: </span><span id="companion-memory-count">—</span>
             </div>
-            <div class="section-label" id="t-reflections-label">Recent Reflections</div>
+            <div class="companion-meta">
+              <span id="t-related-edges-label">Association edges: </span><span id="companion-related-edges">—</span>
+              <span class="companion-meta-gap" id="t-affect-label">Affect: </span><span id="companion-affect">—</span>
+            </div>
+            <div class="companion-meta">
+              <span id="t-consolidation-label">Last consolidation: </span><span id="companion-consolidation">—</span>
+            </div>
+            <div class="eyebrow" id="t-reflections-label">Recent Reflections</div>
             <div class="reflections-list" id="reflections-list">
-              <div class="empty-state" id="t-no-reflections">No reflections yet.</div>
+              <div class="empty" id="t-no-reflections">No reflections yet.</div>
             </div>
           </div>
         </div>
-        <div class="dashboard-card">
+      </section>
+
+      <!-- Pane: Request Logs -->
+      <section class="pane" data-pane="logs">
+        <div class="card">
           <div class="panel-title-row">
             <div class="panel-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-color)"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               <span id="t-logs-panel-title">Recent Requests</span>
             </div>
-            <button class="panel-refresh-btn" onclick="loadLogs()" id="t-logs-refresh">Refresh</button>
+            <button class="btn btn-ghost" onclick="loadLogs()" id="t-logs-refresh">Refresh</button>
           </div>
           <div class="log-table-wrap">
             <div class="log-table-scroll">
-              <table class="log-table">
+              <table class="table">
                 <thead>
                   <tr>
                     <th id="t-log-th-time">Time</th>
@@ -1467,312 +1570,369 @@ button[type=submit]:active,
                   </tr>
                 </thead>
                 <tbody id="logs-tbody">
-                  <tr><td colspan="7" class="empty-state" id="t-no-logs">No requests logged yet.</td></tr>
+                  <tr><td colspan="7" class="empty" id="t-no-logs">No requests logged yet.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </section>
 
-    <!-- Right Column: Configurations form -->
-    <div class="dashboard-main">
-      <div class="dashboard-card">
+    <!-- Pane: Configuration -->
+    <section class="pane" data-pane="config">
+      <div class="card">
         <form id="f">
-          <!-- Preset Selection -->
-          <label id="t-preset-label">
-            Preset
-            <div class="select-wrapper">
-              <select name="preset" onchange="onPresetChange()">
-                <option value="anthropic" id="t-preset-anthropic"></option>
-                <option value="custom" id="t-preset-custom"></option>
-              </select>
-            </div>
-          </label>
+          <!-- Section: Basic -->
+          <div class="collapsible is-open" data-section="basic">
+            <button type="button" class="collapsible-header" data-toggle="basic">
+              <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="collapsible-title" id="t-sec-basic-title">Basic Settings</span>
+            </button>
+            <div class="collapsible-body"><div class="collapsible-body-inner">
+              <label id="t-preset-label">
+                Preset
+                <div class="select-wrapper">
+                  <select name="preset" onchange="onPresetChange()">
+                    <option value="anthropic" id="t-preset-anthropic"></option>
+                    <option value="custom" id="t-preset-custom"></option>
+                  </select>
+                </div>
+              </label>
+              <label id="t-upstream-label">
+                Upstream URL
+                <div class="input-wrapper">
+                  <input type="text" name="upstream" placeholder="https://..." class="input-mono">
+                </div>
+                <div id="t-upstream-hint" class="field-hint">
+                  Base URL only. Example: Anthropic is https://api.anthropic.com, OpenAI is https://api.openai.com, OpenRouter is https://openrouter.ai/api.
+                </div>
+              </label>
+              <div id="msg-not-applicable" class="is-hidden" role="status"></div>
 
-          <!-- Upstream URL -->
-          <label id="t-upstream-label">
-            Upstream URL
-            <div class="input-wrapper" style="margin-top: 4px;">
-              <input type="text" name="upstream" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.85rem;">
-            </div>
-            <div id="t-upstream-hint" class="field-hint">
-              Base URL only. Example: Anthropic is https://api.anthropic.com, OpenAI is https://api.openai.com, OpenRouter is https://openrouter.ai/api.
-            </div>
-          </label>
-          
-          <div id="advanced-settings-wrapper" style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
-            <div id="section-claude" class="tab-content">
-              <div id="claude-cache-settings" style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
-                <label id="t-ttl-label">
-                  Cache TTL
-                  <div class="select-wrapper">
-                    <select name="cache_ttl">
-                      <option value="5m" id="t-ttl-5m"></option>
-                      <option value="1h" id="t-ttl-1h"></option>
-                      <option value="none" id="t-ttl-none"></option>
-                    </select>
+              <div class="autosave-panel" id="autosave-panel">
+                <div class="autosave-copy">
+                  <div class="autosave-title-row">
+                    <svg class="icon-accent" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path></svg>
+                    <span id="t-autosave-title">AutoSave</span>
+                    <span class="autosave-state" id="autosave-state">Off</span>
                   </div>
-                </label>
-                
-                <label id="t-mode-label">
-                  Cache Mode
-                  <div class="select-wrapper">
-                    <select name="cache_mode">
-                      <option value="explicit" id="t-mode-explicit"></option>
-                      <option value="automatic" id="t-mode-automatic"></option>
-                    </select>
-                  </div>
-                </label>
-                
-                <label id="t-strategy-label">
-                  Cache Strategy
-                  <div class="select-wrapper">
-                    <select name="cache_strategy">
-                      <option value="stable-prefix" id="t-strategy-prefix"></option>
-                      <option value="last" id="t-strategy-last"></option>
-                    </select>
-                  </div>
-                </label>
-                
-                <label id="t-bp-label">
-                  Breakpoints (0-4)
-                  <div class="input-wrapper" style="margin-top: 4px;">
-                    <input type="number" name="cache_breakpoints" min="0" max="4" style="font-family: 'Fira Code', monospace;">
-                  </div>
+                  <div class="autosave-body" id="t-autosave-body">Automatically saves ordinary settings after changes. Secrets and password changes still require an explicit action.</div>
+                </div>
+                <label class="switch-control" id="t-autosave-toggle-label">
+                  <input type="checkbox" id="autosave-toggle">
+                  <span class="switch-track" aria-hidden="true"></span>
                 </label>
               </div>
-            </div>
-          </div>
 
-          <!-- Cache Not Applicable Message -->
-          <div id="msg-not-applicable" style="display: none;"></div>
+              <button type="submit" id="t-save" class="btn btn-primary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                Save Settings
+              </button>
 
-          <div class="security-section" id="config-password-section">
-            <div class="security-title-row">
-              <div>
-                <div class="security-title">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                  <span id="t-password-change-title">Config Password</span>
-                </div>
-                <div class="security-body" id="t-password-change-body">Change the password used to unlock this settings panel.</div>
+              <div class="config-io-row">
+                <button type="button" class="btn btn-secondary" onclick="exportConfig()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span id="t-export-btn">Export Config</span>
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('import-file-input').click()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span id="t-import-btn">Import Config</span>
+                </button>
+                <input type="file" id="import-file-input" accept=".json" class="sr-only" onchange="importConfig(event)">
               </div>
-            </div>
-            <div class="security-fields">
-              <label id="t-password-current-label">
-                Current password
-                <div class="password-shell" style="margin-top: 4px;">
-                  <input type="text" data-masked="true" name="config_password_current" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_current">
-                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                  </button>
-                </div>
-              </label>
-              <label id="t-password-new-label">
-                New password
-                <div class="password-shell" style="margin-top: 4px;">
-                  <input type="text" data-masked="true" name="config_password_new" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_new">
-                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                  </button>
-                </div>
-              </label>
-              <label id="t-password-confirm-label">
-                Confirm new password
-                <div class="password-shell" style="margin-top: 4px;">
-                  <input type="text" data-masked="true" name="config_password_confirm" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                  <button class="password-toggle" type="button" data-toggle-password-name="config_password_confirm">
-                    <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                  </button>
-                </div>
-              </label>
-            </div>
-            <div class="security-actions">
-              <button type="button" id="btn-change-config-password" class="secondary-button">Change password</button>
-            </div>
+
+              <div id="status"></div>
+            </div></div>
           </div>
 
-          <!-- AI Companion Core Settings Section -->
-          <div class="dashboard-card" style="padding: 20px; background: rgba(37, 99, 235, 0.02); border: 1px dashed rgba(37, 99, 235, 0.2); gap: 16px;">
-            <h4 style="display: flex; align-items: center; gap: 8px; font-size: 1rem; color: var(--accent-color); margin-bottom: 4px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 0 0-10 10c0 5.523 4.477 10 10 10s10-4.477 10-10A10 10 0 0 0 12 2zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg>
-              <span id="t-companion-title">AI Companion Core Settings</span>
-            </h4>
-            
-            <label style="flex-direction: row; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 0;">
-              <span id="t-comp-enable-label">Enable Memory & Intimacy</span>
-              <input type="checkbox" name="memory_enabled" style="width: 20px; height: 20px; accent-color: var(--accent-color);">
-            </label>
-            
-            <div id="companion-fields-wrapper" style="display: flex; flex-direction: column; gap: 16px; width: 100%;">
-              <label id="t-comp-summary-url-label">
-                Summarization Endpoint
-                <input type="text" name="memory_summary_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-                <div id="t-comp-summary-url-hint" class="field-hint">
-                  Gemini uses the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers accept a base URL; /v1/chat/completions is appended automatically.
+          <!-- Section: Claude Cache -->
+          <div class="collapsible is-open" data-section="claude">
+            <button type="button" class="collapsible-header" data-toggle="claude">
+              <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="collapsible-title" id="t-sec-claude-title">Claude Cache</span>
+              <span class="collapsible-meta" id="sec-claude-meta"></span>
+            </button>
+            <div class="collapsible-body"><div class="collapsible-body-inner">
+              <div id="section-claude">
+                <div id="claude-cache-settings" class="field-stack">
+                  <label id="t-ttl-label">
+                    Cache TTL
+                    <div class="select-wrapper">
+                      <select name="cache_ttl">
+                        <option value="5m" id="t-ttl-5m"></option>
+                        <option value="1h" id="t-ttl-1h"></option>
+                        <option value="none" id="t-ttl-none"></option>
+                      </select>
+                    </div>
+                  </label>
+
+                  <label id="t-mode-label">
+                    Cache Mode
+                    <div class="select-wrapper">
+                      <select name="cache_mode">
+                        <option value="explicit" id="t-mode-explicit"></option>
+                        <option value="automatic" id="t-mode-automatic"></option>
+                      </select>
+                    </div>
+                  </label>
+
+                  <label id="t-strategy-label">
+                    Cache Strategy
+                    <div class="select-wrapper">
+                      <select name="cache_strategy">
+                        <option value="stable-prefix" id="t-strategy-prefix"></option>
+                        <option value="last" id="t-strategy-last"></option>
+                      </select>
+                    </div>
+                  </label>
+
+                  <label id="t-bp-label">
+                    Breakpoints (0-4)
+                    <div class="input-wrapper">
+                      <input type="number" name="cache_breakpoints" min="0" max="4" class="input-mono">
+                    </div>
+                  </label>
                 </div>
-              </label>
-              
-              <label id="t-comp-summary-key-label">
-                Summarization API Key
-                <div class="secret-field">
-                  <div class="password-shell">
-                    <input type="text" data-masked="true" name="memory_summary_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                    <button class="password-toggle" type="button" data-toggle-password-name="memory_summary_key">
-                      <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                      <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                    </button>
+              </div>
+            </div></div>
+          </div>
+
+          <!-- Section: AI Companion Core -->
+          <div class="collapsible" data-section="companion">
+            <button type="button" class="collapsible-header" data-toggle="companion">
+              <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="collapsible-title" id="t-sec-companion-title">AI Companion Core</span>
+            </button>
+            <div class="collapsible-body"><div class="collapsible-body-inner">
+              <div class="companion-block">
+                <h4 class="companion-block-title">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 0 0-10 10c0 5.523 4.477 10 10 10s10-4.477 10-10A10 10 0 0 0 12 2zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg>
+                  <span id="t-companion-title">AI Companion Core Settings</span>
+                </h4>
+
+                <label class="label-inline">
+                  <span id="t-comp-enable-label">Enable Memory & Intimacy</span>
+                  <input type="checkbox" name="memory_enabled" class="cb-accent">
+                </label>
+
+                <div id="companion-fields-wrapper">
+                  <label id="t-comp-summary-url-label">
+                    Summarization Endpoint
+                    <input type="text" name="memory_summary_url" placeholder="https://..." class="input-mono-sm">
+                    <div id="t-comp-summary-url-hint" class="field-hint">
+                      Gemini uses the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers accept a base URL; /v1/chat/completions is appended automatically.
+                    </div>
+                  </label>
+
+                  <label id="t-comp-summary-key-label">
+                    Summarization API Key
+                    <div class="secret-field">
+                      <div class="password-shell">
+                        <input type="text" data-masked="true" name="memory_summary_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                        <button class="password-toggle" type="button" data-toggle-password-name="memory_summary_key">
+                          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                        </button>
+                      </div>
+                      <div class="secret-meta">
+                        <span class="secret-status" id="t-comp-summary-key-status">No key stored</span>
+                        <label id="t-comp-summary-clear-label" class="secret-clear">
+                        Clear stored key
+                          <input type="checkbox" name="clear_memory_summary_key">
+                        </label>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label id="t-comp-summary-model-label">
+                    Summarization Model
+                    <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." class="input-mono-sm">
+                  </label>
+
+                  <div id="embedding-lock-header" class="field-group-header">
+                    <span id="t-comp-embedding-lock-title" class="field-group-title">Embedding Config</span>
+                    <button type="button" id="btn-edit-embedding" class="btn btn-accent-soft">変更</button>
                   </div>
-                  <div class="secret-meta">
-                    <span class="secret-status" id="t-comp-summary-key-status">No key stored</span>
-                    <label id="t-comp-summary-clear-label" class="secret-clear">
-                    Clear stored key
-                      <input type="checkbox" name="clear_memory_summary_key">
+
+                  <div id="embedding-lock-warning" class="field-warning">
+                    変更すると既存メモリが無効になる可能性があります。
+                  </div>
+
+                  <label id="t-comp-embedding-url-label">
+                    Embedding Endpoint
+                    <input type="text" name="memory_embedding_url" placeholder="https://..." class="input-mono-sm">
+                    <div id="t-comp-embedding-url-hint" class="field-hint">
+                      Gemini uses the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, set the base URL and Kiyomizu adds /v1/embeddings. OpenRouter needs /api.
+                    </div>
+                  </label>
+
+                  <label id="t-comp-embedding-key-label">
+                    Embedding API Key
+                    <div class="secret-field">
+                      <div class="password-shell">
+                        <input type="text" data-masked="true" name="memory_embedding_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                        <button class="password-toggle" type="button" data-toggle-password-name="memory_embedding_key">
+                          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                        </button>
+                      </div>
+                      <div class="secret-meta">
+                        <span class="secret-status" id="t-comp-embedding-key-status">No key stored</span>
+                        <label id="t-comp-embedding-clear-label" class="secret-clear">
+                        Clear stored key
+                          <input type="checkbox" name="clear_memory_embedding_key">
+                        </label>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label id="t-comp-embedding-model-label">
+                    Embedding Model
+                    <input type="text" name="memory_embedding_model" placeholder="text-embedding-004..." class="input-mono-sm">
+                  </label>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-decay-hours-label">
+                      Decay Interval (Hours)
+                      <input type="number" name="memory_decay_interval_hours" min="1" max="720">
+                    </label>
+                    <label id="t-comp-decay-rate-label">
+                      Memory Decay Rate (0-1)
+                      <input type="number" name="memory_decay_rate" min="0" max="1" step="0.01">
                     </label>
                   </div>
-                </div>
-              </label>
-              
-              <label id="t-comp-summary-model-label">
-                Summarization Model
-                <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-              </label>
-              
-              <div id="embedding-lock-header" class="field-group-header">
-                <span id="t-comp-embedding-lock-title" class="field-group-title">Embedding Config</span>
-                <button type="button" id="btn-edit-embedding" class="secondary-button">変更</button>
-              </div>
 
-              <div id="embedding-lock-warning" class="field-warning">
-                変更すると既存メモリが無効になる可能性があります。
-              </div>
-
-              <label id="t-comp-embedding-url-label">
-                Embedding Endpoint
-                <input type="text" name="memory_embedding_url" placeholder="https://..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-                <div id="t-comp-embedding-url-hint" class="field-hint">
-                  Gemini uses the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, set the base URL and Kiyomizu adds /v1/embeddings. OpenRouter needs /api.
-                </div>
-              </label>
-              
-              <label id="t-comp-embedding-key-label">
-                Embedding API Key
-                <div class="secret-field">
-                  <div class="password-shell">
-                    <input type="text" data-masked="true" name="memory_embedding_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                    <button class="password-toggle" type="button" data-toggle-password-name="memory_embedding_key">
-                      <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                      <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                    </button>
-                  </div>
-                  <div class="secret-meta">
-                    <span class="secret-status" id="t-comp-embedding-key-status">No key stored</span>
-                    <label id="t-comp-embedding-clear-label" class="secret-clear">
-                    Clear stored key
-                      <input type="checkbox" name="clear_memory_embedding_key">
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-threshold-label">
+                      Forget Threshold (0-1)
+                      <input type="number" name="memory_threshold" min="0" max="1" step="0.01">
+                    </label>
+                    <label id="t-comp-recovery-label">
+                      Recall Recovery delta
+                      <input type="number" name="memory_recovery_amount" min="0" max="1" step="0.01">
                     </label>
                   </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-initial-strength-label">
+                      Initial Strength (0-1)
+                      <input type="number" name="memory_initial_strength" min="0" max="1" step="0.01">
+                    </label>
+                    <label id="t-comp-max-strength-label">
+                      Max Strength (0-1)
+                      <input type="number" name="memory_max_strength" min="0" max="1" step="0.01">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-intimacy-decay-label">
+                      Intimacy Decay Rate / 24h
+                      <input type="number" name="intimacy_decay_rate" min="0" max="10" step="0.1">
+                    </label>
+                    <label id="t-comp-recall-prob-label">
+                      Spontaneous recall % (0-1)
+                      <input type="number" name="spontaneous_recall_probability" min="0" max="1" step="0.01">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-tau-label">
+                      Ebbinghaus Decay τ (hours)
+                      <input type="number" name="memory_decay_tau_hours" min="1" max="8760" step="1">
+                    </label>
+                    <label id="t-comp-salience-k-label">
+                      Affect Salience k (0-10)
+                      <input type="number" name="memory_salience_k" min="0" max="10" step="0.1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-idle-label">
+                      Consolidation Idle (minutes)
+                      <input type="number" name="memory_consolidation_idle_minutes" min="1" max="1440" step="1">
+                    </label>
+                    <label id="t-comp-spread-label">
+                      Association Spread (0-20)
+                      <input type="number" name="memory_association_spread" min="0" max="20" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-dedup-label">
+                      Semantic Dedup Threshold (0.5-0.99)
+                      <input type="number" name="memory_semantic_dedup_threshold" min="0.5" max="0.99" step="0.01">
+                    </label>
+                    <label></label>
+                  </div>
+
+                  <label id="t-comp-summary-prompt-label">
+                    Summarization System Prompt
+                    <textarea name="memory_summary_prompt" rows="6"></textarea>
+                  </label>
                 </div>
-              </label>
-              
-              <label id="t-comp-embedding-model-label">
-                Embedding Model
-                <input type="text" name="memory_embedding_model" placeholder="text-embedding-004..." style="font-family: 'Fira Code', monospace; font-size: 0.8rem; margin-top: 4px;">
-              </label>
-              
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <label id="t-comp-decay-hours-label">
-                  Decay Interval (Hours)
-                  <input type="number" name="memory_decay_interval_hours" min="1" max="720" style="margin-top: 4px;">
-                </label>
-                
-                <label id="t-comp-decay-rate-label">
-                  Memory Decay Rate (0-1)
-                  <input type="number" name="memory_decay_rate" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
               </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <label id="t-comp-threshold-label">
-                  Forget Threshold (0-1)
-                  <input type="number" name="memory_threshold" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
-                
-                <label id="t-comp-recovery-label">
-                  Recall Recovery delta
-                  <input type="number" name="memory_recovery_amount" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
-              </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <label id="t-comp-initial-strength-label">
-                  Initial Strength (0-1)
-                  <input type="number" name="memory_initial_strength" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
-                
-                <label id="t-comp-max-strength-label">
-                  Max Strength (0-1)
-                  <input type="number" name="memory_max_strength" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
-              </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <label id="t-comp-intimacy-decay-label">
-                  Intimacy Decay Rate / 24h
-                  <input type="number" name="intimacy_decay_rate" min="0" max="10" step="0.1" style="margin-top: 4px;">
-                </label>
-                
-                <label id="t-comp-recall-prob-label">
-                  Spontaneous recall % (0-1)
-                  <input type="number" name="spontaneous_recall_probability" min="0" max="1" step="0.01" style="margin-top: 4px;">
-                </label>
-              </div>
-              
-              <label id="t-comp-summary-prompt-label">
-                Summarization System Prompt
-                <textarea name="memory_summary_prompt" rows="6" style="width: 100%; font-family: inherit; font-size: 0.8rem; padding: 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text-primary); outline: none; margin-top: 4px; resize: vertical;"></textarea>
-              </label>
-            </div>
+            </div></div>
           </div>
 
-          <div class="autosave-panel" id="autosave-panel">
-            <div class="autosave-copy">
-              <div class="autosave-title-row">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path></svg>
-                <span id="t-autosave-title">AutoSave</span>
-                <span class="autosave-state" id="autosave-state">Off</span>
+          <!-- Section: Security -->
+          <div class="collapsible" data-section="security">
+            <button type="button" class="collapsible-header" data-toggle="security">
+              <svg class="collapsible-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="collapsible-title" id="t-sec-security-title">Security</span>
+            </button>
+            <div class="collapsible-body"><div class="collapsible-body-inner">
+              <div class="security-section" id="config-password-section">
+                <div class="security-title-row">
+                  <div>
+                    <div class="security-title">
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="icon-accent"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      <span id="t-password-change-title">Config Password</span>
+                    </div>
+                    <div class="security-body" id="t-password-change-body">Change the password used to unlock this settings panel.</div>
+                  </div>
+                </div>
+                <div class="security-fields">
+                  <label id="t-password-current-label">
+                    Current password
+                    <div class="password-shell">
+                      <input type="text" data-masked="true" name="config_password_current" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                      <button class="password-toggle" type="button" data-toggle-password-name="config_password_current">
+                        <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                      </button>
+                    </div>
+                  </label>
+                  <label id="t-password-new-label">
+                    New password
+                    <div class="password-shell">
+                      <input type="text" data-masked="true" name="config_password_new" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                      <button class="password-toggle" type="button" data-toggle-password-name="config_password_new">
+                        <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                      </button>
+                    </div>
+                  </label>
+                  <label id="t-password-confirm-label">
+                    Confirm new password
+                    <div class="password-shell">
+                      <input type="text" data-masked="true" name="config_password_confirm" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                      <button class="password-toggle" type="button" data-toggle-password-name="config_password_confirm">
+                        <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                      </button>
+                    </div>
+                  </label>
+                </div>
+                <div class="security-actions">
+                  <button type="button" id="btn-change-config-password" class="btn btn-accent-soft">Change password</button>
+                </div>
               </div>
-              <div class="autosave-body" id="t-autosave-body">Automatically saves ordinary settings after changes. Secrets and password changes still require an explicit action.</div>
-            </div>
-            <label class="switch-control" id="t-autosave-toggle-label">
-              <input type="checkbox" id="autosave-toggle">
-              <span class="switch-track" aria-hidden="true"></span>
-            </label>
-          </div>
-
-          <button type="submit" id="t-save">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            Save Settings
-          </button>
-
-          <div class="config-io-row">
-            <button type="button" class="btn-secondary" onclick="exportConfig()">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span id="t-export-btn">Export Config</span>
-            </button>
-            <button type="button" class="btn-secondary" onclick="document.getElementById('import-file-input').click()">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span id="t-import-btn">Import Config</span>
-            </button>
-            <input type="file" id="import-file-input" accept=".json" style="display:none;" onchange="importConfig(event)">
+            </div></div>
           </div>
         </form>
-        <div id="status"></div>
       </div>
+      </section>
+
     </div>
   </div>
 
@@ -1841,6 +2001,11 @@ const STRINGS = {
     compMaxStrengthLabel: '最大记忆强度 (0-1)',
     compIntimacyDecayLabel: '亲密度下降速度 / 24h',
     compRecallProbLabel: '自发性回忆概率 (0-1)',
+    compTauLabel: '艾宾浩斯遗忘 τ（小时）',
+    compSalienceKLabel: '情感显著度系数 k (0-10)',
+    compIdleLabel: '离线巩固触发空闲（分钟）',
+    compSpreadLabel: '联想扩展邻居数 (0-20)',
+    compDedupLabel: '语义去重阈值 (0.5-0.99)',
     compSummaryPromptLabel: '摘要与评估系统提示词',
     compKeyStored: '密钥已保存；留空则保持不变',
     compKeyEmpty: '尚未保存密钥',
@@ -1887,6 +2052,9 @@ const STRINGS = {
     intimacyLabel: '亲密度',
     trustLabel: '信任度',
     memoryCountLabel: '记忆数量：',
+    relatedEdgesLabel: '联想边数：',
+    affectLabel: '情感分布：',
+    consolidationLabel: '最近巩固：',
     reflectionsLabel: '最近的日记',
     noReflections: '暂无日记。',
     logsPanelTitle: '最近请求',
@@ -1899,6 +2067,15 @@ const STRINGS = {
     logThMsgs: '消息数',
     logThCache: '缓存♦',
     noLogs: '暂无请求记录。',
+    navStatus: '系统状态',
+    navCache: '缓存可视化',
+    navCompanion: '伴侣',
+    navLogs: '请求日志',
+    navConfig: '配置',
+    secBasicTitle: '基本设置',
+    secClaudeTitle: 'Claude 缓存',
+    secCompanionTitle: 'AI 伴侣核心',
+    secSecurityTitle: '安全',
   },
   en: {
     title: 'Kiyomizu Configuration Console',
@@ -1961,6 +2138,11 @@ const STRINGS = {
     compMaxStrengthLabel: 'Max Strength (0-1)',
     compIntimacyDecayLabel: 'Intimacy Decay Rate / 24h',
     compRecallProbLabel: 'Spontaneous recall % (0-1)',
+    compTauLabel: 'Ebbinghaus Decay τ (hours)',
+    compSalienceKLabel: 'Affect Salience k (0-10)',
+    compIdleLabel: 'Consolidation Idle (minutes)',
+    compSpreadLabel: 'Association Spread (0-20)',
+    compDedupLabel: 'Semantic Dedup Threshold (0.5-0.99)',
     compSummaryPromptLabel: 'Summarization System Prompt',
     compKeyStored: 'Key stored; leave blank to keep it',
     compKeyEmpty: 'No key stored yet',
@@ -2007,6 +2189,9 @@ const STRINGS = {
     intimacyLabel: 'Intimacy',
     trustLabel: 'Trust',
     memoryCountLabel: 'Memories: ',
+    relatedEdgesLabel: 'Association edges: ',
+    affectLabel: 'Affect: ',
+    consolidationLabel: 'Last consolidation: ',
     reflectionsLabel: 'Recent Reflections',
     noReflections: 'No reflections yet.',
     logsPanelTitle: 'Recent Requests',
@@ -2019,6 +2204,15 @@ const STRINGS = {
     logThMsgs: 'Msgs',
     logThCache: 'Cache♦',
     noLogs: 'No requests logged yet.',
+    navStatus: 'System Status',
+    navCache: 'Cache Visualizer',
+    navCompanion: 'Companion',
+    navLogs: 'Request Logs',
+    navConfig: 'Configuration',
+    secBasicTitle: 'Basic Settings',
+    secClaudeTitle: 'Claude Cache',
+    secCompanionTitle: 'AI Companion Core',
+    secSecurityTitle: 'Security',
   },
   ja: {
     title: 'Kiyomizu 設定コントロールパネル',
@@ -2081,6 +2275,11 @@ const STRINGS = {
     compMaxStrengthLabel: '最大記憶強度 (0〜1)',
     compIntimacyDecayLabel: '疎遠化スピード (親密度低下/24h)',
     compRecallProbLabel: '自発的な思い出話の発生確率 (0〜1)',
+    compTauLabel: 'エビングハウス忘却 τ（時間）',
+    compSalienceKLabel: '感情顕著度係数 k (0-10)',
+    compIdleLabel: 'オフライン統合のアイドル（分）',
+    compSpreadLabel: '連想の広がり (0-20)',
+    compDedupLabel: '意味重複閾値 (0.5-0.99)',
     compSummaryPromptLabel: '要約＆評価用システムプロンプト',
     compKeyStored: 'キー保存済み。空欄ならそのまま維持します',
     compKeyEmpty: 'キーはまだ保存されていません',
@@ -2127,6 +2326,9 @@ const STRINGS = {
     intimacyLabel: '親密度',
     trustLabel: '信頼度',
     memoryCountLabel: 'メモリ数：',
+    relatedEdgesLabel: '連想エッジ数：',
+    affectLabel: '感情分布：',
+    consolidationLabel: '最近の統合：',
     reflectionsLabel: '最近の日記',
     noReflections: 'まだ日記がありません。',
     logsPanelTitle: '最近のリクエスト',
@@ -2139,6 +2341,15 @@ const STRINGS = {
     logThMsgs: 'メッセージ数',
     logThCache: 'キャッシュ♦',
     noLogs: 'まだリクエストがありません。',
+    navStatus: 'システム状態',
+    navCache: 'キャッシュ可視化',
+    navCompanion: 'コンパニオン',
+    navLogs: 'リクエストログ',
+    navConfig: '設定',
+    secBasicTitle: '基本設定',
+    secClaudeTitle: 'Claude キャッシュ',
+    secCompanionTitle: 'AIコンパニオン',
+    secSecurityTitle: 'セキュリティ',
   },
 };
 
@@ -2201,7 +2412,7 @@ function setAuthPanelVisible(visible, mode = configAuthMode) {
   const panel = document.getElementById('config-auth-panel');
   panel.classList.toggle('visible', visible);
   panel.classList.toggle('setup', mode === 'setup');
-  document.querySelector('.dashboard-wrapper').classList.toggle('config-locked', visible);
+  document.querySelector('.app').classList.toggle('config-locked', visible);
   applyAuthPanelCopy();
 }
 
@@ -2325,11 +2536,11 @@ function updateEmbeddingLockUi() {
   const warning = document.getElementById('embedding-lock-warning');
   const button = document.getElementById('btn-edit-embedding');
 
-  header.style.display = hasEmbeddingConfig ? 'flex' : 'none';
-  warning.style.display = embeddingConfigUnlocked ? 'block' : 'none';
+  header.classList.toggle('is-hidden', !hasEmbeddingConfig);
+  warning.classList.toggle('is-hidden', !embeddingConfigUnlocked);
   warning.textContent = s.compEmbeddingChangeWarn;
   button.textContent = s.compEmbeddingChangeButton;
-  button.style.display = hasEmbeddingConfig && !embeddingConfigUnlocked ? 'inline-flex' : 'none';
+  button.classList.toggle('is-hidden', !hasEmbeddingConfig || embeddingConfigUnlocked);
 
   f.memory_embedding_url.disabled = locked;
   f.memory_embedding_model.disabled = locked;
@@ -2364,6 +2575,11 @@ function applyConfigData(d) {
   f.memory_max_strength.value = d.memory_max_strength !== undefined ? d.memory_max_strength : 1.0;
   f.intimacy_decay_rate.value = d.intimacy_decay_rate !== undefined ? d.intimacy_decay_rate : 0.5;
   f.spontaneous_recall_probability.value = d.spontaneous_recall_probability !== undefined ? d.spontaneous_recall_probability : 0.15;
+  f.memory_decay_tau_hours.value = d.memory_decay_tau_hours !== undefined ? d.memory_decay_tau_hours : 360;
+  f.memory_salience_k.value = d.memory_salience_k !== undefined ? d.memory_salience_k : 1.0;
+  f.memory_consolidation_idle_minutes.value = d.memory_consolidation_idle_minutes !== undefined ? d.memory_consolidation_idle_minutes : 30;
+  f.memory_association_spread.value = d.memory_association_spread !== undefined ? d.memory_association_spread : 3;
+  f.memory_semantic_dedup_threshold.value = d.memory_semantic_dedup_threshold !== undefined ? d.memory_semantic_dedup_threshold : 0.80;
 
   summaryKeyConfigured = d.memory_summary_key_configured || false;
   embeddingKeyConfigured = d.memory_embedding_key_configured || false;
@@ -2455,6 +2671,11 @@ function applyLang(lang) {
   setText('t-comp-max-strength-label', s.compMaxStrengthLabel || 'Max Strength (0-1)', 'memory_max_strength');
   setText('t-comp-intimacy-decay-label', s.compIntimacyDecayLabel || 'Intimacy Decay Rate / 24h', 'intimacy_decay_rate');
   setText('t-comp-recall-prob-label', s.compRecallProbLabel || 'Spontaneous recall % (0-1)', 'spontaneous_recall_probability');
+  setText('t-comp-tau-label', s.compTauLabel || 'Ebbinghaus Decay τ (hours)', 'memory_decay_tau_hours');
+  setText('t-comp-salience-k-label', s.compSalienceKLabel || 'Affect Salience k (0-10)', 'memory_salience_k');
+  setText('t-comp-idle-label', s.compIdleLabel || 'Consolidation Idle (minutes)', 'memory_consolidation_idle_minutes');
+  setText('t-comp-spread-label', s.compSpreadLabel || 'Association Spread (0-20)', 'memory_association_spread');
+  setText('t-comp-dedup-label', s.compDedupLabel || 'Semantic Dedup Threshold (0.5-0.99)', 'memory_semantic_dedup_threshold');
   
   setText('t-comp-summary-prompt-label', s.compSummaryPromptLabel || 'Summarization System Prompt', 'memory_summary_prompt');
   document.getElementById('t-password-change-title').textContent = s.passwordChangeTitle || 'Config Password';
@@ -2485,6 +2706,12 @@ function applyLang(lang) {
   if (trustLbl) trustLbl.textContent = s.trustLabel || 'Trust';
   const memCountLbl = document.getElementById('t-memory-count-label');
   if (memCountLbl) memCountLbl.textContent = s.memoryCountLabel || 'Memories: ';
+  const relEdgesLbl = document.getElementById('t-related-edges-label');
+  if (relEdgesLbl) relEdgesLbl.textContent = s.relatedEdgesLabel || 'Association edges: ';
+  const affectLbl = document.getElementById('t-affect-label');
+  if (affectLbl) affectLbl.textContent = s.affectLabel || 'Affect: ';
+  const consLbl = document.getElementById('t-consolidation-label');
+  if (consLbl) consLbl.textContent = s.consolidationLabel || 'Last consolidation: ';
   const reflectionsLbl = document.getElementById('t-reflections-label');
   if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
   const noReflEl = document.getElementById('t-no-reflections');
@@ -2499,6 +2726,20 @@ function applyLang(lang) {
     const keys = ['logThTime','logThMethod','logThPath','logThPatched','logThModel','logThMsgs','logThCache'];
     const el = document.getElementById(id);
     if (el) el.textContent = s[keys[i]] || el.textContent;
+  });
+
+  // Nav + section titles
+  const navIds = ['t-nav-status','t-nav-cache','t-nav-companion','t-nav-logs','t-nav-config'];
+  const navKeys = ['navStatus','navCache','navCompanion','navLogs','navConfig'];
+  navIds.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = s[navKeys[i]] || el.textContent;
+  });
+  const secIds = ['t-sec-basic-title','t-sec-claude-title','t-sec-companion-title','t-sec-security-title'];
+  const secKeys = ['secBasicTitle','secClaudeTitle','secCompanionTitle','secSecurityTitle'];
+  secIds.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = s[secKeys[i]] || el.textContent;
   });
 
   updateCacheModeOptions();
@@ -2534,11 +2775,9 @@ function updateCacheNote() {
   if (!note) {
     note = document.createElement('p');
     note.id = 'cache-note';
-    note.style.cssText = 'margin-top:8px;color:#b45309;font-size:0.75rem;font-weight:500;line-height:1.4;';
+    note.className = 'cache-note';
     const claudeSec = document.getElementById('claude-cache-settings');
-    if (claudeSec) {
-      claudeSec.appendChild(note);
-    }
+    if (claudeSec) claudeSec.appendChild(note);
   }
   const isAutomatic = f.cache_mode && f.cache_mode.value === 'automatic';
   note.textContent = (f.preset.value !== 'anthropic' && isAutomatic) ? STRINGS[currentLang].cacheNote : '';
@@ -2557,10 +2796,56 @@ function setLang(lang) {
   currentLang = lang;
   localStorage.setItem('proxy-lang', lang);
   applyLang(lang);
-  
+
   document.querySelectorAll('#lang-bar button').forEach(btn => btn.classList.remove('active'));
   const activeBtn = document.getElementById('btn-lang-' + lang);
   if (activeBtn) activeBtn.classList.add('active');
+}
+
+function renderPane(name) {
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.classList.toggle('is-active', btn.dataset.nav === name);
+  });
+  document.querySelectorAll('.pane').forEach(pane => {
+    pane.classList.toggle('is-active', pane.dataset.pane === name);
+  });
+  try { localStorage.setItem('kiyomizu-nav', name); } catch (e) {}
+}
+
+function setSectionCollapsed(section, collapsed) {
+  const col = document.querySelector('.collapsible[data-section="' + section + '"]');
+  if (!col) return;
+  col.classList.toggle('is-open', !collapsed);
+  try { localStorage.setItem('kiyomizu-sec-' + section, collapsed ? '0' : '1'); } catch (e) {}
+}
+
+function initCollapsibles() {
+  document.querySelectorAll('.collapsible-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const col = header.closest('.collapsible');
+      if (!col) return;
+      setSectionCollapsed(col.dataset.section, col.classList.contains('is-open'));
+    });
+  });
+  document.querySelectorAll('.collapsible').forEach(col => {
+    const section = col.dataset.section;
+    if (!section) return;
+    let saved;
+    try { saved = localStorage.getItem('kiyomizu-sec-' + section); } catch (e) {}
+    if (saved === '0') col.classList.remove('is-open');
+    else if (saved === '1') col.classList.add('is-open');
+  });
+}
+
+function initNav() {
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => renderPane(btn.dataset.nav));
+  });
+  let saved;
+  try { saved = localStorage.getItem('kiyomizu-nav'); } catch (e) {}
+  const panes = Array.from(document.querySelectorAll('.pane')).map(p => p.dataset.pane);
+  if (saved && panes.includes(saved)) renderPane(saved);
+  else renderPane('config');
 }
 
 function onPresetChange() {
@@ -2578,24 +2863,17 @@ function onPresetChange() {
 function updateUiVisibility() {
   const f = document.getElementById('f');
   const preset = f.preset.value;
-  
+
   const sectionClaude = document.getElementById('section-claude');
   const claudeCacheSettings = document.getElementById('claude-cache-settings');
   const msgNotApplicable = document.getElementById('msg-not-applicable');
-  const advancedSettingsWrapper = document.getElementById('advanced-settings-wrapper');
-  
-  msgNotApplicable.style.display = 'none';
-  sectionClaude.style.display = 'none';
-  claudeCacheSettings.style.display = 'none';
-  advancedSettingsWrapper.style.display = 'flex';
+  const claudeCollapsible = document.querySelector('.collapsible[data-section="claude"]');
+  const anthropic = preset === 'anthropic';
 
-  if (preset === 'anthropic') {
-    sectionClaude.style.display = 'flex';
-    claudeCacheSettings.style.display = 'flex';
-  } else {
-    msgNotApplicable.style.display = 'block';
-    advancedSettingsWrapper.style.display = 'none';
-  }
+  sectionClaude.classList.toggle('is-hidden', !anthropic);
+  claudeCacheSettings.classList.toggle('is-hidden', !anthropic);
+  msgNotApplicable.classList.toggle('is-hidden', anthropic);
+  if (claudeCollapsible) claudeCollapsible.classList.toggle('is-hidden', !anthropic);
   updateCacheNote();
 }
 
@@ -2677,17 +2955,15 @@ function updateFlowDiagram() {
   upstreamText.textContent = presetText;
   
   if (isCacheActive) {
-    cacheCylinder.style.opacity = '1';
-    lineProxyCache.style.opacity = '1';
-    lineProxyCache.setAttribute('stroke', '#10b981');
-    proxyNode.setAttribute('stroke', '#10b981');
-    proxyNode.setAttribute('fill', 'rgba(16, 185, 129, 0.06)');
+    cacheCylinder.classList.remove('cache-off');
+    cacheCylinder.classList.add('cache-on');
+    lineProxyCache.classList.remove('flow-idle');
+    lineProxyCache.classList.add('flow-active');
   } else {
-    cacheCylinder.style.opacity = '0.15';
-    lineProxyCache.style.opacity = '0.15';
-    lineProxyCache.setAttribute('stroke', '#cbd5e1');
-    proxyNode.setAttribute('stroke', '#3b82f6');
-    proxyNode.setAttribute('fill', 'rgba(37, 99, 235, 0.04)');
+    cacheCylinder.classList.remove('cache-on');
+    cacheCylinder.classList.add('cache-off');
+    lineProxyCache.classList.remove('flow-active');
+    lineProxyCache.classList.add('flow-idle');
   }
 }
 
@@ -2707,17 +2983,17 @@ function updateStatusSummary() {
   const s = STRINGS[currentLang];
   if (isCacheActive) {
     cacheVal.textContent = `${s.statusCacheActive} (${bpCount} BP)`;
-    cacheVal.className = 'badge-value text-success';
+    cacheVal.className = 'stat-value text-success';
   } else {
     cacheVal.textContent = s.statusCacheInactive;
-    cacheVal.className = 'badge-value text-muted';
+    cacheVal.className = 'stat-value text-muted';
   }
 }
 
 function updateCompanionVisibility() {
   const f = document.getElementById('f');
   const wrapper = document.getElementById('companion-fields-wrapper');
-  wrapper.style.display = f.memory_enabled.checked ? 'flex' : 'none';
+  wrapper.classList.toggle('is-hidden', !f.memory_enabled.checked);
 }
 
 function buildConfigPayload(includeManualOnlyFields = true) {
@@ -2744,6 +3020,11 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_max_strength: Number(f.memory_max_strength.value),
     intimacy_decay_rate: Number(f.intimacy_decay_rate.value),
     spontaneous_recall_probability: Number(f.spontaneous_recall_probability.value),
+    memory_decay_tau_hours: Number(f.memory_decay_tau_hours.value),
+    memory_salience_k: Number(f.memory_salience_k.value),
+    memory_consolidation_idle_minutes: Number(f.memory_consolidation_idle_minutes.value),
+    memory_association_spread: Number(f.memory_association_spread.value),
+    memory_semantic_dedup_threshold: Number(f.memory_semantic_dedup_threshold.value),
   };
 
   if (includeManualOnlyFields) {
@@ -2769,6 +3050,24 @@ function hasPendingManualOnlyChanges() {
   );
 }
 
+function humanConfigSummary(d) {
+  const preset = d.preset || 'custom';
+  const cacheMode = d.cache_mode || 'explicit';
+  const bp = d.cache_breakpoints != null ? d.cache_breakpoints : 0;
+  const cache = preset === 'anthropic' && d.cache_ttl !== 'none'
+    ? `${cacheMode}/${bp} BP`
+    : 'off';
+  const memory = d.memory_enabled ? 'on' : 'off';
+  return `preset=${preset}, cache=${cache}, memory=${memory}`;
+}
+
+function setStatus(msg, kind, autoHideMs) {
+  const status = document.getElementById('status');
+  status.className = (kind === 'err' ? 'err' : 'success') + ' is-visible';
+  status.textContent = msg;
+  if (autoHideMs) setTimeout(() => { status.classList.remove('is-visible'); }, autoHideMs);
+}
+
 async function saveConfig(options = {}) {
   const manual = options.manual === true;
   const payload = buildConfigPayload(manual);
@@ -2778,25 +3077,19 @@ async function saveConfig(options = {}) {
     body: JSON.stringify(payload)
   });
   const d = await r.json();
-  const status = document.getElementById('status');
   const str = STRINGS[currentLang];
 
   if (r.ok) {
     setAuthPanelVisible(false, 'unlock');
     applyConfigData(d);
     if (manual) {
-      status.className = 'success';
-      status.textContent = str.saved + JSON.stringify(d);
-      status.style.display = 'block';
-      setTimeout(() => { status.style.display = 'none'; }, 4000);
+      setStatus(str.saved + humanConfigSummary(d), 'success', 4000);
     }
     return true;
   }
 
   const errors = d.errors || [d.error || str.authInvalid];
-  status.className = 'err';
-  status.textContent = str.error + errors.join('; ');
-  status.style.display = 'block';
+  setStatus(str.error + errors.join('; '), 'err');
   return false;
 }
 
@@ -2865,10 +3158,7 @@ async function runAutoSave() {
 async function exportConfig() {
   const r = await fetchConfig('/api/config/export');
   if (!r.ok) {
-    const status = document.getElementById('status');
-    status.className = 'err';
-    status.textContent = (STRINGS[currentLang].error || 'Error: ') + 'Export failed (' + r.status + ')';
-    status.style.display = 'block';
+    setStatus((STRINGS[currentLang].error || 'Error: ') + 'Export failed (' + r.status + ')', 'err');
     return;
   }
   const d = await r.json();
@@ -2888,13 +3178,10 @@ async function importConfig(event) {
   event.target.value = '';
   if (!file) return;
   const text = await file.text();
-  const status = document.getElementById('status');
   const str = STRINGS[currentLang];
   let body;
   try { body = JSON.parse(text); } catch (e) {
-    status.className = 'err';
-    status.textContent = (str.importError || 'Import failed: ') + 'Invalid JSON';
-    status.style.display = 'block';
+    setStatus((str.importError || 'Import failed: ') + 'Invalid JSON', 'err');
     return;
   }
   const r = await fetchConfig('/api/config/import', {
@@ -2905,15 +3192,10 @@ async function importConfig(event) {
   const d = await r.json();
   if (r.ok) {
     applyConfigData(d);
-    status.className = 'success';
-    status.textContent = str.importSuccess || 'Config imported successfully.';
-    status.style.display = 'block';
-    setTimeout(() => { status.style.display = 'none'; }, 4000);
+    setStatus(str.importSuccess || 'Config imported successfully.', 'success', 4000);
   } else {
     const errors = d.errors || [d.error || 'Unknown error'];
-    status.className = 'err';
-    status.textContent = (str.importError || 'Import failed: ') + errors.join('; ');
-    status.style.display = 'block';
+    setStatus((str.importError || 'Import failed: ') + errors.join('; '), 'err');
   }
 }
 
@@ -2930,19 +3212,27 @@ async function loadCompanionState() {
   document.getElementById('companion-trust-val').textContent = trust + ' / 100';
   document.getElementById('companion-mood').textContent = d.mood || 'neutral';
   document.getElementById('companion-memory-count').textContent = d.memory_count ?? '—';
+  document.getElementById('companion-related-edges').textContent = d.related_edges_total ?? '—';
+  const aff = d.affect_distribution || {};
+  document.getElementById('companion-affect').textContent =
+    `+calm ${aff.positive_calm||0} / +intense ${aff.positive_intense||0} / −calm ${aff.negative_calm||0} / −intense ${aff.negative_intense||0} / neutral ${aff.neutral||0}`;
+  const consAt = d.last_consolidation_at || 0;
+  document.getElementById('companion-consolidation').textContent = consAt
+    ? `${new Date(consAt).toLocaleString()} (+${d.last_consolidation_nodes||0} nodes, ${d.last_consolidation_edges||0} links)`
+    : '—';
 
   const list = document.getElementById('reflections-list');
   const noReflEl = document.getElementById('t-no-reflections');
   const reflections = d.reflections || [];
   if (reflections.length === 0) {
-    list.innerHTML = '';
+    list.textContent = '';
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
+    empty.className = 'empty';
     empty.id = 't-no-reflections';
     empty.textContent = STRINGS[currentLang].noReflections || 'No reflections yet.';
     list.appendChild(empty);
   } else {
-    list.innerHTML = '';
+    list.textContent = '';
     reflections.forEach(refl => {
       const item = document.createElement('div');
       item.className = 'reflection-item';
@@ -2956,8 +3246,6 @@ async function loadCompanionState() {
       list.appendChild(item);
     });
   }
-
-  document.getElementById('companion-logs-grid').style.display = 'grid';
 }
 
 async function loadLogs() {
@@ -2966,41 +3254,71 @@ async function loadLogs() {
   const d = await r.json();
   const logs = d.logs || [];
   const tbody = document.getElementById('logs-tbody');
-  tbody.innerHTML = '';
+  tbody.textContent = '';
 
   if (logs.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 7;
-    td.className = 'empty-state';
+    td.className = 'empty';
     td.textContent = STRINGS[currentLang].noLogs || 'No requests logged yet.';
     tr.appendChild(td);
     tbody.appendChild(tr);
-  } else {
-    logs.forEach(l => {
-      const tr = document.createElement('tr');
-      const timeStr = new Date(l.at).toLocaleTimeString();
-      const badge = l.patched
-        ? '<span class="badge yes">✓</span>'
-        : '<span class="badge no">—</span>';
-      const modelShort = l.model ? l.model.split('/').pop() : '—';
-      tr.innerHTML = `
-        <td title="${l.at}">${timeStr}</td>
-        <td>${l.method}</td>
-        <td style="font-family:'Fira Code',monospace;font-size:0.72rem">${l.pathname}</td>
-        <td>${badge}</td>
-        <td class="model-cell" title="${l.model || ''}">${modelShort}</td>
-        <td>${l.message_count ?? '—'}</td>
-        <td>${l.explicit_cache_blocks ?? '—'}</td>`;
-      tbody.appendChild(tr);
-    });
+    return;
   }
 
-  document.getElementById('companion-logs-grid').style.display = 'grid';
+  logs.forEach(l => {
+    const tr = document.createElement('tr');
+
+    const tdTime = document.createElement('td');
+    tdTime.textContent = new Date(l.at).toLocaleTimeString();
+    tdTime.title = l.at;
+
+    const tdMethod = document.createElement('td');
+    tdMethod.textContent = l.method;
+
+    const tdPath = document.createElement('td');
+    tdPath.textContent = l.pathname;
+    tdPath.className = 'model-cell';
+
+    const tdPatched = document.createElement('td');
+    const tag = document.createElement('span');
+    tag.className = l.patched ? 'tag tag-yes' : 'tag tag-no';
+    tag.textContent = l.patched ? '✓' : '—';
+    tdPatched.appendChild(tag);
+
+    const tdModel = document.createElement('td');
+    tdModel.className = 'model-cell';
+    tdModel.textContent = l.model ? l.model.split('/').pop() : '—';
+    tdModel.title = l.model || '';
+
+    const tdMsgs = document.createElement('td');
+    tdMsgs.textContent = l.message_count ?? '—';
+
+    const tdCache = document.createElement('td');
+    tdCache.textContent = l.explicit_cache_blocks ?? '—';
+
+    tr.appendChild(tdTime);
+    tr.appendChild(tdMethod);
+    tr.appendChild(tdPath);
+    tr.appendChild(tdPatched);
+    tr.appendChild(tdModel);
+    tr.appendChild(tdMsgs);
+    tr.appendChild(tdCache);
+    tbody.appendChild(tr);
+  });
 }
 
 async function load() {
-  const r = await fetchConfig('/api/config');
+  let r;
+  try {
+    r = await fetchConfig('/api/config');
+  } catch (e) {
+    updateFlowDiagram();
+    updateVisualizer();
+    updateStatusSummary();
+    return;
+  }
   const d = await r.json();
   if (r.ok) {
     setAuthPanelVisible(false, 'unlock');
@@ -3011,20 +3329,14 @@ async function load() {
   }
 
   if (r.status === 401) {
-    const s = document.getElementById('status');
     const str = STRINGS[currentLang];
-    s.className = 'err';
-    s.textContent = str.error + str.authInvalid;
-    s.style.display = 'block';
+    setStatus(str.error + str.authInvalid, 'err');
     return;
   }
 
   if (r.status === 428 && d.config_password_setup_required) {
     setAuthPanelVisible(true, 'setup');
-    const s = document.getElementById('status');
-    s.className = 'err';
-    s.textContent = STRINGS[currentLang].authSetupRequired;
-    s.style.display = 'block';
+    setStatus(STRINGS[currentLang].authSetupRequired, 'err');
     return;
   }
 
@@ -3049,16 +3361,13 @@ document.getElementById('btn-edit-embedding').addEventListener('click', () => {
 document.getElementById('btn-auth-unlock').addEventListener('click', async () => {
   const input = document.getElementById('config-auth-password');
   const confirmInput = document.getElementById('config-auth-password-confirm');
-  const status = document.getElementById('status');
   const str = STRINGS[currentLang];
   const password = input.value.trim();
 
   if (configAuthMode === 'setup') {
     const confirmPassword = confirmInput.value.trim();
     if (!password || password !== confirmPassword) {
-      status.className = 'err';
-      status.textContent = !password ? str.authSetupRequired : str.authSetupMismatch;
-      status.style.display = 'block';
+      setStatus(!password ? str.authSetupRequired : str.authSetupMismatch, 'err');
       return;
     }
 
@@ -3073,10 +3382,7 @@ document.getElementById('btn-auth-unlock').addEventListener('click', async () =>
       input.value = '';
       confirmInput.value = '';
       await load();
-      status.className = 'success';
-      status.textContent = str.authSetupSaved;
-      status.style.display = 'block';
-      setTimeout(() => { status.style.display = 'none'; }, 4000);
+      setStatus(str.authSetupSaved, 'success', 4000);
       return;
     }
 
@@ -3084,9 +3390,7 @@ document.getElementById('btn-auth-unlock').addEventListener('click', async () =>
       setAuthPanelVisible(true, 'unlock');
     }
     const errors = d.errors || [d.error || str.authSetupRequired];
-    status.className = 'err';
-    status.textContent = str.error + errors.join('; ');
-    status.style.display = 'block';
+    setStatus(str.error + errors.join('; '), 'err');
     return;
   }
 
@@ -3131,16 +3435,13 @@ document.querySelectorAll('.password-toggle').forEach(button => {
 
 document.getElementById('btn-change-config-password').addEventListener('click', async () => {
   const f = document.getElementById('f');
-  const status = document.getElementById('status');
   const str = STRINGS[currentLang];
   const currentPassword = f.config_password_current.value.trim();
   const newPassword = f.config_password_new.value.trim();
   const confirmPassword = f.config_password_confirm.value.trim();
 
   if (!currentPassword || !newPassword || newPassword !== confirmPassword) {
-    status.className = 'err';
-    status.textContent = str.error + (!currentPassword || !newPassword ? str.authSetupRequired : str.authSetupMismatch);
-    status.style.display = 'block';
+    setStatus(str.error + (!currentPassword || !newPassword ? str.authSetupRequired : str.authSetupMismatch), 'err');
     return;
   }
 
@@ -3160,18 +3461,13 @@ document.getElementById('btn-change-config-password').addEventListener('click', 
     f.config_password_current.value = '';
     f.config_password_new.value = '';
     f.config_password_confirm.value = '';
-    status.className = 'success';
-    status.textContent = str.passwordChangeSaved;
-    status.style.display = 'block';
-    setTimeout(() => { status.style.display = 'none'; }, 4000);
+    setStatus(str.passwordChangeSaved, 'success', 4000);
     await load();
     return;
   }
 
   const errors = d.errors || [d.error || str.authInvalid];
-  status.className = 'err';
-  status.textContent = str.error + errors.join('; ');
-  status.style.display = 'block';
+  setStatus(str.error + errors.join('; '), 'err');
 });
 
 // Global form change listener to keep widgets in perfect sync
@@ -3194,6 +3490,8 @@ document.getElementById('f').addEventListener('submit', async e => {
   await saveConfig({ manual: true });
 });
 
+initCollapsibles();
+initNav();
 setLang(currentLang);
 load();
 </script>

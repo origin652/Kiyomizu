@@ -41,6 +41,11 @@ object ConfigApi {
             put("intimacy_decay_rate", Config.intimacyDecayRate)
             put("spontaneous_recall_probability", Config.spontaneousRecallProbability)
             put("max_recalled_memories", Config.maxRecalledMemories)
+            put("memory_decay_tau_hours", Config.memoryDecayTauHours)
+            put("memory_salience_k", Config.memorySalienceK)
+            put("memory_consolidation_idle_minutes", Config.memoryConsolidationIdleMinutes)
+            put("memory_association_spread", Config.memoryAssociationSpread)
+            put("memory_semantic_dedup_threshold", Config.memorySemanticDedupThreshold)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -74,6 +79,11 @@ object ConfigApi {
         var nextIntimacyDecayRate = Config.intimacyDecayRate
         var nextSpontaneousRecallProbability = Config.spontaneousRecallProbability
         var nextMaxRecalledMemories = Config.maxRecalledMemories
+        var nextMemoryDecayTauHours = Config.memoryDecayTauHours
+        var nextMemorySalienceK = Config.memorySalienceK
+        var nextMemoryConsolidationIdleMinutes = Config.memoryConsolidationIdleMinutes
+        var nextMemoryAssociationSpread = Config.memoryAssociationSpread
+        var nextMemorySemanticDedupThreshold = Config.memorySemanticDedupThreshold
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var nextMemoryEmbeddingKey = Config.memoryEmbeddingKey
@@ -205,6 +215,42 @@ object ConfigApi {
             }
         }
 
+        body.readDouble("memory_decay_tau_hours", errors) {
+            if (it in 1.0..8760.0) {
+                nextMemoryDecayTauHours = it
+            } else {
+                errors.add("memory_decay_tau_hours must be between 1.0 and 8760.0")
+            }
+        }
+        body.readDouble("memory_salience_k", errors) {
+            if (it in 0.0..10.0) {
+                nextMemorySalienceK = it
+            } else {
+                errors.add("memory_salience_k must be between 0.0 and 10.0")
+            }
+        }
+        body.readInt("memory_consolidation_idle_minutes", errors) {
+            if (it in 1..1440) {
+                nextMemoryConsolidationIdleMinutes = it
+            } else {
+                errors.add("memory_consolidation_idle_minutes must be an integer 1-1440")
+            }
+        }
+        body.readInt("memory_association_spread", errors) {
+            if (it in 0..20) {
+                nextMemoryAssociationSpread = it
+            } else {
+                errors.add("memory_association_spread must be an integer 0-20")
+            }
+        }
+        body.readDouble("memory_semantic_dedup_threshold", errors) {
+            if (it in 0.5..0.99) {
+                nextMemorySemanticDedupThreshold = it
+            } else {
+                errors.add("memory_semantic_dedup_threshold must be between 0.5 and 0.99")
+            }
+        }
+
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
         }
@@ -289,7 +335,12 @@ object ConfigApi {
             memoryInitialStrength = nextMemoryInitialStrength,
             intimacyDecayRate = nextIntimacyDecayRate,
             spontaneousRecallProbability = nextSpontaneousRecallProbability,
-            maxRecalledMemories = nextMaxRecalledMemories
+            maxRecalledMemories = nextMaxRecalledMemories,
+            memoryDecayTauHours = nextMemoryDecayTauHours,
+            memorySalienceK = nextMemorySalienceK,
+            memoryConsolidationIdleMinutes = nextMemoryConsolidationIdleMinutes,
+            memoryAssociationSpread = nextMemoryAssociationSpread,
+            memorySemanticDedupThreshold = nextMemorySemanticDedupThreshold
         )
 
         try {

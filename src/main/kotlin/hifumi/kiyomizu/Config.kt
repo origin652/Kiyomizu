@@ -50,11 +50,15 @@ object Config {
             Extract key new facts, preferences, emotional milestones, or shared experiences about the user or your relationship as a list of distinct atomic statements.
             Write each memory in the same language the user used in the conversation. Do not translate memories unless the user clearly switched languages on purpose.
             Preserve names, places, wording nuance, and culturally specific expressions as faithfully as possible while keeping each memory short and atomic.
+            For each memory, rate its affect on two continuous dimensions:
+              - emotion_valence: 0.0 (very negative) to 1.0 (very positive), 0.5 = neutral
+              - emotion_arousal: 0.0 (very calm) to 1.0 (very intense/agitated), 0.3 = neutral
+            High-arousal memories (positive or negative) and memories with valence far from 0.5 are emotionally salient and will be consolidated more strongly.
             Also, evaluate how this interaction affects your intimacy (intimacy_delta between -5.0 and +5.0) and trust (trust_delta between -5.0 and +5.0), and assess your current mood (one of: happy, caring, lonely, worried, neutral).
             You MUST respond with a single JSON object in the following format:
             {
               "memories": [
-                { "content": "Atomic memory statement", "type": "semantic"|"episodic", "emotion_tag": "joy"|"sadness"|"warmth"|"anxiety"|"neutral", "importance": 0.5 }
+                { "content": "Atomic memory statement", "type": "semantic"|"episodic", "emotion_valence": 0.7, "emotion_arousal": 0.4, "importance": 0.5 }
               ],
               "intimacy_delta": 1.5,
               "trust_delta": 0.5,
@@ -78,6 +82,14 @@ object Config {
     private val intimacyDecayRateRef = AtomicReference(System.getenv("INTIMACY_DECAY_RATE")?.toDoubleOrNull() ?: 0.5)
     private val spontaneousRecallProbabilityRef = AtomicReference(System.getenv("SPONTANEOUS_RECALL_PROBABILITY")?.toDoubleOrNull() ?: 0.15)
     private val maxRecalledMemoriesRef = AtomicInteger(System.getenv("MAX_RECALLED_MEMORIES")?.toIntOrNull() ?: 5)
+
+    // Human-memory-inspired extensions: Ebbinghaus lazy decay, affect salience,
+    // association-graph recall spread, offline consolidation, semantic dedup.
+    private val memoryDecayTauHoursRef = AtomicReference(System.getenv("MEMORY_DECAY_TAU_HOURS")?.toDoubleOrNull() ?: 360.0)
+    private val memorySalienceKRef = AtomicReference(System.getenv("MEMORY_SALIENCE_K")?.toDoubleOrNull() ?: 1.0)
+    private val memoryConsolidationIdleMinutesRef = AtomicInteger(System.getenv("MEMORY_CONSOLIDATION_IDLE_MINUTES")?.toIntOrNull() ?: 30)
+    private val memoryAssociationSpreadRef = AtomicInteger(System.getenv("MEMORY_ASSOCIATION_SPREAD")?.toIntOrNull() ?: 3)
+    private val memorySemanticDedupThresholdRef = AtomicReference(System.getenv("MEMORY_SEMANTIC_DEDUP_THRESHOLD")?.toDoubleOrNull() ?: 0.80)
 
     var preset: String
         get() = presetRef.get()
@@ -179,6 +191,26 @@ object Config {
         get() = maxRecalledMemoriesRef.get()
         set(value) { maxRecalledMemoriesRef.set(value) }
 
+    var memoryDecayTauHours: Double
+        get() = memoryDecayTauHoursRef.get()
+        set(value) { memoryDecayTauHoursRef.set(value) }
+
+    var memorySalienceK: Double
+        get() = memorySalienceKRef.get()
+        set(value) { memorySalienceKRef.set(value) }
+
+    var memoryConsolidationIdleMinutes: Int
+        get() = memoryConsolidationIdleMinutesRef.get()
+        set(value) { memoryConsolidationIdleMinutesRef.set(value) }
+
+    var memoryAssociationSpread: Int
+        get() = memoryAssociationSpreadRef.get()
+        set(value) { memoryAssociationSpreadRef.set(value) }
+
+    var memorySemanticDedupThreshold: Double
+        get() = memorySemanticDedupThresholdRef.get()
+        set(value) { memorySemanticDedupThresholdRef.set(value) }
+
     data class Snapshot(
         val preset: String,
         val upstream: String,
@@ -202,7 +234,12 @@ object Config {
         val memoryInitialStrength: Double,
         val intimacyDecayRate: Double,
         val spontaneousRecallProbability: Double,
-        val maxRecalledMemories: Int
+        val maxRecalledMemories: Int,
+        val memoryDecayTauHours: Double,
+        val memorySalienceK: Double,
+        val memoryConsolidationIdleMinutes: Int,
+        val memoryAssociationSpread: Int,
+        val memorySemanticDedupThreshold: Double
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -229,6 +266,11 @@ object Config {
                 put("intimacy_decay_rate", intimacyDecayRate)
                 put("spontaneous_recall_probability", spontaneousRecallProbability)
                 put("max_recalled_memories", maxRecalledMemories)
+                put("memory_decay_tau_hours", memoryDecayTauHours)
+                put("memory_salience_k", memorySalienceK)
+                put("memory_consolidation_idle_minutes", memoryConsolidationIdleMinutes)
+                put("memory_association_spread", memoryAssociationSpread)
+                put("memory_semantic_dedup_threshold", memorySemanticDedupThreshold)
             }
         }
     }
@@ -257,7 +299,12 @@ object Config {
             memoryInitialStrength = memoryInitialStrength,
             intimacyDecayRate = intimacyDecayRate,
             spontaneousRecallProbability = spontaneousRecallProbability,
-            maxRecalledMemories = maxRecalledMemories
+            maxRecalledMemories = maxRecalledMemories,
+            memoryDecayTauHours = memoryDecayTauHours,
+            memorySalienceK = memorySalienceK,
+            memoryConsolidationIdleMinutes = memoryConsolidationIdleMinutes,
+            memoryAssociationSpread = memoryAssociationSpread,
+            memorySemanticDedupThreshold = memorySemanticDedupThreshold
         )
     }
 
@@ -285,6 +332,11 @@ object Config {
         intimacyDecayRate = snapshot.intimacyDecayRate
         spontaneousRecallProbability = snapshot.spontaneousRecallProbability
         maxRecalledMemories = snapshot.maxRecalledMemories
+        memoryDecayTauHours = snapshot.memoryDecayTauHours
+        memorySalienceK = snapshot.memorySalienceK
+        memoryConsolidationIdleMinutes = snapshot.memoryConsolidationIdleMinutes
+        memoryAssociationSpread = snapshot.memoryAssociationSpread
+        memorySemanticDedupThreshold = snapshot.memorySemanticDedupThreshold
     }
 
     fun loadPersisted(jsonText: String?) {
@@ -315,7 +367,12 @@ object Config {
                     memoryInitialStrength = body.doubleValue("memory_initial_strength") ?: memoryInitialStrength,
                     intimacyDecayRate = body.doubleValue("intimacy_decay_rate") ?: intimacyDecayRate,
                     spontaneousRecallProbability = body.doubleValue("spontaneous_recall_probability") ?: spontaneousRecallProbability,
-                    maxRecalledMemories = body.intValue("max_recalled_memories") ?: maxRecalledMemories
+                    maxRecalledMemories = body.intValue("max_recalled_memories") ?: maxRecalledMemories,
+                    memoryDecayTauHours = body.doubleValue("memory_decay_tau_hours") ?: memoryDecayTauHours,
+                    memorySalienceK = body.doubleValue("memory_salience_k") ?: memorySalienceK,
+                    memoryConsolidationIdleMinutes = body.intValue("memory_consolidation_idle_minutes") ?: memoryConsolidationIdleMinutes,
+                    memoryAssociationSpread = body.intValue("memory_association_spread") ?: memoryAssociationSpread,
+                    memorySemanticDedupThreshold = body.doubleValue("memory_semantic_dedup_threshold") ?: memorySemanticDedupThreshold
                 )
             )
         } catch (e: Exception) {
