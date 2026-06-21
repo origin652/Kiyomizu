@@ -1,0 +1,38 @@
+services:
+  kiyomizu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kiyomizu
+    restart: unless-stopped
+    ports:
+      - "${KIYOMIZU_PORT:-8787}:8787"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8787"
+      PRESET: "${PRESET:-custom}"
+      UPSTREAM_URL: "${UPSTREAM_URL:-}"
+      OPENROUTER_BASE_URL: "${OPENROUTER_BASE_URL:-}"
+      MODEL_FILTER: "${MODEL_FILTER:-anthropic,claude}"
+      CACHE_TTL: "${CACHE_TTL:-1h}"
+      CACHE_MODE: "${CACHE_MODE:-explicit}"
+      CACHE_STRATEGY: "${CACHE_STRATEGY:-stable-prefix}"
+      CACHE_BREAKPOINTS: "${CACHE_BREAKPOINTS:-4}"
+      DYNAMIC_TAIL_MESSAGES: "${DYNAMIC_TAIL_MESSAGES:-1}"
+      STRIP_THINKING: "${STRIP_THINKING:-1}"
+      KIYOMIZU_CONFIG_PASSWORD: "${KIYOMIZU_CONFIG_PASSWORD:-change-this-before-public-use}"
+      KIYOMIZU_PROXY_PASSWORD: "${KIYOMIZU_PROXY_PASSWORD:-}"
+      KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY: "${KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY:-0}"
+      KIYOMIZU_ALLOW_REMOTE_PASSWORD_SETUP: "${KIYOMIZU_ALLOW_REMOTE_PASSWORD_SETUP:-0}"
+      KIYOMIZU_DB_FILE: "/data/kiyomizu_companion.db"
+      MEMORY_ENABLED: "${MEMORY_ENABLED:-0}"
+      MEMORY_SUMMARY_URL: "${MEMORY_SUMMARY_URL:-https://generativelanguage.googleapis.com}"
+      MEMORY_SUMMARY_KEY: "${MEMORY_SUMMARY_KEY:-}"
+      MEMORY_SUMMARY_MODEL: "${MEMORY_SUMMARY_MODEL:-gemini-2.5-flash}"
+      MEMORY_RECALL_MAX_NODES: "${MEMORY_RECALL_MAX_NODES:-6}"
+      MEMORY_DEEP_RECALL_ENABLED: "${MEMORY_DEEP_RECALL_ENABLED:-1}"
+      MEMORY_DEEP_RECALL_MAX_CANDIDATES: "${MEMORY_DEEP_RECALL_MAX_CANDIDATES:-40}"
+      MEMORY_DEEP_RECALL_MAX_CLUES: "${MEMORY_DEEP_RECALL_MAX_CLUES:-10}"
+      MEMORY_PERSON_CONTEXT_MAX_CLUES: "${MEMORY_PERSON_CONTEXT_MAX_CLUES:-2}"
+    volumes:
+      - ./storage:/data

@@ -2,12 +2,12 @@ package hifumi.kiyomizu
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.booleanOrNull
 
 object ConfigApi {
     data class UpdateResult(
@@ -29,9 +29,6 @@ object ConfigApi {
             put("memory_summary_key_configured", Config.memorySummaryKey.isNotBlank())
             put("memory_summary_model", Config.memorySummaryModel)
             put("memory_summary_prompt", Config.memorySummaryPrompt)
-            put("memory_embedding_url", Config.memoryEmbeddingUrl)
-            put("memory_embedding_key_configured", Config.memoryEmbeddingKey.isNotBlank())
-            put("memory_embedding_model", Config.memoryEmbeddingModel)
             put("memory_decay_interval_hours", Config.memoryDecayIntervalHours)
             put("memory_decay_rate", Config.memoryDecayRate)
             put("memory_threshold", Config.memoryThreshold)
@@ -39,13 +36,13 @@ object ConfigApi {
             put("memory_max_strength", Config.memoryMaxStrength)
             put("memory_initial_strength", Config.memoryInitialStrength)
             put("intimacy_decay_rate", Config.intimacyDecayRate)
-            put("spontaneous_recall_probability", Config.spontaneousRecallProbability)
-            put("max_recalled_memories", Config.maxRecalledMemories)
             put("memory_decay_tau_hours", Config.memoryDecayTauHours)
             put("memory_salience_k", Config.memorySalienceK)
-            put("memory_consolidation_idle_minutes", Config.memoryConsolidationIdleMinutes)
-            put("memory_association_spread", Config.memoryAssociationSpread)
-            put("memory_semantic_dedup_threshold", Config.memorySemanticDedupThreshold)
+            put("memory_recall_max_nodes", Config.memoryRecallMaxNodes)
+            put("memory_deep_recall_enabled", Config.memoryDeepRecallEnabled)
+            put("memory_deep_recall_max_candidates", Config.memoryDeepRecallMaxCandidates)
+            put("memory_deep_recall_max_clues", Config.memoryDeepRecallMaxClues)
+            put("memory_person_context_max_clues", Config.memoryPersonContextMaxClues)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -68,8 +65,6 @@ object ConfigApi {
         var nextMemorySummaryUrl = Config.memorySummaryUrl
         var nextMemorySummaryModel = Config.memorySummaryModel
         var nextMemorySummaryPrompt = Config.memorySummaryPrompt
-        var nextMemoryEmbeddingUrl = Config.memoryEmbeddingUrl
-        var nextMemoryEmbeddingModel = Config.memoryEmbeddingModel
         var nextMemoryDecayIntervalHours = Config.memoryDecayIntervalHours
         var nextMemoryDecayRate = Config.memoryDecayRate
         var nextMemoryThreshold = Config.memoryThreshold
@@ -77,21 +72,17 @@ object ConfigApi {
         var nextMemoryMaxStrength = Config.memoryMaxStrength
         var nextMemoryInitialStrength = Config.memoryInitialStrength
         var nextIntimacyDecayRate = Config.intimacyDecayRate
-        var nextSpontaneousRecallProbability = Config.spontaneousRecallProbability
-        var nextMaxRecalledMemories = Config.maxRecalledMemories
         var nextMemoryDecayTauHours = Config.memoryDecayTauHours
         var nextMemorySalienceK = Config.memorySalienceK
-        var nextMemoryConsolidationIdleMinutes = Config.memoryConsolidationIdleMinutes
-        var nextMemoryAssociationSpread = Config.memoryAssociationSpread
-        var nextMemorySemanticDedupThreshold = Config.memorySemanticDedupThreshold
+        var nextMemoryRecallMaxNodes = Config.memoryRecallMaxNodes
+        var nextMemoryDeepRecallEnabled = Config.memoryDeepRecallEnabled
+        var nextMemoryDeepRecallMaxCandidates = Config.memoryDeepRecallMaxCandidates
+        var nextMemoryDeepRecallMaxClues = Config.memoryDeepRecallMaxClues
+        var nextMemoryPersonContextMaxClues = Config.memoryPersonContextMaxClues
 
         var nextMemorySummaryKey = Config.memorySummaryKey
-        var nextMemoryEmbeddingKey = Config.memoryEmbeddingKey
-
         var replaceSummaryKey: String? = null
-        var replaceEmbeddingKey: String? = null
         var clearSummaryKey = false
-        var clearEmbeddingKey = false
 
         body.readString("preset", errors) {
             if (it in listOf("anthropic", "custom")) {
@@ -139,18 +130,11 @@ object ConfigApi {
             nextMemorySummaryUrl = it.trim()
         }
         body.readString("memory_summary_model", errors) {
-            nextMemorySummaryModel = it
+            nextMemorySummaryModel = it.trim()
         }
         body.readString("memory_summary_prompt", errors) {
             nextMemorySummaryPrompt = it
         }
-        body.readString("memory_embedding_url", errors) {
-            nextMemoryEmbeddingUrl = it.trim()
-        }
-        body.readString("memory_embedding_model", errors) {
-            nextMemoryEmbeddingModel = it
-        }
-
         body.readInt("memory_decay_interval_hours", errors) {
             if (it in 1..720) {
                 nextMemoryDecayIntervalHours = it
@@ -200,21 +184,6 @@ object ConfigApi {
                 errors.add("intimacy_decay_rate must be between 0.0 and 10.0")
             }
         }
-        body.readDouble("spontaneous_recall_probability", errors) {
-            if (it in 0.0..1.0) {
-                nextSpontaneousRecallProbability = it
-            } else {
-                errors.add("spontaneous_recall_probability must be between 0.0 and 1.0")
-            }
-        }
-        body.readInt("max_recalled_memories", errors) {
-            if (it in 0..50) {
-                nextMaxRecalledMemories = it
-            } else {
-                errors.add("max_recalled_memories must be an integer 0-50")
-            }
-        }
-
         body.readDouble("memory_decay_tau_hours", errors) {
             if (it in 1.0..8760.0) {
                 nextMemoryDecayTauHours = it
@@ -229,39 +198,43 @@ object ConfigApi {
                 errors.add("memory_salience_k must be between 0.0 and 10.0")
             }
         }
-        body.readInt("memory_consolidation_idle_minutes", errors) {
-            if (it in 1..1440) {
-                nextMemoryConsolidationIdleMinutes = it
-            } else {
-                errors.add("memory_consolidation_idle_minutes must be an integer 1-1440")
-            }
-        }
-        body.readInt("memory_association_spread", errors) {
+        body.readInt("memory_recall_max_nodes", errors) {
             if (it in 0..20) {
-                nextMemoryAssociationSpread = it
+                nextMemoryRecallMaxNodes = it
             } else {
-                errors.add("memory_association_spread must be an integer 0-20")
+                errors.add("memory_recall_max_nodes must be an integer 0-20")
             }
         }
-        body.readDouble("memory_semantic_dedup_threshold", errors) {
-            if (it in 0.5..0.99) {
-                nextMemorySemanticDedupThreshold = it
+        body.readBoolean("memory_deep_recall_enabled", errors) {
+            nextMemoryDeepRecallEnabled = it
+        }
+        body.readInt("memory_deep_recall_max_candidates", errors) {
+            if (it in 1..100) {
+                nextMemoryDeepRecallMaxCandidates = it
             } else {
-                errors.add("memory_semantic_dedup_threshold must be between 0.5 and 0.99")
+                errors.add("memory_deep_recall_max_candidates must be an integer 1-100")
+            }
+        }
+        body.readInt("memory_deep_recall_max_clues", errors) {
+            if (it in 1..20) {
+                nextMemoryDeepRecallMaxClues = it
+            } else {
+                errors.add("memory_deep_recall_max_clues must be an integer 1-20")
+            }
+        }
+        body.readInt("memory_person_context_max_clues", errors) {
+            if (it in 0..10) {
+                nextMemoryPersonContextMaxClues = it
+            } else {
+                errors.add("memory_person_context_max_clues must be an integer 0-10")
             }
         }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
         }
-        body.readString("memory_embedding_key", errors) {
-            replaceEmbeddingKey = it
-        }
         body.readBoolean("clear_memory_summary_key", errors) {
             clearSummaryKey = it
-        }
-        body.readBoolean("clear_memory_embedding_key", errors) {
-            clearEmbeddingKey = it
         }
 
         if (nextPreset == "custom" && nextUpstream.isBlank()) {
@@ -276,10 +249,6 @@ object ConfigApi {
             Security.validateOutboundBaseUrl(nextMemorySummaryUrl, "memory_summary_url")?.let { errors.add(it) }
         }
 
-        if (nextMemoryEmbeddingUrl.isNotBlank()) {
-            Security.validateOutboundBaseUrl(nextMemoryEmbeddingUrl, "memory_embedding_url")?.let { errors.add(it) }
-        }
-
         if (nextPreset != "anthropic" && nextCacheMode == "automatic") {
             errors.add("automatic cache mode is only supported with the anthropic preset")
         }
@@ -288,12 +257,12 @@ object ConfigApi {
             errors.add("memory_initial_strength must be less than or equal to memory_max_strength")
         }
 
-        if (clearSummaryKey && !replaceSummaryKey.isNullOrBlank()) {
-            errors.add("memory_summary_key cannot be replaced and cleared in the same request")
+        if (nextMemoryDeepRecallMaxClues > nextMemoryDeepRecallMaxCandidates) {
+            errors.add("memory_deep_recall_max_clues must be less than or equal to memory_deep_recall_max_candidates")
         }
 
-        if (clearEmbeddingKey && !replaceEmbeddingKey.isNullOrBlank()) {
-            errors.add("memory_embedding_key cannot be replaced and cleared in the same request")
+        if (clearSummaryKey && !replaceSummaryKey.isNullOrBlank()) {
+            errors.add("memory_summary_key cannot be replaced and cleared in the same request")
         }
 
         if (errors.isNotEmpty()) {
@@ -304,12 +273,6 @@ object ConfigApi {
             nextMemorySummaryKey = ""
         } else if (!replaceSummaryKey.isNullOrBlank()) {
             nextMemorySummaryKey = replaceSummaryKey!!.trim()
-        }
-
-        if (clearEmbeddingKey) {
-            nextMemoryEmbeddingKey = ""
-        } else if (!replaceEmbeddingKey.isNullOrBlank()) {
-            nextMemoryEmbeddingKey = replaceEmbeddingKey!!.trim()
         }
 
         val nextSnapshot = Config.Snapshot(
@@ -324,9 +287,6 @@ object ConfigApi {
             memorySummaryKey = nextMemorySummaryKey,
             memorySummaryModel = nextMemorySummaryModel,
             memorySummaryPrompt = nextMemorySummaryPrompt,
-            memoryEmbeddingUrl = nextMemoryEmbeddingUrl,
-            memoryEmbeddingKey = nextMemoryEmbeddingKey,
-            memoryEmbeddingModel = nextMemoryEmbeddingModel,
             memoryDecayIntervalHours = nextMemoryDecayIntervalHours,
             memoryDecayRate = nextMemoryDecayRate,
             memoryThreshold = nextMemoryThreshold,
@@ -334,13 +294,13 @@ object ConfigApi {
             memoryMaxStrength = nextMemoryMaxStrength,
             memoryInitialStrength = nextMemoryInitialStrength,
             intimacyDecayRate = nextIntimacyDecayRate,
-            spontaneousRecallProbability = nextSpontaneousRecallProbability,
-            maxRecalledMemories = nextMaxRecalledMemories,
             memoryDecayTauHours = nextMemoryDecayTauHours,
             memorySalienceK = nextMemorySalienceK,
-            memoryConsolidationIdleMinutes = nextMemoryConsolidationIdleMinutes,
-            memoryAssociationSpread = nextMemoryAssociationSpread,
-            memorySemanticDedupThreshold = nextMemorySemanticDedupThreshold
+            memoryRecallMaxNodes = nextMemoryRecallMaxNodes,
+            memoryDeepRecallEnabled = nextMemoryDeepRecallEnabled,
+            memoryDeepRecallMaxCandidates = nextMemoryDeepRecallMaxCandidates,
+            memoryDeepRecallMaxClues = nextMemoryDeepRecallMaxClues,
+            memoryPersonContextMaxClues = nextMemoryPersonContextMaxClues
         )
 
         try {
@@ -350,7 +310,6 @@ object ConfigApi {
         }
 
         Config.applySnapshot(nextSnapshot)
-
         return UpdateResult(errors = emptyList())
     }
 

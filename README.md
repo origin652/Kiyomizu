@@ -23,7 +23,7 @@ Kiyomizu manages stable prefix for a higher cache-hit rate, and help your AI com
 - Exposes a browser UI at `/` and a JSON config API at `/api/config`.
 - Protects `/api/config` with a config password. On public binds, first-run setup from the network is disabled unless explicitly allowed.
 - Requires proxy authentication on public binds, strips internal auth headers before forwarding, and rejects unsafe outbound URLs by default.
-- Includes an optional companion-memory layer backed by SQLite, embeddings, and reflection summaries.
+- Includes an optional companion-memory layer backed by SQLite graph memory, local text search, and reflection summaries.
 
 ## Architecture
 
@@ -38,12 +38,12 @@ The request flow is:
 
 Main files:
 
-- [src/main/kotlin/hifumi/kiyomizu/Main.kt](/Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/Main.kt): server bootstrap, routing, proxy loop
-- [src/main/kotlin/hifumi/kiyomizu/MessagePatcher.kt](/Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/MessagePatcher.kt): request-shaping, cache injection, memory prompt injection
-- [src/main/kotlin/hifumi/kiyomizu/ProxyService.kt](/Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/ProxyService.kt): header cleanup, upstream client, request logging
-- [src/main/kotlin/hifumi/kiyomizu/MemoryService.kt](/Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/MemoryService.kt): summarization, embeddings, recall, decay jobs
-- [src/main/kotlin/hifumi/kiyomizu/DatabaseService.kt](/Users/hifumimizuhara/Desktop/Benkyou/src/main/kotlin/hifumi/kiyomizu/DatabaseService.kt): SQLite schema and persistence
-- [src/main/resources/ui.html](/Users/hifumimizuhara/Desktop/Benkyou/src/main/resources/ui.html): configuration UI
+- [src/main/kotlin/hifumi/kiyomizu/Main.kt](src/main/kotlin/hifumi/kiyomizu/Main.kt): server bootstrap, routing, proxy loop
+- [src/main/kotlin/hifumi/kiyomizu/MessagePatcher.kt](src/main/kotlin/hifumi/kiyomizu/MessagePatcher.kt): request-shaping, cache injection, memory prompt injection
+- [src/main/kotlin/hifumi/kiyomizu/ProxyService.kt](src/main/kotlin/hifumi/kiyomizu/ProxyService.kt): header cleanup, upstream client, request logging
+- [src/main/kotlin/hifumi/kiyomizu/MemoryService.kt](src/main/kotlin/hifumi/kiyomizu/MemoryService.kt): graph-memory extraction, recall, deep recall, decay jobs
+- [src/main/kotlin/hifumi/kiyomizu/DatabaseService.kt](src/main/kotlin/hifumi/kiyomizu/DatabaseService.kt): SQLite schema and persistence
+- [src/main/resources/ui.html](src/main/resources/ui.html): configuration UI
 
 ## Requirements
 
@@ -71,6 +71,21 @@ Useful endpoints:
 - `/api/config`: config read/write API
 - `/v1/models` and related model-list paths: proxied upstream
 - `/{...}`: catch-all proxy route
+
+## Docker Compose
+
+The Compose setup builds the fat jar in a container, stores the SQLite database in `./storage`, and exposes Kiyomizu on `${KIYOMIZU_PORT:-8787}`.
+
+The Dockerfile expects `gradle-9.5.1-bin.zip` in the repository root. This avoids downloading the Gradle distribution during image build.
+
+```sh
+KIYOMIZU_CONFIG_PASSWORD='use-a-long-random-config-secret' \
+KIYOMIZU_PROXY_PASSWORD='use-a-different-long-random-proxy-secret' \
+UPSTREAM_URL='https://api.anthropic.com' \
+docker compose up --build
+```
+
+For public or LAN binds, keep `KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY=0` and put TLS in front of the service.
 
 ## Build And Test
 
@@ -126,19 +141,21 @@ You can override that path with `KIYOMIZU_DB_FILE` or the JVM property `-Dkiyomi
 | `MEMORY_SUMMARY_URL` | `https://generativelanguage.googleapis.com` | Summary/state model base URL |
 | `MEMORY_SUMMARY_KEY` | empty | API key for summary/state extraction |
 | `MEMORY_SUMMARY_MODEL` | `gemini-2.5-flash` | Summary/state model |
-| `MEMORY_SUMMARY_PROMPT` | built-in prompt | Extraction prompt for memories and relationship deltas |
-| `MEMORY_EMBEDDING_URL` | `https://generativelanguage.googleapis.com` | Embedding model base URL |
-| `MEMORY_EMBEDDING_KEY` | empty | API key for embeddings |
-| `MEMORY_EMBEDDING_MODEL` | `text-embedding-004` | Embedding model |
+| `MEMORY_SUMMARY_PROMPT` | built-in prompt | Extraction prompt for graph nodes, edges, and relationship deltas |
 | `MEMORY_DECAY_INTERVAL_HOURS` | `24` | Decay/reflection job interval |
 | `MEMORY_DECAY_RATE` | `0.1` | Strength decay applied to all memories |
 | `MEMORY_THRESHOLD` | `0.1` | Memories below this strength are deleted |
 | `MEMORY_RECOVERY_AMOUNT` | `0.3` | Strength restored when a memory is recalled |
 | `MEMORY_MAX_STRENGTH` | `1.0` | Upper bound for memory strength |
-| `MEMORY_INITIAL_STRENGTH` | `1.0` | Base strength multiplier for new memories |
+| `MEMORY_INITIAL_STRENGTH` | `0.8` | Base strength multiplier for new memories |
 | `INTIMACY_DECAY_RATE` | `0.5` | Daily relationship decay when interaction stops |
-| `SPONTANEOUS_RECALL_PROBABILITY` | `0.15` | Chance of a free-form episodic callback hint |
-| `MAX_RECALLED_MEMORIES` | `5` | Recall cap per request |
+| `MEMORY_DECAY_TAU_HOURS` | `360` | Base Ebbinghaus-style decay constant |
+| `MEMORY_SALIENCE_K` | `1.0` | Emotional salience multiplier |
+| `MEMORY_RECALL_MAX_NODES` | `6` | Max normal recall clues injected per request |
+| `MEMORY_DEEP_RECALL_ENABLED` | `1` | Enables explicit deep recall when the user asks to remember |
+| `MEMORY_DEEP_RECALL_MAX_CANDIDATES` | `40` | Search budget for deep recall |
+| `MEMORY_DEEP_RECALL_MAX_CLUES` | `10` | Max deep-recall clues injected into one response |
+| `MEMORY_PERSON_CONTEXT_MAX_CLUES` | `2` | Max person-context clues injected per request |
 
 ## Presets
 
@@ -170,19 +187,24 @@ Thinking-strip behavior matters because reasoning blocks mutate constantly. Leav
 
 ## Companion Memory System
 
-The memory layer is not a transcript archive. It is a lightweight retrieval system:
+The memory layer is not a transcript archive. It is a graph-memory system with local search:
 
 1. After a response, Kiyomizu summarizes the latest user/assistant exchange with a separate model.
-2. That summary returns atomic memories plus `intimacy_delta`, `trust_delta`, and `mood`.
-3. Each memory is embedded and stored in SQLite.
-4. Before later requests, relevant memories are recalled by vector similarity and injected into the prompt.
-5. A background job decays stale memories and can generate short reflection diary entries.
+2. That summary returns graph nodes, graph edges, and relationship deltas.
+3. Nodes are stored in SQLite as searchable text records, derived search terms, and lightweight graph links.
+4. Normal recall uses local search plus graph expansion. It does not call an embedding model.
+5. Deep recall runs only when the user explicitly asks Kiyomizu to remember or recall earlier interactions.
+6. A background maintenance job decays weak memories and can generate short reflection diary entries.
 
 SQLite tables:
 
 - `relationship_state`
-- `memories`
+- `memory_nodes`
+- `memory_edges`
+- `memory_search_terms`
 - `reflections`
+
+The legacy `memories` table is still kept for database compatibility, but the active memory path no longer depends on embeddings or vector search.
 
 Database file:
 

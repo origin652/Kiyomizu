@@ -1,0 +1,7 @@
+.git
+.gradle
+build
+storage
+kiyomizu_companion.db
+kiyomizu_companion.db-shm
+kiyomizu_companion.db-wal

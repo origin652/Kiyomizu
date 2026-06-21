@@ -367,7 +367,7 @@ object MessagePatcher {
         }
     }
 
-    private fun affectLabel(memory: DatabaseService.MemoryRecord): String {
+    private fun affectLabel(memory: DatabaseService.MemoryNodeRecord): String {
         val v = memory.emotionValence
         val a = memory.emotionArousal
         val valenceWord = when {
@@ -376,30 +376,20 @@ object MessagePatcher {
             else -> "neutral-valence"
         }
         val arousalWord = if (a >= 0.6) "intense" else "calm"
-        return "$valenceWord/$arousal"
+        return "$valenceWord/$arousalWord"
     }
 
     private fun buildCompanionPrompt(
         state: DatabaseService.RelationshipState,
         recalled: List<MemoryService.RecalledMemory>,
+        personContext: List<MemoryService.RecalledMemory>,
+        deepRecall: MemoryService.DeepRecallResult?,
         reflections: List<String>
     ): String {
         val intimacyStage = when {
             state.intimacy < 30.0 -> "Relationship stage: You and the user are still getting to know each other. Be polite, respectful, and emotionally measured."
             state.intimacy < 70.0 -> "Relationship stage: You are close friends. Speak with warmth, ease, and a relaxed conversational tone."
             else -> "Relationship stage: You are deeply close and trusted. Speak with tenderness, emotional presence, and genuine care while respecting the user's boundaries."
-        }
-
-        var spontaneousRecallStr = ""
-        if (Math.random() < Config.spontaneousRecallProbability) {
-            val candidates = recalled.filter { !it.associated && it.memory.type == "episodic" }.map { it.memory }
-            val chosen = if (candidates.isNotEmpty()) candidates.random() else {
-                val allEpisodic = DatabaseService.getAllMemoriesForSearch().filter { it.type == "episodic" }
-                if (allEpisodic.isNotEmpty()) allEpisodic.random() else null
-            }
-            if (chosen != null) {
-                spontaneousRecallStr = "Spontaneous recall suggestion: This memory is in the back of your mind: '${chosen.content}'. If the conversation naturally allows it, you may gently mention it and invite the user to reminisce. Do not force it."
-            }
         }
 
         return buildString {
@@ -412,7 +402,37 @@ object MessagePatcher {
                 append("Relevant memories:\n")
                 recalled.forEach { rm ->
                     val tag = if (rm.associated) " (associated recall)" else ""
-                    append("  - ${rm.memory.content} (emotion: ${affectLabel(rm.memory)})$tag\n")
+                    append("  - ${rm.memory.content} (kind: ${rm.memory.kind}, emotion: ${affectLabel(rm.memory)})$tag\n")
+                }
+            }
+            if (personContext.isNotEmpty()) {
+                append("Direct person context:\n")
+                personContext.forEach { rm ->
+                    append("  - ${rm.memory.content} (kind: ${rm.memory.kind})\n")
+                }
+            }
+            if (deepRecall != null) {
+                append("Deep recall results:\n")
+                if (deepRecall.direct.isNotEmpty()) {
+                    append("  Direct clues:\n")
+                    deepRecall.direct.forEach { rm ->
+                        append("    - ${rm.memory.content} (kind: ${rm.memory.kind})\n")
+                    }
+                }
+                if (deepRecall.weak.isNotEmpty()) {
+                    append("  Weak clues. Use uncertainty if you rely on them:\n")
+                    deepRecall.weak.forEach { rm ->
+                        append("    - ${rm.memory.content}\n")
+                    }
+                }
+                if (deepRecall.conflict.isNotEmpty()) {
+                    append("  Conflicting memory traces. Do not state them as certain:\n")
+                    deepRecall.conflict.forEach { rm ->
+                        append("    - ${rm.memory.content}\n")
+                    }
+                }
+                deepRecall.reconstruction?.takeIf { it.isNotBlank() }?.let {
+                    append("  Reconstructed recollection: $it\n")
                 }
             }
             if (reflections.isNotEmpty()) {
@@ -421,18 +441,19 @@ object MessagePatcher {
                     append("  - $it\n")
                 }
             }
-            if (spontaneousRecallStr.isNotEmpty()) {
-                append(spontaneousRecallStr).append("\n")
-            }
             append("[End Kiyomizu Companion Core]\n\n")
         }
     }
 
     private suspend fun buildCompanionPromptForQuery(userQuery: String): String {
-        val recalled = if (userQuery.isNotEmpty()) MemoryService.recallMemories(userQuery) else emptyList()
+        val context = if (userQuery.isNotEmpty()) {
+            MemoryService.buildCompanionMemoryContext(userQuery)
+        } else {
+            MemoryService.CompanionMemoryContext(emptyList(), emptyList(), null)
+        }
         val state = DatabaseService.getRelationshipState()
         val reflections = DatabaseService.getRecentReflections(3)
-        return buildCompanionPrompt(state, recalled, reflections)
+        return buildCompanionPrompt(state, context.recalled, context.personContext, context.deepRecall, reflections)
     }
 
     private suspend fun injectCompanionIntoConversation(

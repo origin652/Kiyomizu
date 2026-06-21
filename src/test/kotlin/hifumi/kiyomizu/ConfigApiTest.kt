@@ -6,6 +6,7 @@ import kotlinx.serialization.json.put
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConfigApiTest {
@@ -23,18 +24,20 @@ class ConfigApiTest {
         Config.memorySummaryKey = ""
         Config.memorySummaryModel = "gemini-2.5-flash"
         Config.memorySummaryPrompt = "prompt"
-        Config.memoryEmbeddingUrl = "https://generativelanguage.googleapis.com"
-        Config.memoryEmbeddingKey = ""
-        Config.memoryEmbeddingModel = "text-embedding-004"
         Config.memoryDecayIntervalHours = 24
         Config.memoryDecayRate = 0.1
         Config.memoryThreshold = 0.1
         Config.memoryRecoveryAmount = 0.3
         Config.memoryMaxStrength = 1.0
-        Config.memoryInitialStrength = 1.0
+        Config.memoryInitialStrength = 0.8
         Config.intimacyDecayRate = 0.5
-        Config.spontaneousRecallProbability = 0.15
-        Config.maxRecalledMemories = 5
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        Config.memoryRecallMaxNodes = 6
+        Config.memoryDeepRecallEnabled = true
+        Config.memoryDeepRecallMaxCandidates = 40
+        Config.memoryDeepRecallMaxClues = 10
+        Config.memoryPersonContextMaxClues = 2
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -51,56 +54,53 @@ class ConfigApiTest {
     }
 
     @Test
-    fun publicConfigOmitsSecretsAndAllowsExplicitClearing() {
+    fun publicConfigOmitsSecretsAndLegacyEmbeddingSurface() {
         withIsolatedDb {
             resetConfig()
             Config.memorySummaryKey = "summary-secret"
-            Config.memoryEmbeddingKey = "embedding-secret"
 
             val publicJson = ConfigApi.publicConfigJson()
-            assertTrue("memory_summary_key" !in publicJson, "summary key must never be exposed")
-            assertTrue("memory_embedding_key" !in publicJson, "embedding key must never be exposed")
+            assertTrue("memory_summary_key" !in publicJson)
             assertEquals("true", publicJson["memory_summary_key_configured"]?.jsonPrimitive?.content)
-            assertEquals("true", publicJson["memory_embedding_key_configured"]?.jsonPrimitive?.content)
+            assertTrue("memory_embedding_url" !in publicJson)
+            assertTrue("memory_embedding_model" !in publicJson)
+            assertTrue("memory_embedding_key_configured" !in publicJson)
             assertTrue("config_password_changeable" in publicJson)
 
-        val keepResult = ConfigApi.applyUpdate(buildJsonObject {
-            put("memory_summary_key", "")
-            put("memory_embedding_key", "")
-        })
-        assertTrue(keepResult.errors.isEmpty(), "blank secret fields should mean keep the stored keys, but got: ${keepResult.errors}")
+            val keepResult = ConfigApi.applyUpdate(buildJsonObject {
+                put("memory_summary_key", "")
+            })
+            assertTrue(keepResult.errors.isEmpty())
             assertEquals("summary-secret", Config.memorySummaryKey)
-            assertEquals("embedding-secret", Config.memoryEmbeddingKey)
 
             val clearResult = ConfigApi.applyUpdate(buildJsonObject {
                 put("clear_memory_summary_key", true)
-                put("clear_memory_embedding_key", true)
             })
-            assertTrue(clearResult.errors.isEmpty(), "explicit clear flags should be accepted")
+            assertTrue(clearResult.errors.isEmpty())
             assertEquals("", Config.memorySummaryKey)
-            assertEquals("", Config.memoryEmbeddingKey)
             assertTrue("memory_summary_key" !in clearResult.responseBody)
-            assertTrue("memory_embedding_key" !in clearResult.responseBody)
         }
     }
 
     @Test
-    fun applyUpdateRejectsInvalidCompanionNumbers() {
+    fun applyUpdateRejectsInvalidGraphMemoryNumbers() {
         withIsolatedDb {
             resetConfig()
 
             val result = ConfigApi.applyUpdate(buildJsonObject {
                 put("memory_decay_rate", 1.5)
-                put("spontaneous_recall_probability", -0.1)
-                put("max_recalled_memories", -1)
+                put("memory_recall_max_nodes", -1)
+                put("memory_deep_recall_max_candidates", 2)
+                put("memory_deep_recall_max_clues", 5)
             })
 
             assertTrue(result.errors.contains("memory_decay_rate must be between 0.0 and 1.0"))
-            assertTrue(result.errors.contains("spontaneous_recall_probability must be between 0.0 and 1.0"))
-            assertTrue(result.errors.contains("max_recalled_memories must be an integer 0-50"))
-            assertEquals(0.1, Config.memoryDecayRate, "invalid updates must not mutate config")
-            assertEquals(0.15, Config.spontaneousRecallProbability, "invalid updates must not mutate config")
-            assertEquals(5, Config.maxRecalledMemories, "invalid updates must not mutate config")
+            assertTrue(result.errors.contains("memory_recall_max_nodes must be an integer 0-20"))
+            assertTrue(result.errors.contains("memory_deep_recall_max_clues must be less than or equal to memory_deep_recall_max_candidates"))
+            assertEquals(0.1, Config.memoryDecayRate)
+            assertEquals(6, Config.memoryRecallMaxNodes)
+            assertEquals(40, Config.memoryDeepRecallMaxCandidates)
+            assertEquals(10, Config.memoryDeepRecallMaxClues)
         }
     }
 
@@ -112,18 +112,17 @@ class ConfigApiTest {
             val result = ConfigApi.applyUpdate(buildJsonObject {
                 put("upstream", "http://169.254.169.254")
                 put("memory_summary_url", "https://localhost:11434")
-                put("memory_embedding_url", "https://example.com/path?key=secret")
             })
 
             assertTrue(result.errors.any { it.contains("upstream must use https") })
             assertTrue(result.errors.any { it.contains("memory_summary_url must not target localhost") })
-            assertTrue(result.errors.any { it.contains("memory_embedding_url must be a base URL without a query string") })
-            assertEquals("https://example.com", Config.upstream, "invalid updates must not mutate config")
+            assertEquals("https://example.com", Config.upstream)
+            assertEquals("https://generativelanguage.googleapis.com", Config.memorySummaryUrl)
         }
     }
 
     @Test
-    fun loadPersistedDiscardsUnsafeUrls() {
+    fun loadPersistedDiscardsUnsafeUrlsAndIgnoresLegacyEmbeddingFields() {
         withIsolatedDb {
             resetConfig()
 
@@ -132,22 +131,20 @@ class ConfigApiTest {
                 put("upstream", "http://169.254.169.254")
                 put("memory_summary_url", "http://localhost:11434")
                 put("memory_embedding_url", "https://generativelanguage.googleapis.com")
+                put("max_recalled_memories", 9)
             }.toString()
 
             Config.loadPersisted(poisoned)
 
-            assertEquals("", Config.upstream, "private-network upstream from DB must be discarded on load")
-            assertEquals("", Config.memorySummaryUrl, "loopback memory_summary_url from DB must be discarded on load")
-            assertEquals(
-                "https://generativelanguage.googleapis.com",
-                Config.memoryEmbeddingUrl,
-                "safe persisted URLs must be retained"
-            )
+            assertEquals("", Config.upstream)
+            assertEquals("", Config.memorySummaryUrl)
+            assertEquals(9, Config.memoryRecallMaxNodes, "legacy max_recalled_memories should map forward")
+            assertFalse("memory_embedding_url" in ConfigApi.publicConfigJson())
         }
     }
 
     @Test
-    fun applyUpdatePersistsConfigAcrossReload() {
+    fun applyUpdatePersistsGraphMemoryConfigAcrossReload() {
         withIsolatedDb {
             resetConfig()
 
@@ -157,14 +154,17 @@ class ConfigApiTest {
                 put("cache_ttl", "5m")
                 put("memory_enabled", true)
                 put("memory_summary_key", "summary-secret")
-                put("memory_embedding_key", "embedding-secret")
-                put("memory_decay_interval_hours", 72)
+                put("memory_recall_max_nodes", 8)
+                put("memory_deep_recall_enabled", false)
+                put("memory_deep_recall_max_candidates", 24)
+                put("memory_deep_recall_max_clues", 6)
+                put("memory_person_context_max_clues", 3)
             })
 
-            assertTrue(result.errors.isEmpty(), "valid updates should persist")
+            assertTrue(result.errors.isEmpty())
 
             resetConfig()
-            assertEquals("custom", Config.preset, "test sanity: local reset should clear live config")
+            assertEquals("custom", Config.preset)
 
             Config.loadPersisted(DatabaseService.loadConfig())
 
@@ -173,9 +173,11 @@ class ConfigApiTest {
             assertEquals("5m", Config.cacheTtl)
             assertTrue(Config.memoryEnabled)
             assertEquals("summary-secret", Config.memorySummaryKey)
-            assertEquals("embedding-secret", Config.memoryEmbeddingKey)
-            assertEquals(72, Config.memoryDecayIntervalHours)
+            assertEquals(8, Config.memoryRecallMaxNodes)
+            assertFalse(Config.memoryDeepRecallEnabled)
+            assertEquals(24, Config.memoryDeepRecallMaxCandidates)
+            assertEquals(6, Config.memoryDeepRecallMaxClues)
+            assertEquals(3, Config.memoryPersonContextMaxClues)
         }
     }
-
 }

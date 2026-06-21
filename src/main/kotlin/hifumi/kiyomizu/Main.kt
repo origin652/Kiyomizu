@@ -327,20 +327,24 @@ fun main() {
                 if (!requireConfigAuth(call)) return@get
                 val state = DatabaseService.getRelationshipState()
                 val reflections = DatabaseService.getRecentReflectionsDetailed(20)
-                val memoryCount = DatabaseService.getMemoryCount()
-                val relatedEdges = DatabaseService.getRelatedEdgesTotal()
-                val affect = DatabaseService.getAffectDistribution()
-                val consolidation = MemoryService.lastConsolidationSummary()
+                val graphNodeCount = DatabaseService.getGraphNodeCount()
+                val graphEdgeCount = DatabaseService.getGraphEdgeCount()
+                val searchTermCount = DatabaseService.getSearchTermCount()
+                val workingMemoryCount = DatabaseService.getWorkingMemoryCount()
+                val affect = DatabaseService.getGraphAffectDistribution()
+                val deepRecall = MemoryService.lastDeepRecallSummary()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
                     put("trust", state.trust)
                     put("mood", state.mood)
                     put("last_interaction_at", state.lastInteractionAt)
-                    put("memory_count", memoryCount)
-                    put("related_edges_total", relatedEdges)
-                    put("last_consolidation_at", consolidation["at"]?.jsonPrimitive?.longOrNull ?: 0L)
-                    put("last_consolidation_nodes", consolidation["nodes"]?.jsonPrimitive?.intOrNull ?: 0)
-                    put("last_consolidation_edges", consolidation["edges"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("graph_node_count", graphNodeCount)
+                    put("graph_edge_count", graphEdgeCount)
+                    put("search_term_count", searchTermCount)
+                    put("working_memory_count", workingMemoryCount)
+                    put("last_deep_recall_at", deepRecall["at"]?.jsonPrimitive?.longOrNull ?: 0L)
+                    put("last_deep_recall_candidates", deepRecall["candidates"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_deep_recall_clues", deepRecall["clues"]?.jsonPrimitive?.intOrNull ?: 0)
                     put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
@@ -357,21 +361,37 @@ fun main() {
             get("/api/companion/memories") {
                 if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
                 if (!requireConfigAuth(call)) return@get
-                val memories = DatabaseService.getAllMemoriesForSearch().sortedByDescending { it.strength }
+                val q = call.request.queryParameters["q"]
+                val uriPrefix = call.request.queryParameters["uri_prefix"]
+                val kind = call.request.queryParameters["kind"]
+                val disclosure = call.request.queryParameters["disclosure"]
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 100
+                val memories = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, limit)
                 call.respondText(buildJsonObject {
                     put("memories", buildJsonArray {
                         memories.forEach { m ->
                             add(buildJsonObject {
                                 put("id", m.id)
+                                put("uri", m.uri)
                                 put("content", m.content)
-                                put("type", m.type)
-                                put("emotion_tag", m.emotionTag)
+                                put("kind", m.kind)
                                 put("emotion_valence", m.emotionValence)
                                 put("emotion_arousal", m.emotionArousal)
+                                put("priority", m.priority)
+                                put("confidence", m.confidence)
+                                put("disclosure", m.disclosure)
                                 put("strength", m.strength)
                                 put("access_count", m.accessCount)
-                                put("related_ids", buildJsonArray { m.relatedIds.forEach { add(it) } })
+                                put("scope_hint", m.scopeHint ?: "")
+                                put("person_uri", m.personUri ?: "")
+                                put("project_uri", m.projectUri ?: "")
+                                put("keywords", buildJsonArray { m.keywords.forEach { add(it) } })
+                                put("aliases", buildJsonArray { m.aliases.forEach { add(it) } })
+                                put("entities", buildJsonArray { m.entities.forEach { add(it) } })
+                                put("topics", buildJsonArray { m.topics.forEach { add(it) } })
+                                put("trigger_phrases", buildJsonArray { m.triggerPhrases.forEach { add(it) } })
                                 put("created_at", m.createdAt)
+                                put("updated_at", m.updatedAt)
                                 put("last_accessed_at", m.lastAccessedAt)
                             })
                         }

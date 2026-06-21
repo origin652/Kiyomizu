@@ -38,58 +38,84 @@ object Config {
     private val cacheStrategyRef = AtomicReference(System.getenv("CACHE_STRATEGY") ?: "stable-prefix")
     private val cacheBreakpointsRef = AtomicInteger(System.getenv("CACHE_BREAKPOINTS")?.toIntOrNull() ?: 4)
 
-    // Companion Memory Settings
     private val memoryEnabledRef = AtomicReference(System.getenv("MEMORY_ENABLED") == "1")
-    
     private val memorySummaryUrlRef = AtomicReference(System.getenv("MEMORY_SUMMARY_URL") ?: "https://generativelanguage.googleapis.com")
     private val memorySummaryKeyRef = AtomicReference(System.getenv("MEMORY_SUMMARY_KEY") ?: "")
     private val memorySummaryModelRef = AtomicReference(System.getenv("MEMORY_SUMMARY_MODEL") ?: "gemini-2.5-flash")
     private val memorySummaryPromptRef = AtomicReference(
         System.getenv("MEMORY_SUMMARY_PROMPT") ?: """
-            You are the inner mind of an AI companion. Analyze the recent conversation between the User and the Assistant.
-            Extract key new facts, preferences, emotional milestones, or shared experiences about the user or your relationship as a list of distinct atomic statements.
-            Write each memory in the same language the user used in the conversation. Do not translate memories unless the user clearly switched languages on purpose.
-            Preserve names, places, wording nuance, and culturally specific expressions as faithfully as possible while keeping each memory short and atomic.
-            For each memory, rate its affect on two continuous dimensions:
-              - emotion_valence: 0.0 (very negative) to 1.0 (very positive), 0.5 = neutral
-              - emotion_arousal: 0.0 (very calm) to 1.0 (very intense/agitated), 0.3 = neutral
-            High-arousal memories (positive or negative) and memories with valence far from 0.5 are emotionally salient and will be consolidated more strongly.
-            Also, evaluate how this interaction affects your intimacy (intimacy_delta between -5.0 and +5.0) and trust (trust_delta between -5.0 and +5.0), and assess your current mood (one of: happy, caring, lonely, worried, neutral).
-            You MUST respond with a single JSON object in the following format:
+            You are the inner memory system of Kiyomizu. Analyze the latest exchange between the user and the assistant.
+            Build a compact graph-memory update instead of a chat log.
+            Identity rules:
+            - User first-person references like "I", "me", "my", "我", "我的" refer to person://user/primary.
+            - Assistant first-person references refer to person://self/kiyomizu.
+            - Only create other person nodes when the text explicitly mentions them.
+            Memory principles:
+            - Prefer durable identity, preference, relationship, project_fact, episodic_event, and working_memory nodes.
+            - Keep each node atomic, specific, and in the same language the user used.
+            - Do not invent facts that were not stated or strongly implied.
+            - Use disclosure from: private, hint, quote_allowed, sensitive.
+            - Use source = conversation unless there is a better direct reason.
+            - person_uri should point to the most relevant person for that node when clear.
+            - project_uri should be set only when the current exchange clearly belongs to a named project or task.
+            Return a single JSON object with this exact shape:
             {
-              "memories": [
-                { "content": "Atomic memory statement", "type": "semantic"|"episodic", "emotion_valence": 0.7, "emotion_arousal": 0.4, "importance": 0.5 }
+              "nodes": [
+                {
+                  "uri": "preference://food/drink/tea",
+                  "kind": "preference",
+                  "content": "The user prefers tea.",
+                  "keywords": ["tea", "drink"],
+                  "aliases": [],
+                  "entities": ["person://user/primary"],
+                  "topics": ["preference"],
+                  "trigger_phrases": ["tea"],
+                  "disclosure": "hint",
+                  "priority": 0.7,
+                  "confidence": 0.8,
+                  "strength": 0.8,
+                  "emotion_valence": 0.6,
+                  "emotion_arousal": 0.2,
+                  "scope_hint": "global",
+                  "person_uri": "person://user/primary",
+                  "project_uri": null,
+                  "source": "conversation",
+                  "raw_evidence": "short evidence quote"
+                }
               ],
-              "intimacy_delta": 1.5,
-              "trust_delta": 0.5,
-              "mood": "happy"
+              "edges": [
+                {
+                  "from_uri": "preference://food/drink/tea",
+                  "to_uri": "person://user/primary",
+                  "relation": "about_person",
+                  "weight": 1.0
+                }
+              ],
+              "intimacy_delta": 0.0,
+              "trust_delta": 0.0,
+              "mood": "neutral"
             }
-            Do not include markdown formatting or backticks around the JSON.
+            Valid node kinds: identity, preference, relationship, project_fact, episodic_event, working_memory, reflection.
+            Valid edge relations: related_to, derived_from, reinforces, contradicts, supersedes, mentions, about_person, about_project, belongs_to_scope, relationship_to, triggered_by.
+            Output only JSON. No markdown.
         """.trimIndent()
     )
-    
-    private val memoryEmbeddingUrlRef = AtomicReference(System.getenv("MEMORY_EMBEDDING_URL") ?: "https://generativelanguage.googleapis.com")
-    private val memoryEmbeddingKeyRef = AtomicReference(System.getenv("MEMORY_EMBEDDING_KEY") ?: "")
-    private val memoryEmbeddingModelRef = AtomicReference(System.getenv("MEMORY_EMBEDDING_MODEL") ?: "text-embedding-004")
 
     private val memoryDecayIntervalHoursRef = AtomicInteger(System.getenv("MEMORY_DECAY_INTERVAL_HOURS")?.toIntOrNull() ?: 24)
     private val memoryDecayRateRef = AtomicReference(System.getenv("MEMORY_DECAY_RATE")?.toDoubleOrNull() ?: 0.1)
     private val memoryThresholdRef = AtomicReference(System.getenv("MEMORY_THRESHOLD")?.toDoubleOrNull() ?: 0.1)
     private val memoryRecoveryAmountRef = AtomicReference(System.getenv("MEMORY_RECOVERY_AMOUNT")?.toDoubleOrNull() ?: 0.3)
     private val memoryMaxStrengthRef = AtomicReference(System.getenv("MEMORY_MAX_STRENGTH")?.toDoubleOrNull() ?: 1.0)
-    private val memoryInitialStrengthRef = AtomicReference(System.getenv("MEMORY_INITIAL_STRENGTH")?.toDoubleOrNull() ?: 1.0)
-    
+    private val memoryInitialStrengthRef = AtomicReference(System.getenv("MEMORY_INITIAL_STRENGTH")?.toDoubleOrNull() ?: 0.8)
     private val intimacyDecayRateRef = AtomicReference(System.getenv("INTIMACY_DECAY_RATE")?.toDoubleOrNull() ?: 0.5)
-    private val spontaneousRecallProbabilityRef = AtomicReference(System.getenv("SPONTANEOUS_RECALL_PROBABILITY")?.toDoubleOrNull() ?: 0.15)
-    private val maxRecalledMemoriesRef = AtomicInteger(System.getenv("MAX_RECALLED_MEMORIES")?.toIntOrNull() ?: 5)
-
-    // Human-memory-inspired extensions: Ebbinghaus lazy decay, affect salience,
-    // association-graph recall spread, offline consolidation, semantic dedup.
     private val memoryDecayTauHoursRef = AtomicReference(System.getenv("MEMORY_DECAY_TAU_HOURS")?.toDoubleOrNull() ?: 360.0)
     private val memorySalienceKRef = AtomicReference(System.getenv("MEMORY_SALIENCE_K")?.toDoubleOrNull() ?: 1.0)
-    private val memoryConsolidationIdleMinutesRef = AtomicInteger(System.getenv("MEMORY_CONSOLIDATION_IDLE_MINUTES")?.toIntOrNull() ?: 30)
-    private val memoryAssociationSpreadRef = AtomicInteger(System.getenv("MEMORY_ASSOCIATION_SPREAD")?.toIntOrNull() ?: 3)
-    private val memorySemanticDedupThresholdRef = AtomicReference(System.getenv("MEMORY_SEMANTIC_DEDUP_THRESHOLD")?.toDoubleOrNull() ?: 0.80)
+
+    private val memoryRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_RECALL_MAX_NODES")?.toIntOrNull() ?: 6)
+    private val memoryDeepRecallEnabledRef = AtomicReference(System.getenv("MEMORY_DEEP_RECALL_ENABLED") != "0")
+    private val memoryDeepRecallMaxCandidatesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CANDIDATES")?.toIntOrNull() ?: 40)
+    private val memoryDeepRecallMaxCluesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CLUES")?.toIntOrNull() ?: 10)
+    private val memoryPersonContextMaxCluesRef = AtomicInteger(System.getenv("MEMORY_PERSON_CONTEXT_MAX_CLUES")?.toIntOrNull() ?: 2)
 
     var preset: String
         get() = presetRef.get()
@@ -97,8 +123,8 @@ object Config {
 
     var upstream: String
         get() {
-            val u = upstreamRef.get().trim()
-            if (u.isNotEmpty()) return u
+            val configured = upstreamRef.get().trim()
+            if (configured.isNotEmpty()) return configured
             return when (preset) {
                 "anthropic" -> "https://api.anthropic.com"
                 else -> ""
@@ -122,7 +148,6 @@ object Config {
         get() = cacheBreakpointsRef.get()
         set(value) { cacheBreakpointsRef.set(value) }
 
-    // Companion Memory Getters/Setters
     var memoryEnabled: Boolean
         get() = memoryEnabledRef.get()
         set(value) { memoryEnabledRef.set(value) }
@@ -142,18 +167,6 @@ object Config {
     var memorySummaryPrompt: String
         get() = memorySummaryPromptRef.get()
         set(value) { memorySummaryPromptRef.set(value) }
-
-    var memoryEmbeddingUrl: String
-        get() = memoryEmbeddingUrlRef.get()
-        set(value) { memoryEmbeddingUrlRef.set(value) }
-
-    var memoryEmbeddingKey: String
-        get() = memoryEmbeddingKeyRef.get()
-        set(value) { memoryEmbeddingKeyRef.set(value) }
-
-    var memoryEmbeddingModel: String
-        get() = memoryEmbeddingModelRef.get()
-        set(value) { memoryEmbeddingModelRef.set(value) }
 
     var memoryDecayIntervalHours: Int
         get() = memoryDecayIntervalHoursRef.get()
@@ -183,14 +196,6 @@ object Config {
         get() = intimacyDecayRateRef.get()
         set(value) { intimacyDecayRateRef.set(value) }
 
-    var spontaneousRecallProbability: Double
-        get() = spontaneousRecallProbabilityRef.get()
-        set(value) { spontaneousRecallProbabilityRef.set(value) }
-
-    var maxRecalledMemories: Int
-        get() = maxRecalledMemoriesRef.get()
-        set(value) { maxRecalledMemoriesRef.set(value) }
-
     var memoryDecayTauHours: Double
         get() = memoryDecayTauHoursRef.get()
         set(value) { memoryDecayTauHoursRef.set(value) }
@@ -199,17 +204,25 @@ object Config {
         get() = memorySalienceKRef.get()
         set(value) { memorySalienceKRef.set(value) }
 
-    var memoryConsolidationIdleMinutes: Int
-        get() = memoryConsolidationIdleMinutesRef.get()
-        set(value) { memoryConsolidationIdleMinutesRef.set(value) }
+    var memoryRecallMaxNodes: Int
+        get() = memoryRecallMaxNodesRef.get()
+        set(value) { memoryRecallMaxNodesRef.set(value) }
 
-    var memoryAssociationSpread: Int
-        get() = memoryAssociationSpreadRef.get()
-        set(value) { memoryAssociationSpreadRef.set(value) }
+    var memoryDeepRecallEnabled: Boolean
+        get() = memoryDeepRecallEnabledRef.get()
+        set(value) { memoryDeepRecallEnabledRef.set(value) }
 
-    var memorySemanticDedupThreshold: Double
-        get() = memorySemanticDedupThresholdRef.get()
-        set(value) { memorySemanticDedupThresholdRef.set(value) }
+    var memoryDeepRecallMaxCandidates: Int
+        get() = memoryDeepRecallMaxCandidatesRef.get()
+        set(value) { memoryDeepRecallMaxCandidatesRef.set(value) }
+
+    var memoryDeepRecallMaxClues: Int
+        get() = memoryDeepRecallMaxCluesRef.get()
+        set(value) { memoryDeepRecallMaxCluesRef.set(value) }
+
+    var memoryPersonContextMaxClues: Int
+        get() = memoryPersonContextMaxCluesRef.get()
+        set(value) { memoryPersonContextMaxCluesRef.set(value) }
 
     data class Snapshot(
         val preset: String,
@@ -223,9 +236,6 @@ object Config {
         val memorySummaryKey: String,
         val memorySummaryModel: String,
         val memorySummaryPrompt: String,
-        val memoryEmbeddingUrl: String,
-        val memoryEmbeddingKey: String,
-        val memoryEmbeddingModel: String,
         val memoryDecayIntervalHours: Int,
         val memoryDecayRate: Double,
         val memoryThreshold: Double,
@@ -233,13 +243,13 @@ object Config {
         val memoryMaxStrength: Double,
         val memoryInitialStrength: Double,
         val intimacyDecayRate: Double,
-        val spontaneousRecallProbability: Double,
-        val maxRecalledMemories: Int,
         val memoryDecayTauHours: Double,
         val memorySalienceK: Double,
-        val memoryConsolidationIdleMinutes: Int,
-        val memoryAssociationSpread: Int,
-        val memorySemanticDedupThreshold: Double
+        val memoryRecallMaxNodes: Int,
+        val memoryDeepRecallEnabled: Boolean,
+        val memoryDeepRecallMaxCandidates: Int,
+        val memoryDeepRecallMaxClues: Int,
+        val memoryPersonContextMaxClues: Int
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -254,9 +264,6 @@ object Config {
                 put("memory_summary_key", memorySummaryKey)
                 put("memory_summary_model", memorySummaryModel)
                 put("memory_summary_prompt", memorySummaryPrompt)
-                put("memory_embedding_url", memoryEmbeddingUrl)
-                put("memory_embedding_key", memoryEmbeddingKey)
-                put("memory_embedding_model", memoryEmbeddingModel)
                 put("memory_decay_interval_hours", memoryDecayIntervalHours)
                 put("memory_decay_rate", memoryDecayRate)
                 put("memory_threshold", memoryThreshold)
@@ -264,13 +271,13 @@ object Config {
                 put("memory_max_strength", memoryMaxStrength)
                 put("memory_initial_strength", memoryInitialStrength)
                 put("intimacy_decay_rate", intimacyDecayRate)
-                put("spontaneous_recall_probability", spontaneousRecallProbability)
-                put("max_recalled_memories", maxRecalledMemories)
                 put("memory_decay_tau_hours", memoryDecayTauHours)
                 put("memory_salience_k", memorySalienceK)
-                put("memory_consolidation_idle_minutes", memoryConsolidationIdleMinutes)
-                put("memory_association_spread", memoryAssociationSpread)
-                put("memory_semantic_dedup_threshold", memorySemanticDedupThreshold)
+                put("memory_recall_max_nodes", memoryRecallMaxNodes)
+                put("memory_deep_recall_enabled", memoryDeepRecallEnabled)
+                put("memory_deep_recall_max_candidates", memoryDeepRecallMaxCandidates)
+                put("memory_deep_recall_max_clues", memoryDeepRecallMaxClues)
+                put("memory_person_context_max_clues", memoryPersonContextMaxClues)
             }
         }
     }
@@ -288,9 +295,6 @@ object Config {
             memorySummaryKey = memorySummaryKey,
             memorySummaryModel = memorySummaryModel,
             memorySummaryPrompt = memorySummaryPrompt,
-            memoryEmbeddingUrl = memoryEmbeddingUrl,
-            memoryEmbeddingKey = memoryEmbeddingKey,
-            memoryEmbeddingModel = memoryEmbeddingModel,
             memoryDecayIntervalHours = memoryDecayIntervalHours,
             memoryDecayRate = memoryDecayRate,
             memoryThreshold = memoryThreshold,
@@ -298,13 +302,13 @@ object Config {
             memoryMaxStrength = memoryMaxStrength,
             memoryInitialStrength = memoryInitialStrength,
             intimacyDecayRate = intimacyDecayRate,
-            spontaneousRecallProbability = spontaneousRecallProbability,
-            maxRecalledMemories = maxRecalledMemories,
             memoryDecayTauHours = memoryDecayTauHours,
             memorySalienceK = memorySalienceK,
-            memoryConsolidationIdleMinutes = memoryConsolidationIdleMinutes,
-            memoryAssociationSpread = memoryAssociationSpread,
-            memorySemanticDedupThreshold = memorySemanticDedupThreshold
+            memoryRecallMaxNodes = memoryRecallMaxNodes,
+            memoryDeepRecallEnabled = memoryDeepRecallEnabled,
+            memoryDeepRecallMaxCandidates = memoryDeepRecallMaxCandidates,
+            memoryDeepRecallMaxClues = memoryDeepRecallMaxClues,
+            memoryPersonContextMaxClues = memoryPersonContextMaxClues
         )
     }
 
@@ -320,9 +324,6 @@ object Config {
         memorySummaryKey = snapshot.memorySummaryKey
         memorySummaryModel = snapshot.memorySummaryModel
         memorySummaryPrompt = snapshot.memorySummaryPrompt
-        memoryEmbeddingUrl = snapshot.memoryEmbeddingUrl
-        memoryEmbeddingKey = snapshot.memoryEmbeddingKey
-        memoryEmbeddingModel = snapshot.memoryEmbeddingModel
         memoryDecayIntervalHours = snapshot.memoryDecayIntervalHours
         memoryDecayRate = snapshot.memoryDecayRate
         memoryThreshold = snapshot.memoryThreshold
@@ -330,19 +331,26 @@ object Config {
         memoryMaxStrength = snapshot.memoryMaxStrength
         memoryInitialStrength = snapshot.memoryInitialStrength
         intimacyDecayRate = snapshot.intimacyDecayRate
-        spontaneousRecallProbability = snapshot.spontaneousRecallProbability
-        maxRecalledMemories = snapshot.maxRecalledMemories
         memoryDecayTauHours = snapshot.memoryDecayTauHours
         memorySalienceK = snapshot.memorySalienceK
-        memoryConsolidationIdleMinutes = snapshot.memoryConsolidationIdleMinutes
-        memoryAssociationSpread = snapshot.memoryAssociationSpread
-        memorySemanticDedupThreshold = snapshot.memorySemanticDedupThreshold
+        memoryRecallMaxNodes = snapshot.memoryRecallMaxNodes
+        memoryDeepRecallEnabled = snapshot.memoryDeepRecallEnabled
+        memoryDeepRecallMaxCandidates = snapshot.memoryDeepRecallMaxCandidates
+        memoryDeepRecallMaxClues = snapshot.memoryDeepRecallMaxClues
+        memoryPersonContextMaxClues = snapshot.memoryPersonContextMaxClues
     }
 
     fun loadPersisted(jsonText: String?) {
         if (jsonText.isNullOrBlank()) return
         try {
             val body = Json.parseToJsonElement(jsonText) as? JsonObject ?: return
+
+            body.stringValue("memory_embedding_url")?.let {
+                sanitizePersistedUrl(it, "memory_embedding_url")
+            }
+            body.stringValue("memory_embedding_key")
+            body.stringValue("memory_embedding_model")
+
             applySnapshot(
                 Snapshot(
                     preset = body.stringValue("preset") ?: preset,
@@ -356,9 +364,6 @@ object Config {
                     memorySummaryKey = body.stringValue("memory_summary_key") ?: memorySummaryKey,
                     memorySummaryModel = body.stringValue("memory_summary_model") ?: memorySummaryModel,
                     memorySummaryPrompt = body.stringValue("memory_summary_prompt") ?: memorySummaryPrompt,
-                    memoryEmbeddingUrl = body.stringValue("memory_embedding_url")?.let { sanitizePersistedUrl(it, "memory_embedding_url") } ?: memoryEmbeddingUrl,
-                    memoryEmbeddingKey = body.stringValue("memory_embedding_key") ?: memoryEmbeddingKey,
-                    memoryEmbeddingModel = body.stringValue("memory_embedding_model") ?: memoryEmbeddingModel,
                     memoryDecayIntervalHours = body.intValue("memory_decay_interval_hours") ?: memoryDecayIntervalHours,
                     memoryDecayRate = body.doubleValue("memory_decay_rate") ?: memoryDecayRate,
                     memoryThreshold = body.doubleValue("memory_threshold") ?: memoryThreshold,
@@ -366,13 +371,15 @@ object Config {
                     memoryMaxStrength = body.doubleValue("memory_max_strength") ?: memoryMaxStrength,
                     memoryInitialStrength = body.doubleValue("memory_initial_strength") ?: memoryInitialStrength,
                     intimacyDecayRate = body.doubleValue("intimacy_decay_rate") ?: intimacyDecayRate,
-                    spontaneousRecallProbability = body.doubleValue("spontaneous_recall_probability") ?: spontaneousRecallProbability,
-                    maxRecalledMemories = body.intValue("max_recalled_memories") ?: maxRecalledMemories,
                     memoryDecayTauHours = body.doubleValue("memory_decay_tau_hours") ?: memoryDecayTauHours,
                     memorySalienceK = body.doubleValue("memory_salience_k") ?: memorySalienceK,
-                    memoryConsolidationIdleMinutes = body.intValue("memory_consolidation_idle_minutes") ?: memoryConsolidationIdleMinutes,
-                    memoryAssociationSpread = body.intValue("memory_association_spread") ?: memoryAssociationSpread,
-                    memorySemanticDedupThreshold = body.doubleValue("memory_semantic_dedup_threshold") ?: memorySemanticDedupThreshold
+                    memoryRecallMaxNodes = body.intValue("memory_recall_max_nodes")
+                        ?: body.intValue("max_recalled_memories")
+                        ?: memoryRecallMaxNodes,
+                    memoryDeepRecallEnabled = body.booleanValue("memory_deep_recall_enabled") ?: memoryDeepRecallEnabled,
+                    memoryDeepRecallMaxCandidates = body.intValue("memory_deep_recall_max_candidates") ?: memoryDeepRecallMaxCandidates,
+                    memoryDeepRecallMaxClues = body.intValue("memory_deep_recall_max_clues") ?: memoryDeepRecallMaxClues,
+                    memoryPersonContextMaxClues = body.intValue("memory_person_context_max_clues") ?: memoryPersonContextMaxClues
                 )
             )
         } catch (e: Exception) {

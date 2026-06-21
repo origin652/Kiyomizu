@@ -45,8 +45,11 @@ class ProxyTest {
         Config.cacheStrategy = "stable-prefix"
         Config.cacheBreakpoints = 4
         Config.memoryEnabled = false
-        Config.spontaneousRecallProbability = 0.0
-        Config.maxRecalledMemories = 5
+        Config.memoryRecallMaxNodes = 5
+        Config.memoryDeepRecallEnabled = true
+        Config.memoryDeepRecallMaxCandidates = 40
+        Config.memoryDeepRecallMaxClues = 10
+        Config.memoryPersonContextMaxClues = 2
     }
 
     @Test

@@ -1528,14 +1528,18 @@ input[disabled], textarea[disabled], select[disabled] {
             </div>
             <div id="companion-mood" class="badge-mood">—</div>
             <div class="companion-meta">
-              <span id="t-memory-count-label">Memories: </span><span id="companion-memory-count">—</span>
+              <span id="t-memory-count-label">Graph nodes: </span><span id="companion-memory-count">—</span>
             </div>
             <div class="companion-meta">
-              <span id="t-related-edges-label">Association edges: </span><span id="companion-related-edges">—</span>
+              <span id="t-related-edges-label">Graph edges: </span><span id="companion-related-edges">—</span>
+              <span class="companion-meta-gap" id="t-search-terms-label">Search terms: </span><span id="companion-search-terms">—</span>
+            </div>
+            <div class="companion-meta">
+              <span id="t-working-memory-label">Working memory: </span><span id="companion-working-memory">—</span>
               <span class="companion-meta-gap" id="t-affect-label">Affect: </span><span id="companion-affect">—</span>
             </div>
             <div class="companion-meta">
-              <span id="t-consolidation-label">Last consolidation: </span><span id="companion-consolidation">—</span>
+              <span id="t-consolidation-label">Last deep recall: </span><span id="companion-consolidation">—</span>
             </div>
             <div class="eyebrow" id="t-reflections-label">Recent Reflections</div>
             <div class="reflections-list" id="reflections-list">
@@ -1749,48 +1753,6 @@ input[disabled], textarea[disabled], select[disabled] {
                     <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." class="input-mono-sm">
                   </label>
 
-                  <div id="embedding-lock-header" class="field-group-header">
-                    <span id="t-comp-embedding-lock-title" class="field-group-title">Embedding Config</span>
-                    <button type="button" id="btn-edit-embedding" class="btn btn-accent-soft">変更</button>
-                  </div>
-
-                  <div id="embedding-lock-warning" class="field-warning">
-                    変更すると既存メモリが無効になる可能性があります。
-                  </div>
-
-                  <label id="t-comp-embedding-url-label">
-                    Embedding Endpoint
-                    <input type="text" name="memory_embedding_url" placeholder="https://..." class="input-mono-sm">
-                    <div id="t-comp-embedding-url-hint" class="field-hint">
-                      Gemini uses the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, set the base URL and Kiyomizu adds /v1/embeddings. OpenRouter needs /api.
-                    </div>
-                  </label>
-
-                  <label id="t-comp-embedding-key-label">
-                    Embedding API Key
-                    <div class="secret-field">
-                      <div class="password-shell">
-                        <input type="text" data-masked="true" name="memory_embedding_key" placeholder="API Key..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-                        <button class="password-toggle" type="button" data-toggle-password-name="memory_embedding_key">
-                          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
-                        </button>
-                      </div>
-                      <div class="secret-meta">
-                        <span class="secret-status" id="t-comp-embedding-key-status">No key stored</span>
-                        <label id="t-comp-embedding-clear-label" class="secret-clear">
-                        Clear stored key
-                          <input type="checkbox" name="clear_memory_embedding_key">
-                        </label>
-                      </div>
-                    </div>
-                  </label>
-
-                  <label id="t-comp-embedding-model-label">
-                    Embedding Model
-                    <input type="text" name="memory_embedding_model" placeholder="text-embedding-004..." class="input-mono-sm">
-                  </label>
-
                   <div class="companion-num-grid field-pair-grid">
                     <label id="t-comp-decay-hours-label">
                       Decay Interval (Hours)
@@ -1829,9 +1791,9 @@ input[disabled], textarea[disabled], select[disabled] {
                       Intimacy Decay Rate / 24h
                       <input type="number" name="intimacy_decay_rate" min="0" max="10" step="0.1">
                     </label>
-                    <label id="t-comp-recall-prob-label">
-                      Spontaneous recall % (0-1)
-                      <input type="number" name="spontaneous_recall_probability" min="0" max="1" step="0.01">
+                    <label id="t-comp-recall-max-label">
+                      Recall Max Nodes (0-20)
+                      <input type="number" name="memory_recall_max_nodes" min="0" max="20" step="1">
                     </label>
                   </div>
 
@@ -1847,22 +1809,25 @@ input[disabled], textarea[disabled], select[disabled] {
                   </div>
 
                   <div class="companion-num-grid field-pair-grid">
-                    <label id="t-comp-idle-label">
-                      Consolidation Idle (minutes)
-                      <input type="number" name="memory_consolidation_idle_minutes" min="1" max="1440" step="1">
+                    <label class="label-inline" id="t-comp-deep-toggle-label">
+                      <span>Enable Deep Recall</span>
+                      <input type="checkbox" name="memory_deep_recall_enabled" class="cb-accent">
                     </label>
-                    <label id="t-comp-spread-label">
-                      Association Spread (0-20)
-                      <input type="number" name="memory_association_spread" min="0" max="20" step="1">
+                    <label id="t-comp-deep-candidates-label">
+                      Deep Recall Candidates (1-100)
+                      <input type="number" name="memory_deep_recall_max_candidates" min="1" max="100" step="1">
                     </label>
                   </div>
 
                   <div class="companion-num-grid field-pair-grid">
-                    <label id="t-comp-dedup-label">
-                      Semantic Dedup Threshold (0.5-0.99)
-                      <input type="number" name="memory_semantic_dedup_threshold" min="0.5" max="0.99" step="0.01">
+                    <label id="t-comp-deep-clues-label">
+                      Deep Recall Clues (1-20)
+                      <input type="number" name="memory_deep_recall_max_clues" min="1" max="20" step="1">
                     </label>
-                    <label></label>
+                    <label id="t-comp-person-clues-label">
+                      Person Context Clues (0-10)
+                      <input type="number" name="memory_person_context_max_clues" min="0" max="10" step="1">
+                    </label>
                   </div>
 
                   <label id="t-comp-summary-prompt-label">
@@ -1986,13 +1951,6 @@ const STRINGS = {
     compSummaryKeyLabel: '摘要 API 密钥',
     compSummaryModelLabel: '摘要模型',
     compSummaryUrlHint: 'Gemini 建议填基础 URL，例如 https://generativelanguage.googleapis.com。OpenAI / OpenRouter 兼容接口只填基础 URL，系统会自动补上 /v1/chat/completions。',
-    compEmbeddingUrlLabel: '嵌入 (Embedding) API 端点',
-    compEmbeddingKeyLabel: '嵌入 API 密钥',
-    compEmbeddingModelLabel: '嵌入模型',
-    compEmbeddingUrlHint: 'Gemini 建议填基础 URL，例如 https://generativelanguage.googleapis.com。OpenAI / OpenRouter 兼容接口只填基础 URL，系统会自动补上 /v1/embeddings。OpenRouter 需要带 /api。',
-    compEmbeddingLockTitle: 'Embedding 配置',
-    compEmbeddingChangeButton: '修改',
-    compEmbeddingChangeWarn: '修改后，现有记忆可能失效。',
     compDecayHoursLabel: '遗忘（衰减）检查间隔 (小时)',
     compDecayRateLabel: '记忆衰减速度 (0-1)',
     compThresholdLabel: '遗忘阈值 (0-1)',
@@ -2000,12 +1958,13 @@ const STRINGS = {
     compInitialStrengthLabel: '初始记忆强度 (0-1)',
     compMaxStrengthLabel: '最大记忆强度 (0-1)',
     compIntimacyDecayLabel: '亲密度下降速度 / 24h',
-    compRecallProbLabel: '自发性回忆概率 (0-1)',
+    compRecallMaxLabel: '普通召回节点上限 (0-20)',
     compTauLabel: '艾宾浩斯遗忘 τ（小时）',
     compSalienceKLabel: '情感显著度系数 k (0-10)',
-    compIdleLabel: '离线巩固触发空闲（分钟）',
-    compSpreadLabel: '联想扩展邻居数 (0-20)',
-    compDedupLabel: '语义去重阈值 (0.5-0.99)',
+    compDeepToggleLabel: '启用深度回忆',
+    compDeepCandidatesLabel: '深度回忆候选 (1-100)',
+    compDeepCluesLabel: '深度回忆线索 (1-20)',
+    compPersonCluesLabel: '人物上下文线索 (0-10)',
     compSummaryPromptLabel: '摘要与评估系统提示词',
     compKeyStored: '密钥已保存；留空则保持不变',
     compKeyEmpty: '尚未保存密钥',
@@ -2051,10 +2010,12 @@ const STRINGS = {
     companionRefresh: '刷新',
     intimacyLabel: '亲密度',
     trustLabel: '信任度',
-    memoryCountLabel: '记忆数量：',
-    relatedEdgesLabel: '联想边数：',
+    memoryCountLabel: '图节点数：',
+    relatedEdgesLabel: '图边数：',
+    searchTermsLabel: '搜索词数：',
+    workingMemoryLabel: '工作记忆：',
     affectLabel: '情感分布：',
-    consolidationLabel: '最近巩固：',
+    consolidationLabel: '最近深度回忆：',
     reflectionsLabel: '最近的日记',
     noReflections: '暂无日记。',
     logsPanelTitle: '最近请求',
@@ -2123,13 +2084,6 @@ const STRINGS = {
     compSummaryUrlHint: 'For Gemini, use the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers can use a base URL; /v1/chat/completions is appended automatically.',
     compSummaryKeyLabel: 'Summarization API Key',
     compSummaryModelLabel: 'Summarization Model',
-    compEmbeddingUrlLabel: 'Embedding Endpoint',
-    compEmbeddingKeyLabel: 'Embedding API Key',
-    compEmbeddingModelLabel: 'Embedding Model',
-    compEmbeddingUrlHint: 'For Gemini, use the base URL like https://generativelanguage.googleapis.com. For OpenAI and OpenRouter style providers, use the base URL and Kiyomizu appends /v1/embeddings. OpenRouter needs /api.',
-    compEmbeddingLockTitle: 'Embedding Config',
-    compEmbeddingChangeButton: 'Change',
-    compEmbeddingChangeWarn: 'Changing this may invalidate existing memories.',
     compDecayHoursLabel: 'Decay Interval (Hours)',
     compDecayRateLabel: 'Memory Decay Rate (0-1)',
     compThresholdLabel: 'Forget Threshold (0-1)',
@@ -2137,12 +2091,13 @@ const STRINGS = {
     compInitialStrengthLabel: 'Initial Strength (0-1)',
     compMaxStrengthLabel: 'Max Strength (0-1)',
     compIntimacyDecayLabel: 'Intimacy Decay Rate / 24h',
-    compRecallProbLabel: 'Spontaneous recall % (0-1)',
+    compRecallMaxLabel: 'Recall Max Nodes (0-20)',
     compTauLabel: 'Ebbinghaus Decay τ (hours)',
     compSalienceKLabel: 'Affect Salience k (0-10)',
-    compIdleLabel: 'Consolidation Idle (minutes)',
-    compSpreadLabel: 'Association Spread (0-20)',
-    compDedupLabel: 'Semantic Dedup Threshold (0.5-0.99)',
+    compDeepToggleLabel: 'Enable Deep Recall',
+    compDeepCandidatesLabel: 'Deep Recall Candidates (1-100)',
+    compDeepCluesLabel: 'Deep Recall Clues (1-20)',
+    compPersonCluesLabel: 'Person Context Clues (0-10)',
     compSummaryPromptLabel: 'Summarization System Prompt',
     compKeyStored: 'Key stored; leave blank to keep it',
     compKeyEmpty: 'No key stored yet',
@@ -2188,10 +2143,12 @@ const STRINGS = {
     companionRefresh: 'Refresh',
     intimacyLabel: 'Intimacy',
     trustLabel: 'Trust',
-    memoryCountLabel: 'Memories: ',
-    relatedEdgesLabel: 'Association edges: ',
+    memoryCountLabel: 'Graph nodes: ',
+    relatedEdgesLabel: 'Graph edges: ',
+    searchTermsLabel: 'Search terms: ',
+    workingMemoryLabel: 'Working memory: ',
     affectLabel: 'Affect: ',
-    consolidationLabel: 'Last consolidation: ',
+    consolidationLabel: 'Last deep recall: ',
     reflectionsLabel: 'Recent Reflections',
     noReflections: 'No reflections yet.',
     logsPanelTitle: 'Recent Requests',
@@ -2260,13 +2217,6 @@ const STRINGS = {
     compSummaryUrlHint: 'Gemini は https://generativelanguage.googleapis.com のようなベースURLを入れます。OpenAI / OpenRouter 互換はベースURLだけでよく、/v1/chat/completions は自動で足されます。',
     compSummaryKeyLabel: '要約用 APIキー',
     compSummaryModelLabel: '要約用 モデル名',
-    compEmbeddingUrlLabel: 'Embedding用 APIエンドポイント',
-    compEmbeddingKeyLabel: 'Embedding用 APIキー',
-    compEmbeddingModelLabel: 'Embedding用 モデル名',
-    compEmbeddingUrlHint: 'Gemini は https://generativelanguage.googleapis.com のようなベースURLを入れます。OpenAI / OpenRouter 互換はベースURLだけでよく、/v1/embeddings は自動で足されます。OpenRouter は /api まで含めてください。',
-    compEmbeddingLockTitle: 'Embedding 設定',
-    compEmbeddingChangeButton: '変更',
-    compEmbeddingChangeWarn: '変更すると既存メモリが無効になる可能性があります。',
     compDecayHoursLabel: '忘却（減衰）チェック間隔 (時間)',
     compDecayRateLabel: '記憶減衰スピード (0〜1)',
     compThresholdLabel: '忘却しきい値 (0〜1)',
@@ -2274,12 +2224,13 @@ const STRINGS = {
     compInitialStrengthLabel: '初期記憶強度 (0〜1)',
     compMaxStrengthLabel: '最大記憶強度 (0〜1)',
     compIntimacyDecayLabel: '疎遠化スピード (親密度低下/24h)',
-    compRecallProbLabel: '自発的な思い出話の発生確率 (0〜1)',
+    compRecallMaxLabel: '通常想起ノード上限 (0-20)',
     compTauLabel: 'エビングハウス忘却 τ（時間）',
     compSalienceKLabel: '感情顕著度係数 k (0-10)',
-    compIdleLabel: 'オフライン統合のアイドル（分）',
-    compSpreadLabel: '連想の広がり (0-20)',
-    compDedupLabel: '意味重複閾値 (0.5-0.99)',
+    compDeepToggleLabel: '深い想起を有効化',
+    compDeepCandidatesLabel: '深い想起候補 (1-100)',
+    compDeepCluesLabel: '深い想起手がかり (1-20)',
+    compPersonCluesLabel: '人物コンテキスト手がかり (0-10)',
     compSummaryPromptLabel: '要約＆評価用システムプロンプト',
     compKeyStored: 'キー保存済み。空欄ならそのまま維持します',
     compKeyEmpty: 'キーはまだ保存されていません',
@@ -2325,10 +2276,12 @@ const STRINGS = {
     companionRefresh: '更新',
     intimacyLabel: '親密度',
     trustLabel: '信頼度',
-    memoryCountLabel: 'メモリ数：',
-    relatedEdgesLabel: '連想エッジ数：',
+    memoryCountLabel: 'グラフノード数：',
+    relatedEdgesLabel: 'グラフエッジ数：',
+    searchTermsLabel: '検索語数：',
+    workingMemoryLabel: '作業記憶：',
     affectLabel: '感情分布：',
-    consolidationLabel: '最近の統合：',
+    consolidationLabel: '最近の深い想起：',
     reflectionsLabel: '最近の日記',
     noReflections: 'まだ日記がありません。',
     logsPanelTitle: '最近のリクエスト',
@@ -2371,8 +2324,6 @@ function detectLang() {
 
 let currentLang = detectLang();
 let summaryKeyConfigured = false;
-let embeddingKeyConfigured = false;
-let embeddingConfigUnlocked = false;
 let configPasswordChangeable = false;
 let configAuthRequired = false;
 let configAuthMode = 'unlock';
@@ -2448,13 +2399,9 @@ function refreshSecretFieldUi() {
   const f = document.getElementById('f');
   const s = STRINGS[currentLang];
   const summaryStatus = document.getElementById('t-comp-summary-key-status');
-  const embeddingStatus = document.getElementById('t-comp-embedding-key-status');
   summaryStatus.textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
-  embeddingStatus.textContent = embeddingKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
   summaryStatus.classList.toggle('configured', summaryKeyConfigured);
-  embeddingStatus.classList.toggle('configured', embeddingKeyConfigured);
   f.memory_summary_key.placeholder = summaryKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
-  f.memory_embedding_key.placeholder = embeddingKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
 }
 
 function refreshPasswordChangeUi() {
@@ -2527,29 +2474,9 @@ function hasConfiguredValue(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function updateEmbeddingLockUi() {
-  const f = document.getElementById('f');
-  const s = STRINGS[currentLang];
-  const hasEmbeddingConfig = hasConfiguredValue(f.memory_embedding_url.value) || hasConfiguredValue(f.memory_embedding_model.value);
-  const locked = hasEmbeddingConfig && !embeddingConfigUnlocked;
-  const header = document.getElementById('embedding-lock-header');
-  const warning = document.getElementById('embedding-lock-warning');
-  const button = document.getElementById('btn-edit-embedding');
-
-  header.classList.toggle('is-hidden', !hasEmbeddingConfig);
-  warning.classList.toggle('is-hidden', !embeddingConfigUnlocked);
-  warning.textContent = s.compEmbeddingChangeWarn;
-  button.textContent = s.compEmbeddingChangeButton;
-  button.classList.toggle('is-hidden', !hasEmbeddingConfig || embeddingConfigUnlocked);
-
-  f.memory_embedding_url.disabled = locked;
-  f.memory_embedding_model.disabled = locked;
-}
-
 function applyConfigData(d) {
   const f = document.getElementById('f');
   applyingConfigData = true;
-  embeddingConfigUnlocked = false;
   f.preset.value = d.preset || 'custom';
   f.upstream.value = d.upstream || '';
   f.cache_ttl.value = d.cache_ttl;
@@ -2563,26 +2490,22 @@ function applyConfigData(d) {
   f.clear_memory_summary_key.checked = false;
   f.memory_summary_model.value = d.memory_summary_model || '';
   f.memory_summary_prompt.value = d.memory_summary_prompt || '';
-  f.memory_embedding_url.value = d.memory_embedding_url || '';
-  f.memory_embedding_key.value = '';
-  f.clear_memory_embedding_key.checked = false;
-  f.memory_embedding_model.value = d.memory_embedding_model || '';
   f.memory_decay_interval_hours.value = d.memory_decay_interval_hours !== undefined ? d.memory_decay_interval_hours : 24;
   f.memory_decay_rate.value = d.memory_decay_rate !== undefined ? d.memory_decay_rate : 0.1;
   f.memory_threshold.value = d.memory_threshold !== undefined ? d.memory_threshold : 0.1;
   f.memory_recovery_amount.value = d.memory_recovery_amount !== undefined ? d.memory_recovery_amount : 0.3;
-  f.memory_initial_strength.value = d.memory_initial_strength !== undefined ? d.memory_initial_strength : 1.0;
+  f.memory_initial_strength.value = d.memory_initial_strength !== undefined ? d.memory_initial_strength : 0.8;
   f.memory_max_strength.value = d.memory_max_strength !== undefined ? d.memory_max_strength : 1.0;
   f.intimacy_decay_rate.value = d.intimacy_decay_rate !== undefined ? d.intimacy_decay_rate : 0.5;
-  f.spontaneous_recall_probability.value = d.spontaneous_recall_probability !== undefined ? d.spontaneous_recall_probability : 0.15;
   f.memory_decay_tau_hours.value = d.memory_decay_tau_hours !== undefined ? d.memory_decay_tau_hours : 360;
   f.memory_salience_k.value = d.memory_salience_k !== undefined ? d.memory_salience_k : 1.0;
-  f.memory_consolidation_idle_minutes.value = d.memory_consolidation_idle_minutes !== undefined ? d.memory_consolidation_idle_minutes : 30;
-  f.memory_association_spread.value = d.memory_association_spread !== undefined ? d.memory_association_spread : 3;
-  f.memory_semantic_dedup_threshold.value = d.memory_semantic_dedup_threshold !== undefined ? d.memory_semantic_dedup_threshold : 0.80;
+  f.memory_recall_max_nodes.value = d.memory_recall_max_nodes !== undefined ? d.memory_recall_max_nodes : 6;
+  f.memory_deep_recall_enabled.checked = d.memory_deep_recall_enabled !== undefined ? d.memory_deep_recall_enabled : true;
+  f.memory_deep_recall_max_candidates.value = d.memory_deep_recall_max_candidates !== undefined ? d.memory_deep_recall_max_candidates : 40;
+  f.memory_deep_recall_max_clues.value = d.memory_deep_recall_max_clues !== undefined ? d.memory_deep_recall_max_clues : 10;
+  f.memory_person_context_max_clues.value = d.memory_person_context_max_clues !== undefined ? d.memory_person_context_max_clues : 2;
 
   summaryKeyConfigured = d.memory_summary_key_configured || false;
-  embeddingKeyConfigured = d.memory_embedding_key_configured || false;
   configPasswordChangeable = d.config_password_changeable || false;
   lastAutoSavePayload = JSON.stringify(buildConfigPayload(false));
 
@@ -2594,7 +2517,6 @@ function applyConfigData(d) {
   updateCompanionVisibility();
   refreshSecretFieldUi();
   refreshPasswordChangeUi();
-  updateEmbeddingLockUi();
   refreshAutoSaveUi();
   applyingConfigData = false;
 }
@@ -2656,13 +2578,6 @@ function applyLang(lang) {
   setText('t-comp-summary-key-label', s.compSummaryKeyLabel || 'Summarization API Key', 'memory_summary_key');
   setText('t-comp-summary-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_summary_key');
   setText('t-comp-summary-model-label', s.compSummaryModelLabel || 'Summarization Model', 'memory_summary_model');
-  setText('t-comp-embedding-url-label', s.compEmbeddingUrlLabel || 'Embedding Endpoint', 'memory_embedding_url');
-  document.getElementById('t-comp-embedding-url-hint').textContent = s.compEmbeddingUrlHint || '';
-  setText('t-comp-embedding-key-label', s.compEmbeddingKeyLabel || 'Embedding API Key', 'memory_embedding_key');
-  setText('t-comp-embedding-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_embedding_key');
-  setText('t-comp-embedding-model-label', s.compEmbeddingModelLabel || 'Embedding Model', 'memory_embedding_model');
-  document.getElementById('t-comp-embedding-lock-title').textContent = s.compEmbeddingLockTitle || 'Embedding Config';
-  
   setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
   setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
   setText('t-comp-threshold-label', s.compThresholdLabel || 'Forget Threshold (0-1)', 'memory_threshold');
@@ -2670,12 +2585,14 @@ function applyLang(lang) {
   setText('t-comp-initial-strength-label', s.compInitialStrengthLabel || 'Initial Strength (0-1)', 'memory_initial_strength');
   setText('t-comp-max-strength-label', s.compMaxStrengthLabel || 'Max Strength (0-1)', 'memory_max_strength');
   setText('t-comp-intimacy-decay-label', s.compIntimacyDecayLabel || 'Intimacy Decay Rate / 24h', 'intimacy_decay_rate');
-  setText('t-comp-recall-prob-label', s.compRecallProbLabel || 'Spontaneous recall % (0-1)', 'spontaneous_recall_probability');
+  setText('t-comp-recall-max-label', s.compRecallMaxLabel || 'Recall Max Nodes (0-20)', 'memory_recall_max_nodes');
   setText('t-comp-tau-label', s.compTauLabel || 'Ebbinghaus Decay τ (hours)', 'memory_decay_tau_hours');
   setText('t-comp-salience-k-label', s.compSalienceKLabel || 'Affect Salience k (0-10)', 'memory_salience_k');
-  setText('t-comp-idle-label', s.compIdleLabel || 'Consolidation Idle (minutes)', 'memory_consolidation_idle_minutes');
-  setText('t-comp-spread-label', s.compSpreadLabel || 'Association Spread (0-20)', 'memory_association_spread');
-  setText('t-comp-dedup-label', s.compDedupLabel || 'Semantic Dedup Threshold (0.5-0.99)', 'memory_semantic_dedup_threshold');
+  const deepToggleLabel = document.querySelector('#t-comp-deep-toggle-label span');
+  if (deepToggleLabel) deepToggleLabel.textContent = s.compDeepToggleLabel || 'Enable Deep Recall';
+  setText('t-comp-deep-candidates-label', s.compDeepCandidatesLabel || 'Deep Recall Candidates (1-100)', 'memory_deep_recall_max_candidates');
+  setText('t-comp-deep-clues-label', s.compDeepCluesLabel || 'Deep Recall Clues (1-20)', 'memory_deep_recall_max_clues');
+  setText('t-comp-person-clues-label', s.compPersonCluesLabel || 'Person Context Clues (0-10)', 'memory_person_context_max_clues');
   
   setText('t-comp-summary-prompt-label', s.compSummaryPromptLabel || 'Summarization System Prompt', 'memory_summary_prompt');
   document.getElementById('t-password-change-title').textContent = s.passwordChangeTitle || 'Config Password';
@@ -2705,13 +2622,17 @@ function applyLang(lang) {
   const trustLbl = document.getElementById('t-trust-label');
   if (trustLbl) trustLbl.textContent = s.trustLabel || 'Trust';
   const memCountLbl = document.getElementById('t-memory-count-label');
-  if (memCountLbl) memCountLbl.textContent = s.memoryCountLabel || 'Memories: ';
+  if (memCountLbl) memCountLbl.textContent = s.memoryCountLabel || 'Graph nodes: ';
   const relEdgesLbl = document.getElementById('t-related-edges-label');
-  if (relEdgesLbl) relEdgesLbl.textContent = s.relatedEdgesLabel || 'Association edges: ';
+  if (relEdgesLbl) relEdgesLbl.textContent = s.relatedEdgesLabel || 'Graph edges: ';
+  const searchTermsLbl = document.getElementById('t-search-terms-label');
+  if (searchTermsLbl) searchTermsLbl.textContent = s.searchTermsLabel || 'Search terms: ';
+  const workingLbl = document.getElementById('t-working-memory-label');
+  if (workingLbl) workingLbl.textContent = s.workingMemoryLabel || 'Working memory: ';
   const affectLbl = document.getElementById('t-affect-label');
   if (affectLbl) affectLbl.textContent = s.affectLabel || 'Affect: ';
   const consLbl = document.getElementById('t-consolidation-label');
-  if (consLbl) consLbl.textContent = s.consolidationLabel || 'Last consolidation: ';
+  if (consLbl) consLbl.textContent = s.consolidationLabel || 'Last deep recall: ';
   const reflectionsLbl = document.getElementById('t-reflections-label');
   if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
   const noReflEl = document.getElementById('t-no-reflections');
@@ -2748,7 +2669,6 @@ function applyLang(lang) {
   updateStatusSummary();
   refreshSecretFieldUi();
   refreshPasswordChangeUi();
-  updateEmbeddingLockUi();
   updatePasswordToggleLabels();
 }
 
@@ -3010,8 +2930,6 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_summary_url: f.memory_summary_url.value,
     memory_summary_model: f.memory_summary_model.value,
     memory_summary_prompt: f.memory_summary_prompt.value,
-    memory_embedding_url: f.memory_embedding_url.value,
-    memory_embedding_model: f.memory_embedding_model.value,
     memory_decay_interval_hours: Number(f.memory_decay_interval_hours.value),
     memory_decay_rate: Number(f.memory_decay_rate.value),
     memory_threshold: Number(f.memory_threshold.value),
@@ -3019,19 +2937,18 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_initial_strength: Number(f.memory_initial_strength.value),
     memory_max_strength: Number(f.memory_max_strength.value),
     intimacy_decay_rate: Number(f.intimacy_decay_rate.value),
-    spontaneous_recall_probability: Number(f.spontaneous_recall_probability.value),
     memory_decay_tau_hours: Number(f.memory_decay_tau_hours.value),
     memory_salience_k: Number(f.memory_salience_k.value),
-    memory_consolidation_idle_minutes: Number(f.memory_consolidation_idle_minutes.value),
-    memory_association_spread: Number(f.memory_association_spread.value),
-    memory_semantic_dedup_threshold: Number(f.memory_semantic_dedup_threshold.value),
+    memory_recall_max_nodes: Number(f.memory_recall_max_nodes.value),
+    memory_deep_recall_enabled: f.memory_deep_recall_enabled.checked,
+    memory_deep_recall_max_candidates: Number(f.memory_deep_recall_max_candidates.value),
+    memory_deep_recall_max_clues: Number(f.memory_deep_recall_max_clues.value),
+    memory_person_context_max_clues: Number(f.memory_person_context_max_clues.value),
   };
 
   if (includeManualOnlyFields) {
     payload.clear_memory_summary_key = f.clear_memory_summary_key.checked;
-    payload.clear_memory_embedding_key = f.clear_memory_embedding_key.checked;
     if (f.memory_summary_key.value.trim()) payload.memory_summary_key = f.memory_summary_key.value.trim();
-    if (f.memory_embedding_key.value.trim()) payload.memory_embedding_key = f.memory_embedding_key.value.trim();
   }
 
   return payload;
@@ -3041,9 +2958,7 @@ function hasPendingManualOnlyChanges() {
   const f = document.getElementById('f');
   return Boolean(
     f.memory_summary_key.value.trim() ||
-    f.memory_embedding_key.value.trim() ||
     f.clear_memory_summary_key.checked ||
-    f.clear_memory_embedding_key.checked ||
     f.config_password_current.value.trim() ||
     f.config_password_new.value.trim() ||
     f.config_password_confirm.value.trim()
@@ -3101,9 +3016,7 @@ function shouldAutoSaveEvent(event) {
 
   const manualOnlyNames = new Set([
     'memory_summary_key',
-    'memory_embedding_key',
     'clear_memory_summary_key',
-    'clear_memory_embedding_key',
     'config_password_current',
     'config_password_new',
     'config_password_confirm'
@@ -3211,14 +3124,16 @@ async function loadCompanionState() {
   document.getElementById('companion-trust-bar').style.width = trust + '%';
   document.getElementById('companion-trust-val').textContent = trust + ' / 100';
   document.getElementById('companion-mood').textContent = d.mood || 'neutral';
-  document.getElementById('companion-memory-count').textContent = d.memory_count ?? '—';
-  document.getElementById('companion-related-edges').textContent = d.related_edges_total ?? '—';
+  document.getElementById('companion-memory-count').textContent = d.graph_node_count ?? '—';
+  document.getElementById('companion-related-edges').textContent = d.graph_edge_count ?? '—';
+  document.getElementById('companion-search-terms').textContent = d.search_term_count ?? '—';
+  document.getElementById('companion-working-memory').textContent = d.working_memory_count ?? '—';
   const aff = d.affect_distribution || {};
   document.getElementById('companion-affect').textContent =
     `+calm ${aff.positive_calm||0} / +intense ${aff.positive_intense||0} / −calm ${aff.negative_calm||0} / −intense ${aff.negative_intense||0} / neutral ${aff.neutral||0}`;
-  const consAt = d.last_consolidation_at || 0;
+  const consAt = d.last_deep_recall_at || 0;
   document.getElementById('companion-consolidation').textContent = consAt
-    ? `${new Date(consAt).toLocaleString()} (+${d.last_consolidation_nodes||0} nodes, ${d.last_consolidation_edges||0} links)`
+    ? `${new Date(consAt).toLocaleString()} (${d.last_deep_recall_candidates||0} candidates, ${d.last_deep_recall_clues||0} clues)`
     : '—';
 
   const list = document.getElementById('reflections-list');
@@ -3353,11 +3268,6 @@ document.getElementById('autosave-toggle').addEventListener('change', e => {
     scheduleAutoSave({ target: document.getElementById('f').preset });
   }
 });
-document.getElementById('btn-edit-embedding').addEventListener('click', () => {
-  embeddingConfigUnlocked = true;
-  updateEmbeddingLockUi();
-});
-
 document.getElementById('btn-auth-unlock').addEventListener('click', async () => {
   const input = document.getElementById('config-auth-password');
   const confirmInput = document.getElementById('config-auth-password-confirm');
