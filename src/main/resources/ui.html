@@ -664,7 +664,10 @@ input[disabled], textarea[disabled], select[disabled] {
   display: none;
   word-break: break-all;
   border: 1px solid transparent;
-  margin-top: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  position: sticky;
+  top: var(--sp-3);
+  z-index: 12;
 }
 #status.success {
   background: var(--success-soft);
@@ -1585,7 +1588,8 @@ input[disabled], textarea[disabled], select[disabled] {
     <!-- Pane: Configuration -->
     <section class="pane" data-pane="config">
       <div class="card">
-        <form id="f">
+        <form id="f" novalidate>
+          <div id="status" role="status" aria-live="polite"></div>
           <!-- Section: Basic -->
           <div class="collapsible is-open" data-section="basic">
             <button type="button" class="collapsible-header" data-toggle="basic">
@@ -1645,7 +1649,6 @@ input[disabled], textarea[disabled], select[disabled] {
                 <input type="file" id="import-file-input" accept=".json" class="sr-only" onchange="importConfig(event)">
               </div>
 
-              <div id="status"></div>
             </div></div>
           </div>
 
@@ -2986,13 +2989,21 @@ function setStatus(msg, kind, autoHideMs) {
 async function saveConfig(options = {}) {
   const manual = options.manual === true;
   const payload = buildConfigPayload(manual);
-  const r = await fetchConfig('/api/config', {
-    method: 'POST',
-    headers: {'content-type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  const d = await r.json();
   const str = STRINGS[currentLang];
+
+  let r;
+  let d;
+  try {
+    r = await fetchConfig('/api/config', {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    d = await r.json();
+  } catch (e) {
+    setStatus(str.error + (e && e.message ? e.message : 'Failed to save config'), 'err');
+    return false;
+  }
 
   if (r.ok) {
     setAuthPanelVisible(false, 'unlock');
