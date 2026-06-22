@@ -38,6 +38,24 @@ class ConfigApiTest {
         Config.memoryDeepRecallMaxCandidates = 40
         Config.memoryDeepRecallMaxClues = 10
         Config.memoryPersonContextMaxClues = 2
+        Config.memoryBufferedIngestionEnabled = true
+        Config.memoryObservationRetentionDays = 14
+        Config.memoryLowConfidenceObservationRetentionDays = 3
+        Config.memoryObservationMinConfidence = 0.35
+        Config.memoryPromoteRepeatThreshold = 2
+        Config.memoryProjectFactPromoteRepeatThreshold = 2
+        Config.memoryWorkingMemorySlotsPerProject = 3
+        Config.memoryObservationDailyCap = 200
+        Config.memoryPromotedNodesDailyCap = 20
+        Config.memoryDreamEnabled = false
+        Config.memoryAutoMaintenanceEnabled = false
+        Config.memoryDreamDailyLimit = 1
+        Config.memoryDreamIdleHours = 12
+        Config.memoryDreamBatchMaxNodes = 40
+        Config.memoryDreamDryRunDailyLimit = 3
+        Config.memoryLongIdlePauseDays = 7
+        Config.memoryRecycleRetentionDays = 30
+        Config.memoryDreamRecallMaxTraces = 2
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -159,6 +177,14 @@ class ConfigApiTest {
                 put("memory_deep_recall_max_candidates", 24)
                 put("memory_deep_recall_max_clues", 6)
                 put("memory_person_context_max_clues", 3)
+                put("memory_buffered_ingestion_enabled", false)
+                put("memory_promote_repeat_threshold", 4)
+                put("memory_dream_enabled", true)
+                put("memory_auto_maintenance_enabled", true)
+                put("memory_dream_daily_limit", 2)
+                put("memory_dream_idle_hours", 18)
+                put("memory_long_idle_pause_days", 14)
+                put("memory_dream_recall_max_traces", 1)
             })
 
             assertTrue(result.errors.isEmpty())
@@ -178,6 +204,14 @@ class ConfigApiTest {
             assertEquals(24, Config.memoryDeepRecallMaxCandidates)
             assertEquals(6, Config.memoryDeepRecallMaxClues)
             assertEquals(3, Config.memoryPersonContextMaxClues)
+            assertFalse(Config.memoryBufferedIngestionEnabled)
+            assertEquals(4, Config.memoryPromoteRepeatThreshold)
+            assertTrue(Config.memoryDreamEnabled)
+            assertTrue(Config.memoryAutoMaintenanceEnabled)
+            assertEquals(2, Config.memoryDreamDailyLimit)
+            assertEquals(18, Config.memoryDreamIdleHours)
+            assertEquals(14, Config.memoryLongIdlePauseDays)
+            assertEquals(1, Config.memoryDreamRecallMaxTraces)
         }
     }
 }

@@ -167,10 +167,12 @@ object DatabaseService {
                         updated_at INTEGER NOT NULL,
                         last_accessed_at INTEGER NOT NULL,
                         access_count INTEGER NOT NULL DEFAULT 0,
+                        status TEXT NOT NULL DEFAULT 'active',
                         source TEXT NOT NULL DEFAULT 'conversation',
                         raw_evidence TEXT
                     )
                 """.trimIndent())
+                ensureMemoryNodesSchema(conn)
 
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS memory_edges (
@@ -199,15 +201,123 @@ object DatabaseService {
                     )
                 """.trimIndent())
 
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_observations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        candidate_uri TEXT,
+                        kind TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        normalized_text TEXT NOT NULL,
+                        searchable_text TEXT NOT NULL,
+                        keywords TEXT NOT NULL DEFAULT '[]',
+                        aliases TEXT NOT NULL DEFAULT '[]',
+                        entities TEXT NOT NULL DEFAULT '[]',
+                        topics TEXT NOT NULL DEFAULT '[]',
+                        trigger_phrases TEXT NOT NULL DEFAULT '[]',
+                        person_uri TEXT,
+                        project_uri TEXT,
+                        scope_hint TEXT,
+                        priority REAL NOT NULL DEFAULT 0.5,
+                        confidence REAL NOT NULL DEFAULT 0.5,
+                        emotion_valence REAL NOT NULL DEFAULT 0.5,
+                        emotion_arousal REAL NOT NULL DEFAULT 0.3,
+                        novelty REAL NOT NULL DEFAULT 0.5,
+                        source TEXT NOT NULL DEFAULT 'conversation',
+                        raw_evidence TEXT,
+                        status TEXT NOT NULL DEFAULT 'buffered',
+                        matched_node_id INTEGER,
+                        seen_count INTEGER NOT NULL DEFAULT 1,
+                        first_seen_at INTEGER NOT NULL,
+                        last_seen_at INTEGER NOT NULL,
+                        expires_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_observation_terms (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        observation_id INTEGER NOT NULL,
+                        term TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        weight REAL NOT NULL DEFAULT 1.0,
+                        UNIQUE(observation_id, term, kind),
+                        FOREIGN KEY(observation_id) REFERENCES memory_observations(id) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS dream_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        started_at INTEGER NOT NULL,
+                        finished_at INTEGER,
+                        mode TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        input_node_count INTEGER NOT NULL DEFAULT 0,
+                        merged_count INTEGER NOT NULL DEFAULT 0,
+                        archived_count INTEGER NOT NULL DEFAULT 0,
+                        tombstoned_count INTEGER NOT NULL DEFAULT 0,
+                        created_dream_count INTEGER NOT NULL DEFAULT 0,
+                        created_consolidated_count INTEGER NOT NULL DEFAULT 0,
+                        skipped_count INTEGER NOT NULL DEFAULT 0,
+                        error TEXT,
+                        dream_summary TEXT,
+                        dream_journal TEXT,
+                        dream_symbols TEXT NOT NULL DEFAULT '[]',
+                        dream_emotions TEXT NOT NULL DEFAULT '[]',
+                        next_allowed_at INTEGER
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS dream_run_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        dream_run_id INTEGER NOT NULL,
+                        node_id INTEGER,
+                        node_uri TEXT,
+                        operation TEXT NOT NULL,
+                        reason TEXT,
+                        result TEXT NOT NULL,
+                        target_node_id INTEGER,
+                        target_uri TEXT,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(dream_run_id) REFERENCES dream_runs(id) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_recycle_bin (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        node_id INTEGER NOT NULL,
+                        uri TEXT NOT NULL,
+                        content TEXT,
+                        raw_evidence TEXT,
+                        keywords TEXT NOT NULL DEFAULT '[]',
+                        topics TEXT NOT NULL DEFAULT '[]',
+                        reason TEXT,
+                        created_at INTEGER NOT NULL,
+                        purge_after INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_kind ON memory_nodes(kind)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_person_uri ON memory_nodes(person_uri)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_project_uri ON memory_nodes(project_uri)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_scope_hint ON memory_nodes(scope_hint)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_strength ON memory_nodes(strength DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_status ON memory_nodes(status)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_edges_from_relation ON memory_edges(from_node_id, relation)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_edges_to_relation ON memory_edges(to_node_id, relation)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_search_terms_term ON memory_search_terms(term)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_search_terms_kind ON memory_search_terms(kind)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_status_expires ON memory_observations(status, expires_at)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_kind ON memory_observations(kind)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_person_uri ON memory_observations(person_uri)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_project_uri ON memory_observations(project_uri)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_candidate_uri ON memory_observations(candidate_uri)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observations_last_seen ON memory_observations(last_seen_at DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observation_terms_term ON memory_observation_terms(term)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_dream_runs_started_at ON dream_runs(started_at DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_recycle_bin_purge_after ON memory_recycle_bin(purge_after)")
 
                 try {
                     stmt.execute("""
@@ -224,6 +334,23 @@ object DatabaseService {
                     """.trimIndent())
                 } catch (_: Exception) {
                     // FTS5 is optional. Search falls back to LIKE and search_terms matching.
+                }
+
+                try {
+                    stmt.execute("""
+                        CREATE VIRTUAL TABLE IF NOT EXISTS memory_observations_fts USING fts5(
+                            observation_id UNINDEXED,
+                            content,
+                            searchable_text,
+                            keywords,
+                            aliases,
+                            entities,
+                            topics,
+                            trigger_phrases
+                        )
+                    """.trimIndent())
+                } catch (_: Exception) {
+                    // FTS5 is optional. Search falls back to LIKE and observation_terms matching.
                 }
 
                 // 3. reflections
@@ -472,6 +599,22 @@ object DatabaseService {
                 stmt.execute("""
                     UPDATE memories SET emotion_valence = 0.75, emotion_arousal = 0.35 WHERE emotion_tag = 'warmth' AND emotion_valence = 0.5
                 """.trimIndent())
+            }
+        }
+    }
+
+    private fun ensureMemoryNodesSchema(conn: Connection) {
+        val columns = mutableSetOf<String>()
+        conn.prepareStatement("PRAGMA table_info(memory_nodes)").use { pstmt ->
+            val rs = pstmt.executeQuery()
+            while (rs.next()) {
+                columns.add(rs.getString("name"))
+            }
+        }
+
+        if ("status" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_nodes ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
             }
         }
     }
@@ -882,6 +1025,7 @@ object DatabaseService {
         val updatedAt: Long,
         val lastAccessedAt: Long,
         val accessCount: Int,
+        val status: String,
         val source: String,
         val rawEvidence: String?
     )
@@ -906,6 +1050,7 @@ object DatabaseService {
         val scopeHint: String? = null,
         val personUri: String? = null,
         val projectUri: String? = null,
+        val status: String = "active",
         val source: String = "conversation",
         val rawEvidence: String? = null
     )
@@ -931,6 +1076,99 @@ object DatabaseService {
         val term: String,
         val kind: String,
         val weight: Double = 1.0
+    )
+
+    data class MemoryObservationRecord(
+        val id: Int,
+        val candidateUri: String?,
+        val kind: String,
+        val content: String,
+        val normalizedText: String,
+        val searchableText: String,
+        val keywords: List<String>,
+        val aliases: List<String>,
+        val entities: List<String>,
+        val topics: List<String>,
+        val triggerPhrases: List<String>,
+        val personUri: String?,
+        val projectUri: String?,
+        val scopeHint: String?,
+        val priority: Double,
+        val confidence: Double,
+        val emotionValence: Double,
+        val emotionArousal: Double,
+        val novelty: Double,
+        val source: String,
+        val rawEvidence: String?,
+        val status: String,
+        val matchedNodeId: Int?,
+        val seenCount: Int,
+        val firstSeenAt: Long,
+        val lastSeenAt: Long,
+        val expiresAt: Long
+    )
+
+    data class MemoryObservationDraft(
+        val candidateUri: String?,
+        val kind: String,
+        val content: String,
+        val normalizedText: String,
+        val searchableText: String,
+        val keywords: List<String> = emptyList(),
+        val aliases: List<String> = emptyList(),
+        val entities: List<String> = emptyList(),
+        val topics: List<String> = emptyList(),
+        val triggerPhrases: List<String> = emptyList(),
+        val personUri: String? = null,
+        val projectUri: String? = null,
+        val scopeHint: String? = null,
+        val priority: Double = 0.5,
+        val confidence: Double = 0.5,
+        val emotionValence: Double = 0.5,
+        val emotionArousal: Double = 0.3,
+        val novelty: Double = 0.5,
+        val source: String = "conversation",
+        val rawEvidence: String? = null,
+        val expiresAt: Long
+    )
+
+    data class DreamRunRecord(
+        val id: Int,
+        val startedAt: Long,
+        val finishedAt: Long?,
+        val mode: String,
+        val status: String,
+        val inputNodeCount: Int,
+        val mergedCount: Int,
+        val archivedCount: Int,
+        val tombstonedCount: Int,
+        val createdDreamCount: Int,
+        val createdConsolidatedCount: Int,
+        val skippedCount: Int,
+        val error: String?,
+        val dreamSummary: String?,
+        val dreamJournal: String?,
+        val dreamSymbols: List<String>,
+        val dreamEmotions: List<String>,
+        val nextAllowedAt: Long?
+    )
+
+    data class DreamRunDraft(
+        val mode: String,
+        val status: String,
+        val inputNodeCount: Int = 0,
+        val mergedCount: Int = 0,
+        val archivedCount: Int = 0,
+        val tombstonedCount: Int = 0,
+        val createdDreamCount: Int = 0,
+        val createdConsolidatedCount: Int = 0,
+        val skippedCount: Int = 0,
+        val error: String? = null,
+        val dreamSummary: String? = null,
+        val dreamJournal: String? = null,
+        val dreamSymbols: List<String> = emptyList(),
+        val dreamEmotions: List<String> = emptyList(),
+        val nextAllowedAt: Long? = null
     )
 
     private fun encodeStringList(values: List<String>): String {
@@ -976,6 +1214,7 @@ object DatabaseService {
             updatedAt = rs.getLong("updated_at"),
             lastAccessedAt = rs.getLong("last_accessed_at"),
             accessCount = rs.getInt("access_count"),
+            status = rs.getString("status") ?: "active",
             source = rs.getString("source"),
             rawEvidence = rs.getString("raw_evidence")
         )
@@ -993,6 +1232,67 @@ object DatabaseService {
         )
     }
 
+    private fun readMemoryObservation(rs: java.sql.ResultSet): MemoryObservationRecord {
+        val matched = rs.getInt("matched_node_id")
+        val matchedNull = rs.wasNull()
+        return MemoryObservationRecord(
+            id = rs.getInt("id"),
+            candidateUri = rs.getString("candidate_uri"),
+            kind = rs.getString("kind"),
+            content = rs.getString("content"),
+            normalizedText = rs.getString("normalized_text"),
+            searchableText = rs.getString("searchable_text"),
+            keywords = parseStringList(rs.getString("keywords")),
+            aliases = parseStringList(rs.getString("aliases")),
+            entities = parseStringList(rs.getString("entities")),
+            topics = parseStringList(rs.getString("topics")),
+            triggerPhrases = parseStringList(rs.getString("trigger_phrases")),
+            personUri = rs.getString("person_uri"),
+            projectUri = rs.getString("project_uri"),
+            scopeHint = rs.getString("scope_hint"),
+            priority = rs.getDouble("priority"),
+            confidence = rs.getDouble("confidence"),
+            emotionValence = rs.getDouble("emotion_valence"),
+            emotionArousal = rs.getDouble("emotion_arousal"),
+            novelty = rs.getDouble("novelty"),
+            source = rs.getString("source"),
+            rawEvidence = rs.getString("raw_evidence"),
+            status = rs.getString("status"),
+            matchedNodeId = if (matchedNull) null else matched,
+            seenCount = rs.getInt("seen_count"),
+            firstSeenAt = rs.getLong("first_seen_at"),
+            lastSeenAt = rs.getLong("last_seen_at"),
+            expiresAt = rs.getLong("expires_at")
+        )
+    }
+
+    private fun readDreamRun(rs: java.sql.ResultSet): DreamRunRecord {
+        val finishedAt = rs.getLong("finished_at")
+        val finishedAtNull = rs.wasNull()
+        val nextAllowedAt = rs.getLong("next_allowed_at")
+        val nextAllowedAtNull = rs.wasNull()
+        return DreamRunRecord(
+            id = rs.getInt("id"),
+            startedAt = rs.getLong("started_at"),
+            finishedAt = if (finishedAtNull) null else finishedAt,
+            mode = rs.getString("mode"),
+            status = rs.getString("status"),
+            inputNodeCount = rs.getInt("input_node_count"),
+            mergedCount = rs.getInt("merged_count"),
+            archivedCount = rs.getInt("archived_count"),
+            tombstonedCount = rs.getInt("tombstoned_count"),
+            createdDreamCount = rs.getInt("created_dream_count"),
+            createdConsolidatedCount = rs.getInt("created_consolidated_count"),
+            skippedCount = rs.getInt("skipped_count"),
+            error = rs.getString("error"),
+            dreamSummary = rs.getString("dream_summary"),
+            dreamJournal = rs.getString("dream_journal"),
+            dreamSymbols = parseStringList(rs.getString("dream_symbols")),
+            dreamEmotions = parseStringList(rs.getString("dream_emotions")),
+            nextAllowedAt = if (nextAllowedAtNull) null else nextAllowedAt
+        )
+    }
+
     fun insertMemoryNode(draft: MemoryNodeDraft): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
@@ -1001,8 +1301,8 @@ object DatabaseService {
                     uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
                     trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
                     scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
-                    source, raw_evidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                    status, source, raw_evidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
                 pstmt.setString(2, draft.kind)
@@ -1026,8 +1326,9 @@ object DatabaseService {
                 pstmt.setLong(20, now)
                 pstmt.setLong(21, now)
                 pstmt.setLong(22, now)
-                pstmt.setString(23, draft.source)
-                pstmt.setNullableString(24, draft.rawEvidence)
+                pstmt.setString(23, draft.status)
+                pstmt.setString(24, draft.source)
+                pstmt.setNullableString(25, draft.rawEvidence)
                 pstmt.executeUpdate()
             }
             conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
@@ -1051,7 +1352,7 @@ object DatabaseService {
                 SET uri = ?, kind = ?, content = ?, normalized_text = ?, searchable_text = ?, keywords = ?,
                     aliases = ?, entities = ?, topics = ?, trigger_phrases = ?, disclosure = ?, priority = ?,
                     confidence = ?, strength = ?, emotion_valence = ?, emotion_arousal = ?, scope_hint = ?,
-                    person_uri = ?, project_uri = ?, updated_at = ?, source = ?, raw_evidence = ?
+                    person_uri = ?, project_uri = ?, updated_at = ?, status = ?, source = ?, raw_evidence = ?
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
@@ -1074,9 +1375,10 @@ object DatabaseService {
                 pstmt.setNullableString(18, draft.personUri)
                 pstmt.setNullableString(19, draft.projectUri)
                 pstmt.setLong(20, now)
-                pstmt.setString(21, draft.source)
-                pstmt.setNullableString(22, draft.rawEvidence)
-                pstmt.setInt(23, nodeId)
+                pstmt.setString(21, draft.status)
+                pstmt.setString(22, draft.source)
+                pstmt.setNullableString(23, draft.rawEvidence)
+                pstmt.setInt(24, nodeId)
                 pstmt.executeUpdate()
             }
         }
@@ -1134,6 +1436,449 @@ object DatabaseService {
         }
     }
 
+    fun insertMemoryObservation(draft: MemoryObservationDraft): Int {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO memory_observations (
+                    candidate_uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities,
+                    topics, trigger_phrases, person_uri, project_uri, scope_hint, priority, confidence,
+                    emotion_valence, emotion_arousal, novelty, source, raw_evidence, status, matched_node_id,
+                    seen_count, first_seen_at, last_seen_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'buffered', NULL, 1, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setNullableString(1, draft.candidateUri)
+                pstmt.setString(2, draft.kind)
+                pstmt.setString(3, draft.content)
+                pstmt.setString(4, draft.normalizedText)
+                pstmt.setString(5, draft.searchableText)
+                pstmt.setString(6, encodeStringList(draft.keywords))
+                pstmt.setString(7, encodeStringList(draft.aliases))
+                pstmt.setString(8, encodeStringList(draft.entities))
+                pstmt.setString(9, encodeStringList(draft.topics))
+                pstmt.setString(10, encodeStringList(draft.triggerPhrases))
+                pstmt.setNullableString(11, draft.personUri)
+                pstmt.setNullableString(12, draft.projectUri)
+                pstmt.setNullableString(13, draft.scopeHint)
+                pstmt.setDouble(14, draft.priority)
+                pstmt.setDouble(15, draft.confidence)
+                pstmt.setDouble(16, draft.emotionValence)
+                pstmt.setDouble(17, draft.emotionArousal)
+                pstmt.setDouble(18, draft.novelty)
+                pstmt.setString(19, draft.source)
+                pstmt.setNullableString(20, draft.rawEvidence)
+                pstmt.setLong(21, now)
+                pstmt.setLong(22, now)
+                pstmt.setLong(23, draft.expiresAt)
+                pstmt.executeUpdate()
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) {
+                    val observationId = rs.getInt(1)
+                    upsertMemoryObservationFts(observationId, draft)
+                    return observationId
+                }
+            }
+        }
+        return -1
+    }
+
+    fun updateMemoryObservationSeen(observationId: Int, draft: MemoryObservationDraft): Int {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_observations
+                SET content = ?, normalized_text = ?, searchable_text = ?, keywords = ?, aliases = ?,
+                    entities = ?, topics = ?, trigger_phrases = ?, priority = MAX(priority, ?),
+                    confidence = MAX(confidence, ?), emotion_valence = ?, emotion_arousal = MAX(emotion_arousal, ?),
+                    novelty = MAX(novelty, ?), raw_evidence = COALESCE(?, raw_evidence),
+                    seen_count = seen_count + 1, last_seen_at = ?, expires_at = MAX(expires_at, ?)
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, draft.content)
+                pstmt.setString(2, draft.normalizedText)
+                pstmt.setString(3, draft.searchableText)
+                pstmt.setString(4, encodeStringList(draft.keywords))
+                pstmt.setString(5, encodeStringList(draft.aliases))
+                pstmt.setString(6, encodeStringList(draft.entities))
+                pstmt.setString(7, encodeStringList(draft.topics))
+                pstmt.setString(8, encodeStringList(draft.triggerPhrases))
+                pstmt.setDouble(9, draft.priority)
+                pstmt.setDouble(10, draft.confidence)
+                pstmt.setDouble(11, draft.emotionValence)
+                pstmt.setDouble(12, draft.emotionArousal)
+                pstmt.setDouble(13, draft.novelty)
+                pstmt.setNullableString(14, draft.rawEvidence)
+                pstmt.setLong(15, now)
+                pstmt.setLong(16, draft.expiresAt)
+                pstmt.setInt(17, observationId)
+                pstmt.executeUpdate()
+            }
+        }
+        upsertMemoryObservationFts(observationId, draft)
+        return getMemoryObservationById(observationId)?.seenCount ?: 1
+    }
+
+    private fun upsertMemoryObservationFts(observationId: Int, draft: MemoryObservationDraft) {
+        getConnection().use { conn ->
+            try {
+                conn.prepareStatement("DELETE FROM memory_observations_fts WHERE observation_id = ?").use { delete ->
+                    delete.setInt(1, observationId)
+                    delete.executeUpdate()
+                }
+                conn.prepareStatement("""
+                    INSERT INTO memory_observations_fts (
+                        observation_id, content, searchable_text, keywords, aliases, entities, topics, trigger_phrases
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent()).use { insert ->
+                    insert.setInt(1, observationId)
+                    insert.setString(2, draft.content)
+                    insert.setString(3, draft.searchableText)
+                    insert.setString(4, draft.keywords.joinToString(" "))
+                    insert.setString(5, draft.aliases.joinToString(" "))
+                    insert.setString(6, draft.entities.joinToString(" "))
+                    insert.setString(7, draft.topics.joinToString(" "))
+                    insert.setString(8, draft.triggerPhrases.joinToString(" "))
+                    insert.executeUpdate()
+                }
+            } catch (_: Exception) {
+                // FTS table is optional.
+            }
+        }
+    }
+
+    fun replaceMemoryObservationTerms(observationId: Int, terms: List<MemorySearchTermDraft>) {
+        getConnection().use { conn ->
+            conn.prepareStatement("DELETE FROM memory_observation_terms WHERE observation_id = ?").use { delete ->
+                delete.setInt(1, observationId)
+                delete.executeUpdate()
+            }
+            if (terms.isEmpty()) return
+            conn.prepareStatement("""
+                INSERT INTO memory_observation_terms (observation_id, term, kind, weight)
+                VALUES (?, ?, ?, ?)
+            """.trimIndent()).use { insert ->
+                for (term in terms.distinctBy { Pair(it.term, it.kind) }) {
+                    insert.setInt(1, observationId)
+                    insert.setString(2, term.term)
+                    insert.setString(3, term.kind)
+                    insert.setDouble(4, term.weight)
+                    insert.addBatch()
+                }
+                insert.executeBatch()
+            }
+        }
+    }
+
+    fun getMemoryObservationById(id: Int): MemoryObservationRecord? {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT * FROM memory_observations WHERE id = ? LIMIT 1").use { pstmt ->
+                pstmt.setInt(1, id)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return readMemoryObservation(rs)
+            }
+        }
+        return null
+    }
+
+    fun getRecentBufferedObservations(kind: String, personUri: String?, projectUri: String?, limit: Int): List<MemoryObservationRecord> {
+        val list = mutableListOf<MemoryObservationRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_observations
+                WHERE status = 'buffered'
+                  AND kind = ?
+                  AND (? IS NULL OR person_uri = ?)
+                  AND (? IS NULL OR project_uri = ?)
+                ORDER BY last_seen_at DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, kind)
+                pstmt.setNullableString(2, personUri)
+                pstmt.setNullableString(3, personUri)
+                pstmt.setNullableString(4, projectUri)
+                pstmt.setNullableString(5, projectUri)
+                pstmt.setInt(6, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryObservation(rs))
+                }
+            }
+        }
+        return list
+    }
+
+    fun updateMemoryObservationStatus(observationId: Int, status: String, matchedNodeId: Int? = null) {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_observations
+                SET status = ?, matched_node_id = COALESCE(?, matched_node_id), last_seen_at = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, status)
+                if (matchedNodeId != null) pstmt.setInt(2, matchedNodeId) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                pstmt.setLong(3, Instant.now().epochSecond)
+                pstmt.setInt(4, observationId)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun expireMemoryObservations(now: Long = Instant.now().epochSecond): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_observations
+                SET status = 'expired'
+                WHERE status = 'buffered' AND expires_at < ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, now)
+                return pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun getBufferedObservationCount(): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM memory_observations WHERE status = 'buffered'").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return 0
+    }
+
+    fun getObservationCountSince(status: String? = null, sinceEpochSecond: Long): Int {
+        getConnection().use { conn ->
+            val sql = if (status == null) {
+                "SELECT COUNT(*) FROM memory_observations WHERE first_seen_at >= ?"
+            } else {
+                "SELECT COUNT(*) FROM memory_observations WHERE status = ? AND last_seen_at >= ?"
+            }
+            conn.prepareStatement(sql).use { pstmt ->
+                if (status == null) {
+                    pstmt.setLong(1, sinceEpochSecond)
+                } else {
+                    pstmt.setString(1, status)
+                    pstmt.setLong(2, sinceEpochSecond)
+                }
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return 0
+    }
+
+    fun insertDreamRun(draft: DreamRunDraft): Int {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO dream_runs (
+                    started_at, finished_at, mode, status, input_node_count, merged_count, archived_count,
+                    tombstoned_count, created_dream_count, created_consolidated_count, skipped_count, error,
+                    dream_summary, dream_journal, dream_symbols, dream_emotions, next_allowed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, now)
+                if (draft.status in setOf("completed", "failed", "skipped")) pstmt.setLong(2, now) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                pstmt.setString(3, draft.mode)
+                pstmt.setString(4, draft.status)
+                pstmt.setInt(5, draft.inputNodeCount)
+                pstmt.setInt(6, draft.mergedCount)
+                pstmt.setInt(7, draft.archivedCount)
+                pstmt.setInt(8, draft.tombstonedCount)
+                pstmt.setInt(9, draft.createdDreamCount)
+                pstmt.setInt(10, draft.createdConsolidatedCount)
+                pstmt.setInt(11, draft.skippedCount)
+                pstmt.setNullableString(12, draft.error)
+                pstmt.setNullableString(13, draft.dreamSummary)
+                pstmt.setNullableString(14, draft.dreamJournal)
+                pstmt.setString(15, encodeStringList(draft.dreamSymbols))
+                pstmt.setString(16, encodeStringList(draft.dreamEmotions))
+                if (draft.nextAllowedAt != null) pstmt.setLong(17, draft.nextAllowedAt) else pstmt.setNull(17, java.sql.Types.INTEGER)
+                pstmt.executeUpdate()
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return -1
+    }
+
+    fun updateDreamRun(dreamRunId: Int, draft: DreamRunDraft) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE dream_runs
+                SET finished_at = ?, status = ?, input_node_count = ?, merged_count = ?, archived_count = ?,
+                    tombstoned_count = ?, created_dream_count = ?, created_consolidated_count = ?,
+                    skipped_count = ?, error = ?, dream_summary = ?, dream_journal = ?,
+                    dream_symbols = ?, dream_emotions = ?, next_allowed_at = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                if (draft.status in setOf("completed", "failed", "skipped")) pstmt.setLong(1, now) else pstmt.setNull(1, java.sql.Types.INTEGER)
+                pstmt.setString(2, draft.status)
+                pstmt.setInt(3, draft.inputNodeCount)
+                pstmt.setInt(4, draft.mergedCount)
+                pstmt.setInt(5, draft.archivedCount)
+                pstmt.setInt(6, draft.tombstonedCount)
+                pstmt.setInt(7, draft.createdDreamCount)
+                pstmt.setInt(8, draft.createdConsolidatedCount)
+                pstmt.setInt(9, draft.skippedCount)
+                pstmt.setNullableString(10, draft.error)
+                pstmt.setNullableString(11, draft.dreamSummary)
+                pstmt.setNullableString(12, draft.dreamJournal)
+                pstmt.setString(13, encodeStringList(draft.dreamSymbols))
+                pstmt.setString(14, encodeStringList(draft.dreamEmotions))
+                if (draft.nextAllowedAt != null) pstmt.setLong(15, draft.nextAllowedAt) else pstmt.setNull(15, java.sql.Types.INTEGER)
+                pstmt.setInt(16, dreamRunId)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun insertDreamRunItem(
+        dreamRunId: Int,
+        nodeId: Int?,
+        nodeUri: String?,
+        operation: String,
+        reason: String?,
+        result: String,
+        targetNodeId: Int? = null,
+        targetUri: String? = null
+    ) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO dream_run_items (
+                    dream_run_id, node_id, node_uri, operation, reason, result, target_node_id, target_uri, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, dreamRunId)
+                if (nodeId != null) pstmt.setInt(2, nodeId) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                pstmt.setNullableString(3, nodeUri)
+                pstmt.setString(4, operation)
+                pstmt.setNullableString(5, reason)
+                pstmt.setString(6, result)
+                if (targetNodeId != null) pstmt.setInt(7, targetNodeId) else pstmt.setNull(7, java.sql.Types.INTEGER)
+                pstmt.setNullableString(8, targetUri)
+                pstmt.setLong(9, now)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun getLatestDreamRun(mode: String? = null): DreamRunRecord? {
+        getConnection().use { conn ->
+            val sql = if (mode == null) {
+                "SELECT * FROM dream_runs ORDER BY started_at DESC, id DESC LIMIT 1"
+            } else {
+                "SELECT * FROM dream_runs WHERE mode = ? ORDER BY started_at DESC, id DESC LIMIT 1"
+            }
+            conn.prepareStatement(sql).use { pstmt ->
+                if (mode != null) pstmt.setString(1, mode)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return readDreamRun(rs)
+            }
+        }
+        return null
+    }
+
+    fun countDreamRunsSince(mode: String, sinceEpochSecond: Long): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT COUNT(*)
+                FROM dream_runs
+                WHERE mode = ? AND started_at >= ? AND status IN ('completed', 'failed')
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, mode)
+                pstmt.setLong(2, sinceEpochSecond)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return 0
+    }
+
+    fun archiveMemoryNodeToRecycle(node: MemoryNodeRecord, reason: String, retentionDays: Int): Boolean {
+        val now = Instant.now().epochSecond
+        val purgeAfter = now + retentionDays.coerceAtLeast(1) * 86400L
+        getConnection().use { conn ->
+            conn.autoCommit = false
+            try {
+                conn.prepareStatement("""
+                    INSERT INTO memory_recycle_bin (node_id, uri, content, raw_evidence, keywords, topics, reason, created_at, purge_after)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent()).use { pstmt ->
+                    pstmt.setInt(1, node.id)
+                    pstmt.setString(2, node.uri)
+                    pstmt.setString(3, node.content)
+                    pstmt.setNullableString(4, node.rawEvidence)
+                    pstmt.setString(5, encodeStringList(node.keywords))
+                    pstmt.setString(6, encodeStringList(node.topics))
+                    pstmt.setNullableString(7, reason)
+                    pstmt.setLong(8, now)
+                    pstmt.setLong(9, purgeAfter)
+                    pstmt.executeUpdate()
+                }
+                conn.prepareStatement("UPDATE memory_nodes SET status = 'archived', updated_at = ? WHERE id = ? AND status = 'active'").use { pstmt ->
+                    pstmt.setLong(1, now)
+                    pstmt.setInt(2, node.id)
+                    pstmt.executeUpdate()
+                }
+                conn.commit()
+                return true
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
+    fun compressExpiredRecycleBin(now: Long = Instant.now().epochSecond): Int {
+        val expired = mutableListOf<Int>()
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT node_id FROM memory_recycle_bin WHERE purge_after <= ?").use { pstmt ->
+                pstmt.setLong(1, now)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) expired.add(rs.getInt("node_id"))
+            }
+        }
+        if (expired.isEmpty()) return 0
+
+        getConnection().use { conn ->
+            val placeholders = expired.joinToString(",") { "?" }
+            conn.prepareStatement("""
+                UPDATE memory_nodes
+                SET status = 'tombstone',
+                    content = '[tombstone] ' || uri,
+                    normalized_text = LOWER(uri),
+                    searchable_text = uri,
+                    keywords = '[]',
+                    aliases = '[]',
+                    entities = '[]',
+                    topics = '[]',
+                    trigger_phrases = '[]',
+                    raw_evidence = NULL,
+                    updated_at = ?
+                WHERE id IN ($placeholders)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, now)
+                expired.forEachIndexed { index, id -> pstmt.setInt(index + 2, id) }
+                val count = pstmt.executeUpdate()
+                conn.prepareStatement("DELETE FROM memory_recycle_bin WHERE purge_after <= ?").use { delete ->
+                    delete.setLong(1, now)
+                    delete.executeUpdate()
+                }
+                return count
+            }
+        }
+    }
+
     fun upsertMemoryEdge(draft: MemoryEdgeDraft) {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
@@ -1180,7 +1925,7 @@ object DatabaseService {
     fun getAllMemoryNodes(): List<MemoryNodeRecord> {
         val list = mutableListOf<MemoryNodeRecord>()
         getConnection().use { conn ->
-            conn.prepareStatement("SELECT * FROM memory_nodes ORDER BY updated_at DESC, id DESC").use { pstmt ->
+            conn.prepareStatement("SELECT * FROM memory_nodes WHERE status = 'active' ORDER BY updated_at DESC, id DESC").use { pstmt ->
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
                     list.add(readMemoryNode(rs))
@@ -1277,17 +2022,17 @@ object DatabaseService {
             }
         }
 
-        val byId = getMemoryNodesByIds(ids).associateBy { it.id }
+        val byId = getMemoryNodesByIds(ids).filter { it.status == "active" }.associateBy { it.id }
         return ids.mapNotNull { byId[it] }.take(limit)
     }
 
     fun getRecentGraphMemoryNodes(limit: Int, kinds: Set<String> = emptySet()): List<MemoryNodeRecord> {
         val list = mutableListOf<MemoryNodeRecord>()
         val sql = if (kinds.isEmpty()) {
-            "SELECT * FROM memory_nodes ORDER BY updated_at DESC LIMIT ?"
+            "SELECT * FROM memory_nodes WHERE status = 'active' ORDER BY updated_at DESC LIMIT ?"
         } else {
             val placeholders = kinds.joinToString(",") { "?" }
-            "SELECT * FROM memory_nodes WHERE kind IN ($placeholders) ORDER BY updated_at DESC LIMIT ?"
+            "SELECT * FROM memory_nodes WHERE status = 'active' AND kind IN ($placeholders) ORDER BY updated_at DESC LIMIT ?"
         }
         getConnection().use { conn ->
             conn.prepareStatement(sql).use { pstmt ->
@@ -1357,7 +2102,7 @@ object DatabaseService {
 
     fun decayGraphMemoryNodes(threshold: Double) {
         getConnection().use { conn ->
-            conn.prepareStatement("DELETE FROM memory_nodes WHERE strength < ?").use { pstmt ->
+            conn.prepareStatement("DELETE FROM memory_nodes WHERE status = 'active' AND strength < ?").use { pstmt ->
                 pstmt.setDouble(1, threshold)
                 pstmt.executeUpdate()
             }
@@ -1379,6 +2124,7 @@ object DatabaseService {
         uriPrefix: String?,
         kind: String?,
         disclosure: String?,
+        status: String?,
         limit: Int
     ): List<MemoryNodeRecord> {
         val clauses = mutableListOf<String>()
@@ -1395,6 +2141,10 @@ object DatabaseService {
         if (!disclosure.isNullOrBlank()) {
             clauses.add("disclosure = ?")
             params.add(disclosure.trim())
+        }
+        if (!status.isNullOrBlank()) {
+            clauses.add("status = ?")
+            params.add(status.trim())
         }
         if (!q.isNullOrBlank()) {
             clauses.add("(LOWER(content) LIKE ? OR LOWER(searchable_text) LIKE ? OR LOWER(uri) LIKE ?)")
@@ -1424,9 +2174,11 @@ object DatabaseService {
         return list
     }
 
-    fun getGraphNodeCount(): Int {
+    fun getGraphNodeCount(status: String? = null): Int {
         getConnection().use { conn ->
-            conn.prepareStatement("SELECT COUNT(*) FROM memory_nodes").use { pstmt ->
+            val sql = if (status == null) "SELECT COUNT(*) FROM memory_nodes" else "SELECT COUNT(*) FROM memory_nodes WHERE status = ?"
+            conn.prepareStatement(sql).use { pstmt ->
+                if (status != null) pstmt.setString(1, status)
                 val rs = pstmt.executeQuery()
                 if (rs.next()) return rs.getInt(1)
             }
@@ -1456,7 +2208,7 @@ object DatabaseService {
 
     fun getWorkingMemoryCount(): Int {
         getConnection().use { conn ->
-            conn.prepareStatement("SELECT COUNT(*) FROM memory_nodes WHERE kind = 'working_memory'").use { pstmt ->
+            conn.prepareStatement("SELECT COUNT(*) FROM memory_nodes WHERE status = 'active' AND kind = 'working_memory'").use { pstmt ->
                 val rs = pstmt.executeQuery()
                 if (rs.next()) return rs.getInt(1)
             }
@@ -1471,7 +2223,7 @@ object DatabaseService {
             "neutral" to 0
         )
         getConnection().use { conn ->
-            conn.prepareStatement("SELECT emotion_valence, emotion_arousal FROM memory_nodes").use { pstmt ->
+            conn.prepareStatement("SELECT emotion_valence, emotion_arousal FROM memory_nodes WHERE status = 'active'").use { pstmt ->
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
                     val v = rs.getDouble("emotion_valence")

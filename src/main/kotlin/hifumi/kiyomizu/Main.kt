@@ -328,23 +328,45 @@ fun main() {
                 val state = DatabaseService.getRelationshipState()
                 val reflections = DatabaseService.getRecentReflectionsDetailed(20)
                 val graphNodeCount = DatabaseService.getGraphNodeCount()
+                val activeGraphNodeCount = DatabaseService.getGraphNodeCount("active")
+                val dreamNodeCount = DatabaseService.getGraphNodeCount("dream")
+                val archivedNodeCount = DatabaseService.getGraphNodeCount("archived")
+                val tombstoneNodeCount = DatabaseService.getGraphNodeCount("tombstone")
                 val graphEdgeCount = DatabaseService.getGraphEdgeCount()
                 val searchTermCount = DatabaseService.getSearchTermCount()
+                val bufferedObservationCount = DatabaseService.getBufferedObservationCount()
                 val workingMemoryCount = DatabaseService.getWorkingMemoryCount()
                 val affect = DatabaseService.getGraphAffectDistribution()
                 val deepRecall = MemoryService.lastDeepRecallSummary()
+                val dream = MemoryService.lastConsolidationSummary()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
                     put("trust", state.trust)
                     put("mood", state.mood)
                     put("last_interaction_at", state.lastInteractionAt)
                     put("graph_node_count", graphNodeCount)
+                    put("active_graph_node_count", activeGraphNodeCount)
+                    put("dream_node_count", dreamNodeCount)
+                    put("archived_node_count", archivedNodeCount)
+                    put("tombstone_node_count", tombstoneNodeCount)
                     put("graph_edge_count", graphEdgeCount)
                     put("search_term_count", searchTermCount)
+                    put("buffered_observation_count", bufferedObservationCount)
                     put("working_memory_count", workingMemoryCount)
                     put("last_deep_recall_at", deepRecall["at"]?.jsonPrimitive?.longOrNull ?: 0L)
                     put("last_deep_recall_candidates", deepRecall["candidates"]?.jsonPrimitive?.intOrNull ?: 0)
                     put("last_deep_recall_clues", deepRecall["clues"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_at", dream["at"]?.jsonPrimitive?.longOrNull ?: 0L)
+                    put("last_dream_status", dream["status"]?.jsonPrimitive?.contentOrNull ?: "never")
+                    put("last_dream_mode", dream["mode"]?.jsonPrimitive?.contentOrNull ?: "")
+                    put("last_dream_input_nodes", dream["input_nodes"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_archived", dream["archived"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_created_dream", dream["created_dream"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_created_consolidated", dream["created_consolidated"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_skipped", dream["skipped"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_summary", dream["dream_summary"]?.jsonPrimitive?.contentOrNull ?: "")
+                    put("last_dream_journal", dream["dream_journal"]?.jsonPrimitive?.contentOrNull ?: "")
+                    put("dream_next_allowed_at", dream["next_allowed_at"]?.jsonPrimitive?.longOrNull ?: 0L)
                     put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
@@ -365,8 +387,9 @@ fun main() {
                 val uriPrefix = call.request.queryParameters["uri_prefix"]
                 val kind = call.request.queryParameters["kind"]
                 val disclosure = call.request.queryParameters["disclosure"]
+                val status = call.request.queryParameters["status"]
                 val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 100
-                val memories = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, limit)
+                val memories = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, status, limit)
                 call.respondText(buildJsonObject {
                     put("memories", buildJsonArray {
                         memories.forEach { m ->
@@ -382,6 +405,7 @@ fun main() {
                                 put("disclosure", m.disclosure)
                                 put("strength", m.strength)
                                 put("access_count", m.accessCount)
+                                put("status", m.status)
                                 put("scope_hint", m.scopeHint ?: "")
                                 put("person_uri", m.personUri ?: "")
                                 put("project_uri", m.projectUri ?: "")
@@ -397,6 +421,20 @@ fun main() {
                         }
                     })
                 }.toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/dream/dry-run") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val todayStart = (java.time.Instant.now().epochSecond / 86400L) * 86400L
+                if (DatabaseService.countDreamRunsSince("dry_run", todayStart) >= Config.memoryDreamDryRunDailyLimit) {
+                    call.respondText(buildJsonObject {
+                        put("error", "dream dry-run daily limit reached")
+                    }.toString(), ContentType.Application.Json, HttpStatusCode.TooManyRequests)
+                    return@post
+                }
+                val result = MemoryService.runDreamDryRun()
+                call.respondText(result.toString(), ContentType.Application.Json)
             }
 
             get("/api/logs") {

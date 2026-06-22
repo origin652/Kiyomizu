@@ -50,6 +50,24 @@ class ProxyTest {
         Config.memoryDeepRecallMaxCandidates = 40
         Config.memoryDeepRecallMaxClues = 10
         Config.memoryPersonContextMaxClues = 2
+        Config.memoryBufferedIngestionEnabled = true
+        Config.memoryObservationRetentionDays = 14
+        Config.memoryLowConfidenceObservationRetentionDays = 3
+        Config.memoryObservationMinConfidence = 0.35
+        Config.memoryPromoteRepeatThreshold = 2
+        Config.memoryProjectFactPromoteRepeatThreshold = 2
+        Config.memoryWorkingMemorySlotsPerProject = 3
+        Config.memoryObservationDailyCap = 200
+        Config.memoryPromotedNodesDailyCap = 20
+        Config.memoryDreamEnabled = false
+        Config.memoryAutoMaintenanceEnabled = false
+        Config.memoryDreamDailyLimit = 1
+        Config.memoryDreamIdleHours = 12
+        Config.memoryDreamBatchMaxNodes = 40
+        Config.memoryDreamDryRunDailyLimit = 3
+        Config.memoryLongIdlePauseDays = 7
+        Config.memoryRecycleRetentionDays = 30
+        Config.memoryDreamRecallMaxTraces = 2
     }
 
     @Test

@@ -57,6 +57,24 @@ class CompanionTest {
         Config.memoryDeepRecallMaxCandidates = 40
         Config.memoryDeepRecallMaxClues = 10
         Config.memoryPersonContextMaxClues = 2
+        Config.memoryBufferedIngestionEnabled = true
+        Config.memoryObservationRetentionDays = 14
+        Config.memoryLowConfidenceObservationRetentionDays = 3
+        Config.memoryObservationMinConfidence = 0.35
+        Config.memoryPromoteRepeatThreshold = 2
+        Config.memoryProjectFactPromoteRepeatThreshold = 2
+        Config.memoryWorkingMemorySlotsPerProject = 3
+        Config.memoryObservationDailyCap = 200
+        Config.memoryPromotedNodesDailyCap = 20
+        Config.memoryDreamEnabled = false
+        Config.memoryAutoMaintenanceEnabled = false
+        Config.memoryDreamDailyLimit = 1
+        Config.memoryDreamIdleHours = 12
+        Config.memoryDreamBatchMaxNodes = 40
+        Config.memoryDreamDryRunDailyLimit = 3
+        Config.memoryLongIdlePauseDays = 7
+        Config.memoryRecycleRetentionDays = 30
+        Config.memoryDreamRecallMaxTraces = 2
         Config.memorySummaryKey = ""
     }
 
@@ -73,7 +91,8 @@ class CompanionTest {
         personUri: String? = null,
         projectUri: String? = null,
         emotionValence: Double = 0.5,
-        emotionArousal: Double = 0.3
+        emotionArousal: Double = 0.3,
+        status: String = "active"
     ): Int {
         val draft = DatabaseService.MemoryNodeDraft(
             uri = uri,
@@ -90,7 +109,8 @@ class CompanionTest {
             personUri = personUri,
             projectUri = projectUri,
             emotionValence = emotionValence,
-            emotionArousal = emotionArousal
+            emotionArousal = emotionArousal,
+            status = status
         )
         val id = DatabaseService.insertMemoryNode(draft)
         DatabaseService.replaceMemorySearchTerms(id, listOf(
@@ -150,6 +170,60 @@ class CompanionTest {
         )
         DatabaseService.decayGraphMemoryNodes(0.1)
         assertEquals(2, DatabaseService.getGraphNodeCount(), "below-threshold working memory should be removed")
+    }
+
+    @Test
+    fun dreamNodesStayOutOfNormalSearchButCanBeSelectedAsDreamTraces() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        insertNode(
+            uri = "dream://2026-06/archive-hall",
+            kind = "reflection",
+            content = "A dream trace about a quiet archive hall.",
+            keywords = listOf("archive", "dream"),
+            triggerPhrases = listOf("dream"),
+            status = "dream",
+            confidence = 0.4
+        )
+
+        assertTrue(DatabaseService.searchMemoryNodes(listOf("archive"), 10).isEmpty(), "dream nodes should not appear in normal memory search")
+        val context = MemoryService.buildCompanionMemoryContext("你梦到了什么？")
+        assertEquals(1, context.dreamTraces.size)
+        assertEquals("dream", context.dreamTraces.first().memory.status)
+    }
+
+    @Test
+    fun observationBufferCrudAndCountsWork() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val now = Instant.now().epochSecond
+        val draft = DatabaseService.MemoryObservationDraft(
+            candidateUri = "project://kiyomizu/memory/buffer",
+            kind = "project_fact",
+            content = "Memory observations should be buffered before promotion.",
+            normalizedText = "memory observations should be buffered before promotion.",
+            searchableText = "Memory observations should be buffered before promotion. kiyomizu memory buffer",
+            keywords = listOf("memory", "buffer"),
+            topics = listOf("kiyomizu"),
+            projectUri = "project://kiyomizu",
+            confidence = 0.7,
+            priority = 0.6,
+            expiresAt = now + 86400
+        )
+        val id = DatabaseService.insertMemoryObservation(draft)
+        DatabaseService.replaceMemoryObservationTerms(id, listOf(DatabaseService.MemorySearchTermDraft("memory", "keyword")))
+
+        assertEquals(1, DatabaseService.getBufferedObservationCount())
+        val seen = DatabaseService.updateMemoryObservationSeen(id, draft)
+        assertEquals(2, seen)
+        DatabaseService.updateMemoryObservationStatus(id, "promoted", matchedNodeId = 42)
+        assertEquals(0, DatabaseService.getBufferedObservationCount())
+        assertEquals(1, DatabaseService.getObservationCountSince("promoted", now - 10))
     }
 
     @Test
@@ -312,6 +386,7 @@ class CompanionTest {
             updatedAt = 0,
             lastAccessedAt = Instant.now().epochSecond - 3600L,
             accessCount = 0,
+            status = "active",
             source = "test",
             rawEvidence = null
         )

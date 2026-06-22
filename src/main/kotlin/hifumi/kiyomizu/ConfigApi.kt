@@ -43,6 +43,24 @@ object ConfigApi {
             put("memory_deep_recall_max_candidates", Config.memoryDeepRecallMaxCandidates)
             put("memory_deep_recall_max_clues", Config.memoryDeepRecallMaxClues)
             put("memory_person_context_max_clues", Config.memoryPersonContextMaxClues)
+            put("memory_buffered_ingestion_enabled", Config.memoryBufferedIngestionEnabled)
+            put("memory_observation_retention_days", Config.memoryObservationRetentionDays)
+            put("memory_low_confidence_observation_retention_days", Config.memoryLowConfidenceObservationRetentionDays)
+            put("memory_observation_min_confidence", Config.memoryObservationMinConfidence)
+            put("memory_promote_repeat_threshold", Config.memoryPromoteRepeatThreshold)
+            put("memory_project_fact_promote_repeat_threshold", Config.memoryProjectFactPromoteRepeatThreshold)
+            put("memory_working_memory_slots_per_project", Config.memoryWorkingMemorySlotsPerProject)
+            put("memory_observation_daily_cap", Config.memoryObservationDailyCap)
+            put("memory_promoted_nodes_daily_cap", Config.memoryPromotedNodesDailyCap)
+            put("memory_dream_enabled", Config.memoryDreamEnabled)
+            put("memory_auto_maintenance_enabled", Config.memoryAutoMaintenanceEnabled)
+            put("memory_dream_daily_limit", Config.memoryDreamDailyLimit)
+            put("memory_dream_idle_hours", Config.memoryDreamIdleHours)
+            put("memory_dream_batch_max_nodes", Config.memoryDreamBatchMaxNodes)
+            put("memory_dream_dry_run_daily_limit", Config.memoryDreamDryRunDailyLimit)
+            put("memory_long_idle_pause_days", Config.memoryLongIdlePauseDays)
+            put("memory_recycle_retention_days", Config.memoryRecycleRetentionDays)
+            put("memory_dream_recall_max_traces", Config.memoryDreamRecallMaxTraces)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -79,6 +97,24 @@ object ConfigApi {
         var nextMemoryDeepRecallMaxCandidates = Config.memoryDeepRecallMaxCandidates
         var nextMemoryDeepRecallMaxClues = Config.memoryDeepRecallMaxClues
         var nextMemoryPersonContextMaxClues = Config.memoryPersonContextMaxClues
+        var nextMemoryBufferedIngestionEnabled = Config.memoryBufferedIngestionEnabled
+        var nextMemoryObservationRetentionDays = Config.memoryObservationRetentionDays
+        var nextMemoryLowConfidenceObservationRetentionDays = Config.memoryLowConfidenceObservationRetentionDays
+        var nextMemoryObservationMinConfidence = Config.memoryObservationMinConfidence
+        var nextMemoryPromoteRepeatThreshold = Config.memoryPromoteRepeatThreshold
+        var nextMemoryProjectFactPromoteRepeatThreshold = Config.memoryProjectFactPromoteRepeatThreshold
+        var nextMemoryWorkingMemorySlotsPerProject = Config.memoryWorkingMemorySlotsPerProject
+        var nextMemoryObservationDailyCap = Config.memoryObservationDailyCap
+        var nextMemoryPromotedNodesDailyCap = Config.memoryPromotedNodesDailyCap
+        var nextMemoryDreamEnabled = Config.memoryDreamEnabled
+        var nextMemoryAutoMaintenanceEnabled = Config.memoryAutoMaintenanceEnabled
+        var nextMemoryDreamDailyLimit = Config.memoryDreamDailyLimit
+        var nextMemoryDreamIdleHours = Config.memoryDreamIdleHours
+        var nextMemoryDreamBatchMaxNodes = Config.memoryDreamBatchMaxNodes
+        var nextMemoryDreamDryRunDailyLimit = Config.memoryDreamDryRunDailyLimit
+        var nextMemoryLongIdlePauseDays = Config.memoryLongIdlePauseDays
+        var nextMemoryRecycleRetentionDays = Config.memoryRecycleRetentionDays
+        var nextMemoryDreamRecallMaxTraces = Config.memoryDreamRecallMaxTraces
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var replaceSummaryKey: String? = null
@@ -229,6 +265,120 @@ object ConfigApi {
                 errors.add("memory_person_context_max_clues must be an integer 0-10")
             }
         }
+        body.readBoolean("memory_buffered_ingestion_enabled", errors) {
+            nextMemoryBufferedIngestionEnabled = it
+        }
+        body.readInt("memory_observation_retention_days", errors) {
+            if (it in 1..365) {
+                nextMemoryObservationRetentionDays = it
+            } else {
+                errors.add("memory_observation_retention_days must be an integer 1-365")
+            }
+        }
+        body.readInt("memory_low_confidence_observation_retention_days", errors) {
+            if (it in 1..365) {
+                nextMemoryLowConfidenceObservationRetentionDays = it
+            } else {
+                errors.add("memory_low_confidence_observation_retention_days must be an integer 1-365")
+            }
+        }
+        body.readDouble("memory_observation_min_confidence", errors) {
+            if (it in 0.0..1.0) {
+                nextMemoryObservationMinConfidence = it
+            } else {
+                errors.add("memory_observation_min_confidence must be between 0.0 and 1.0")
+            }
+        }
+        body.readInt("memory_promote_repeat_threshold", errors) {
+            if (it in 1..20) {
+                nextMemoryPromoteRepeatThreshold = it
+            } else {
+                errors.add("memory_promote_repeat_threshold must be an integer 1-20")
+            }
+        }
+        body.readInt("memory_project_fact_promote_repeat_threshold", errors) {
+            if (it in 1..20) {
+                nextMemoryProjectFactPromoteRepeatThreshold = it
+            } else {
+                errors.add("memory_project_fact_promote_repeat_threshold must be an integer 1-20")
+            }
+        }
+        body.readInt("memory_working_memory_slots_per_project", errors) {
+            if (it in 1..20) {
+                nextMemoryWorkingMemorySlotsPerProject = it
+            } else {
+                errors.add("memory_working_memory_slots_per_project must be an integer 1-20")
+            }
+        }
+        body.readInt("memory_observation_daily_cap", errors) {
+            if (it in 0..10000) {
+                nextMemoryObservationDailyCap = it
+            } else {
+                errors.add("memory_observation_daily_cap must be an integer 0-10000")
+            }
+        }
+        body.readInt("memory_promoted_nodes_daily_cap", errors) {
+            if (it in 0..1000) {
+                nextMemoryPromotedNodesDailyCap = it
+            } else {
+                errors.add("memory_promoted_nodes_daily_cap must be an integer 0-1000")
+            }
+        }
+        body.readBoolean("memory_dream_enabled", errors) {
+            nextMemoryDreamEnabled = it
+        }
+        body.readBoolean("memory_auto_maintenance_enabled", errors) {
+            nextMemoryAutoMaintenanceEnabled = it
+        }
+        body.readInt("memory_dream_daily_limit", errors) {
+            if (it in 0..24) {
+                nextMemoryDreamDailyLimit = it
+            } else {
+                errors.add("memory_dream_daily_limit must be an integer 0-24")
+            }
+        }
+        body.readInt("memory_dream_idle_hours", errors) {
+            if (it in 1..720) {
+                nextMemoryDreamIdleHours = it
+            } else {
+                errors.add("memory_dream_idle_hours must be an integer 1-720")
+            }
+        }
+        body.readInt("memory_dream_batch_max_nodes", errors) {
+            if (it in 1..200) {
+                nextMemoryDreamBatchMaxNodes = it
+            } else {
+                errors.add("memory_dream_batch_max_nodes must be an integer 1-200")
+            }
+        }
+        body.readInt("memory_dream_dry_run_daily_limit", errors) {
+            if (it in 0..100) {
+                nextMemoryDreamDryRunDailyLimit = it
+            } else {
+                errors.add("memory_dream_dry_run_daily_limit must be an integer 0-100")
+            }
+        }
+        body.readInt("memory_long_idle_pause_days", errors) {
+            if (it in 1..365) {
+                nextMemoryLongIdlePauseDays = it
+            } else {
+                errors.add("memory_long_idle_pause_days must be an integer 1-365")
+            }
+        }
+        body.readInt("memory_recycle_retention_days", errors) {
+            if (it in 1..3650) {
+                nextMemoryRecycleRetentionDays = it
+            } else {
+                errors.add("memory_recycle_retention_days must be an integer 1-3650")
+            }
+        }
+        body.readInt("memory_dream_recall_max_traces", errors) {
+            if (it in 0..10) {
+                nextMemoryDreamRecallMaxTraces = it
+            } else {
+                errors.add("memory_dream_recall_max_traces must be an integer 0-10")
+            }
+        }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
@@ -259,6 +409,10 @@ object ConfigApi {
 
         if (nextMemoryDeepRecallMaxClues > nextMemoryDeepRecallMaxCandidates) {
             errors.add("memory_deep_recall_max_clues must be less than or equal to memory_deep_recall_max_candidates")
+        }
+
+        if (nextMemoryLowConfidenceObservationRetentionDays > nextMemoryObservationRetentionDays) {
+            errors.add("memory_low_confidence_observation_retention_days must be less than or equal to memory_observation_retention_days")
         }
 
         if (clearSummaryKey && !replaceSummaryKey.isNullOrBlank()) {
@@ -300,7 +454,25 @@ object ConfigApi {
             memoryDeepRecallEnabled = nextMemoryDeepRecallEnabled,
             memoryDeepRecallMaxCandidates = nextMemoryDeepRecallMaxCandidates,
             memoryDeepRecallMaxClues = nextMemoryDeepRecallMaxClues,
-            memoryPersonContextMaxClues = nextMemoryPersonContextMaxClues
+            memoryPersonContextMaxClues = nextMemoryPersonContextMaxClues,
+            memoryBufferedIngestionEnabled = nextMemoryBufferedIngestionEnabled,
+            memoryObservationRetentionDays = nextMemoryObservationRetentionDays,
+            memoryLowConfidenceObservationRetentionDays = nextMemoryLowConfidenceObservationRetentionDays,
+            memoryObservationMinConfidence = nextMemoryObservationMinConfidence,
+            memoryPromoteRepeatThreshold = nextMemoryPromoteRepeatThreshold,
+            memoryProjectFactPromoteRepeatThreshold = nextMemoryProjectFactPromoteRepeatThreshold,
+            memoryWorkingMemorySlotsPerProject = nextMemoryWorkingMemorySlotsPerProject,
+            memoryObservationDailyCap = nextMemoryObservationDailyCap,
+            memoryPromotedNodesDailyCap = nextMemoryPromotedNodesDailyCap,
+            memoryDreamEnabled = nextMemoryDreamEnabled,
+            memoryAutoMaintenanceEnabled = nextMemoryAutoMaintenanceEnabled,
+            memoryDreamDailyLimit = nextMemoryDreamDailyLimit,
+            memoryDreamIdleHours = nextMemoryDreamIdleHours,
+            memoryDreamBatchMaxNodes = nextMemoryDreamBatchMaxNodes,
+            memoryDreamDryRunDailyLimit = nextMemoryDreamDryRunDailyLimit,
+            memoryLongIdlePauseDays = nextMemoryLongIdlePauseDays,
+            memoryRecycleRetentionDays = nextMemoryRecycleRetentionDays,
+            memoryDreamRecallMaxTraces = nextMemoryDreamRecallMaxTraces
         )
 
         try {

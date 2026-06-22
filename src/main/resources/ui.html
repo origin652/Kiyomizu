@@ -1537,6 +1537,7 @@ input[disabled], textarea[disabled], select[disabled] {
               <span id="t-companion-panel-title">Companion State</span>
             </div>
             <button class="btn btn-ghost" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+            <button class="btn btn-ghost" onclick="runDreamDryRun()" id="t-dream-dry-run">Dream dry run</button>
           </div>
           <div id="companion-state-body">
             <div class="bar-row">
@@ -1567,6 +1568,9 @@ input[disabled], textarea[disabled], select[disabled] {
             </div>
             <div class="companion-meta">
               <span id="t-consolidation-label">Last deep recall: </span><span id="companion-consolidation">—</span>
+            </div>
+            <div class="companion-meta">
+              <span id="t-dream-label">Last dream: </span><span id="companion-dream">—</span>
             </div>
             <div class="eyebrow" id="t-reflections-label">Recent Reflections</div>
             <div class="reflections-list" id="reflections-list">
@@ -1854,6 +1858,50 @@ input[disabled], textarea[disabled], select[disabled] {
                     <label id="t-comp-person-clues-label">
                       Person Context Clues (0-10)
                       <input type="number" name="memory_person_context_max_clues" min="0" max="10" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-buffered-toggle-label">
+                      <span>Buffer memory before promotion</span>
+                      <input type="checkbox" name="memory_buffered_ingestion_enabled" class="cb-accent">
+                    </label>
+                    <label id="t-comp-promote-repeat-label">
+                      Promote After Repeats (1-20)
+                      <input type="number" name="memory_promote_repeat_threshold" min="1" max="20" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-dream-toggle-label">
+                      <span>Enable Dreaming</span>
+                      <input type="checkbox" name="memory_dream_enabled" class="cb-accent">
+                    </label>
+                    <label class="label-inline" id="t-comp-maintenance-toggle-label">
+                      <span>Enable Auto Maintenance</span>
+                      <input type="checkbox" name="memory_auto_maintenance_enabled" class="cb-accent">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-dream-idle-label">
+                      Dream Idle Hours (1-720)
+                      <input type="number" name="memory_dream_idle_hours" min="1" max="720" step="1">
+                    </label>
+                    <label id="t-comp-dream-daily-label">
+                      Dreams Per Day (0-24)
+                      <input type="number" name="memory_dream_daily_limit" min="0" max="24" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-long-idle-label">
+                      Pause After Idle Days (1-365)
+                      <input type="number" name="memory_long_idle_pause_days" min="1" max="365" step="1">
+                    </label>
+                    <label id="t-comp-dream-traces-label">
+                      Dream Traces in Recall (0-10)
+                      <input type="number" name="memory_dream_recall_max_traces" min="0" max="10" step="1">
                     </label>
                   </div>
 
@@ -2546,6 +2594,14 @@ function applyConfigData(d) {
   f.memory_deep_recall_max_candidates.value = d.memory_deep_recall_max_candidates !== undefined ? d.memory_deep_recall_max_candidates : 40;
   f.memory_deep_recall_max_clues.value = d.memory_deep_recall_max_clues !== undefined ? d.memory_deep_recall_max_clues : 10;
   f.memory_person_context_max_clues.value = d.memory_person_context_max_clues !== undefined ? d.memory_person_context_max_clues : 2;
+  f.memory_buffered_ingestion_enabled.checked = d.memory_buffered_ingestion_enabled !== undefined ? d.memory_buffered_ingestion_enabled : true;
+  f.memory_promote_repeat_threshold.value = d.memory_promote_repeat_threshold !== undefined ? d.memory_promote_repeat_threshold : 2;
+  f.memory_dream_enabled.checked = d.memory_dream_enabled || false;
+  f.memory_auto_maintenance_enabled.checked = d.memory_auto_maintenance_enabled || false;
+  f.memory_dream_idle_hours.value = d.memory_dream_idle_hours !== undefined ? d.memory_dream_idle_hours : 12;
+  f.memory_dream_daily_limit.value = d.memory_dream_daily_limit !== undefined ? d.memory_dream_daily_limit : 1;
+  f.memory_long_idle_pause_days.value = d.memory_long_idle_pause_days !== undefined ? d.memory_long_idle_pause_days : 7;
+  f.memory_dream_recall_max_traces.value = d.memory_dream_recall_max_traces !== undefined ? d.memory_dream_recall_max_traces : 2;
 
   summaryKeyConfigured = d.memory_summary_key_configured || false;
   configPasswordChangeable = d.config_password_changeable || false;
@@ -2635,6 +2691,17 @@ function applyLang(lang) {
   setText('t-comp-deep-candidates-label', s.compDeepCandidatesLabel || 'Deep Recall Candidates (1-100)', 'memory_deep_recall_max_candidates');
   setText('t-comp-deep-clues-label', s.compDeepCluesLabel || 'Deep Recall Clues (1-20)', 'memory_deep_recall_max_clues');
   setText('t-comp-person-clues-label', s.compPersonCluesLabel || 'Person Context Clues (0-10)', 'memory_person_context_max_clues');
+  const bufferedToggleLabel = document.querySelector('#t-comp-buffered-toggle-label span');
+  if (bufferedToggleLabel) bufferedToggleLabel.textContent = s.compBufferedToggleLabel || 'Buffer memory before promotion';
+  setText('t-comp-promote-repeat-label', s.compPromoteRepeatLabel || 'Promote After Repeats (1-20)', 'memory_promote_repeat_threshold');
+  const dreamToggleLabel = document.querySelector('#t-comp-dream-toggle-label span');
+  if (dreamToggleLabel) dreamToggleLabel.textContent = s.compDreamToggleLabel || 'Enable Dreaming';
+  const maintenanceToggleLabel = document.querySelector('#t-comp-maintenance-toggle-label span');
+  if (maintenanceToggleLabel) maintenanceToggleLabel.textContent = s.compMaintenanceToggleLabel || 'Enable Auto Maintenance';
+  setText('t-comp-dream-idle-label', s.compDreamIdleLabel || 'Dream Idle Hours (1-720)', 'memory_dream_idle_hours');
+  setText('t-comp-dream-daily-label', s.compDreamDailyLabel || 'Dreams Per Day (0-24)', 'memory_dream_daily_limit');
+  setText('t-comp-long-idle-label', s.compLongIdleLabel || 'Pause After Idle Days (1-365)', 'memory_long_idle_pause_days');
+  setText('t-comp-dream-traces-label', s.compDreamTracesLabel || 'Dream Traces in Recall (0-10)', 'memory_dream_recall_max_traces');
   
   setText('t-comp-summary-prompt-label', s.compSummaryPromptLabel || 'Summarization System Prompt', 'memory_summary_prompt');
   document.getElementById('t-password-change-title').textContent = s.passwordChangeTitle || 'Config Password';
@@ -2659,6 +2726,8 @@ function applyLang(lang) {
   if (companionTitle) companionTitle.textContent = s.companionPanelTitle || 'Companion State';
   const companionRefresh = document.getElementById('t-companion-refresh');
   if (companionRefresh) companionRefresh.textContent = s.companionRefresh || 'Refresh';
+  const dreamDryRun = document.getElementById('t-dream-dry-run');
+  if (dreamDryRun) dreamDryRun.textContent = s.dreamDryRun || 'Dream dry run';
   const intimacyLbl = document.getElementById('t-intimacy-label');
   if (intimacyLbl) intimacyLbl.textContent = s.intimacyLabel || 'Intimacy';
   const trustLbl = document.getElementById('t-trust-label');
@@ -2675,6 +2744,8 @@ function applyLang(lang) {
   if (affectLbl) affectLbl.textContent = s.affectLabel || 'Affect: ';
   const consLbl = document.getElementById('t-consolidation-label');
   if (consLbl) consLbl.textContent = s.consolidationLabel || 'Last deep recall: ';
+  const dreamLbl = document.getElementById('t-dream-label');
+  if (dreamLbl) dreamLbl.textContent = s.dreamLabel || 'Last dream: ';
   const reflectionsLbl = document.getElementById('t-reflections-label');
   if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
   const noReflEl = document.getElementById('t-no-reflections');
@@ -2986,6 +3057,14 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_deep_recall_max_candidates: Number(f.memory_deep_recall_max_candidates.value),
     memory_deep_recall_max_clues: Number(f.memory_deep_recall_max_clues.value),
     memory_person_context_max_clues: Number(f.memory_person_context_max_clues.value),
+    memory_buffered_ingestion_enabled: f.memory_buffered_ingestion_enabled.checked,
+    memory_promote_repeat_threshold: Number(f.memory_promote_repeat_threshold.value),
+    memory_dream_enabled: f.memory_dream_enabled.checked,
+    memory_auto_maintenance_enabled: f.memory_auto_maintenance_enabled.checked,
+    memory_dream_idle_hours: Number(f.memory_dream_idle_hours.value),
+    memory_dream_daily_limit: Number(f.memory_dream_daily_limit.value),
+    memory_long_idle_pause_days: Number(f.memory_long_idle_pause_days.value),
+    memory_dream_recall_max_traces: Number(f.memory_dream_recall_max_traces.value),
   };
 
   if (includeManualOnlyFields) {
@@ -3186,7 +3265,8 @@ async function loadCompanionState() {
   document.getElementById('companion-trust-bar').style.width = trust + '%';
   document.getElementById('companion-trust-val').textContent = trust + ' / 100';
   document.getElementById('companion-mood').textContent = d.mood || 'neutral';
-  document.getElementById('companion-memory-count').textContent = d.graph_node_count ?? '—';
+  document.getElementById('companion-memory-count').textContent =
+    `${d.active_graph_node_count ?? d.graph_node_count ?? '—'} active / ${d.graph_node_count ?? '—'} total / ${d.buffered_observation_count ?? 0} buffered`;
   document.getElementById('companion-related-edges').textContent = d.graph_edge_count ?? '—';
   document.getElementById('companion-search-terms').textContent = d.search_term_count ?? '—';
   document.getElementById('companion-working-memory').textContent = d.working_memory_count ?? '—';
@@ -3197,6 +3277,13 @@ async function loadCompanionState() {
   document.getElementById('companion-consolidation').textContent = consAt
     ? `${new Date(consAt).toLocaleString()} (${d.last_deep_recall_candidates||0} candidates, ${d.last_deep_recall_clues||0} clues)`
     : '—';
+  const dreamAt = d.last_dream_at || 0;
+  const dreamSummary = d.last_dream_summary || d.last_dream_journal || '';
+  const dreamText = dreamAt
+    ? `${new Date(dreamAt * 1000).toLocaleString()} ${d.last_dream_status || ''}: ${dreamSummary || '—'}`
+    : '—';
+  const dreamEl = document.getElementById('companion-dream');
+  if (dreamEl) dreamEl.textContent = dreamText;
 
   const list = document.getElementById('reflections-list');
   const noReflEl = document.getElementById('t-no-reflections');
@@ -3222,6 +3309,22 @@ async function loadCompanionState() {
       item.appendChild(time);
       list.appendChild(item);
     });
+  }
+}
+
+async function runDreamDryRun() {
+  const str = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/dream/dry-run', { method: 'POST' });
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus(str.error + (d.error || 'Dream dry run failed'), 'err');
+      return;
+    }
+    setStatus(`Dream dry run: ${d.status}. ${d.dream_summary || d.dream_journal || ''}`, 'success', 6000);
+    await loadCompanionState();
+  } catch (e) {
+    setStatus(str.error + (e && e.message ? e.message : 'Dream dry run failed'), 'err');
   }
 }
 

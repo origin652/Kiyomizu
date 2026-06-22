@@ -384,6 +384,7 @@ object MessagePatcher {
         recalled: List<MemoryService.RecalledMemory>,
         personContext: List<MemoryService.RecalledMemory>,
         deepRecall: MemoryService.DeepRecallResult?,
+        dreamTraces: List<MemoryService.RecalledMemory>,
         reflections: List<String>
     ): String {
         val intimacyStage = when {
@@ -435,6 +436,13 @@ object MessagePatcher {
                     append("  Reconstructed recollection: $it\n")
                 }
             }
+            if (dreamTraces.isNotEmpty()) {
+                append("Dream traces. These are dream-source fragments, not verified facts:\n")
+                dreamTraces.forEach { rm ->
+                    append("  - source=dream confidence=${"%.2f".format(rm.memory.confidence)} basis=${rm.memory.uri}: ${rm.memory.content}\n")
+                }
+                append("If you use dream traces, do not state them as confirmed memory.\n")
+            }
             if (reflections.isNotEmpty()) {
                 append("Recent private reflections:\n")
                 reflections.forEach {
@@ -453,7 +461,7 @@ object MessagePatcher {
         }
         val state = DatabaseService.getRelationshipState()
         val reflections = DatabaseService.getRecentReflections(3)
-        return buildCompanionPrompt(state, context.recalled, context.personContext, context.deepRecall, reflections)
+        return buildCompanionPrompt(state, context.recalled, context.personContext, context.deepRecall, context.dreamTraces, reflections)
     }
 
     private suspend fun injectCompanionIntoConversation(

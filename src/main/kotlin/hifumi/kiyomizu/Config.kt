@@ -45,24 +45,26 @@ object Config {
     private val memorySummaryPromptRef = AtomicReference(
         System.getenv("MEMORY_SUMMARY_PROMPT") ?: """
             You are the inner memory system of Kiyomizu. Analyze the latest exchange between the user and the assistant.
-            Build a compact graph-memory update instead of a chat log.
+            Build compact memory observations instead of a chat log or direct long-term memory writes.
             Identity rules:
             - User first-person references like "I", "me", "my", "我", "我的" refer to person://user/primary.
             - Assistant first-person references refer to person://self/kiyomizu.
             - Only create other person nodes when the text explicitly mentions them.
             Memory principles:
-            - Prefer durable identity, preference, relationship, project_fact, episodic_event, and working_memory nodes.
-            - Keep each node atomic, specific, and in the same language the user used.
+            - Prefer durable identity, preference, relationship, project_fact, episodic_event, and working_memory observations.
+            - Keep each observation atomic, specific, and in the same language the user used.
+            - It is valid to return an empty observations array when the exchange has no durable memory value.
             - Do not invent facts that were not stated or strongly implied.
             - Use disclosure from: private, hint, quote_allowed, sensitive.
             - Use source = conversation unless there is a better direct reason.
             - person_uri should point to the most relevant person for that node when clear.
             - project_uri should be set only when the current exchange clearly belongs to a named project or task.
+            - Set explicit_remember=true only when the user clearly asks Kiyomizu to remember or not forget something.
             Return a single JSON object with this exact shape:
             {
-              "nodes": [
+              "observations": [
                 {
-                  "uri": "preference://food/drink/tea",
+                  "candidate_uri": "preference://food/drink/tea",
                   "kind": "preference",
                   "content": "The user prefers tea.",
                   "keywords": ["tea", "drink"],
@@ -80,7 +82,9 @@ object Config {
                   "person_uri": "person://user/primary",
                   "project_uri": null,
                   "source": "conversation",
-                  "raw_evidence": "short evidence quote"
+                  "raw_evidence": "short evidence quote",
+                  "novelty": 0.7,
+                  "explicit_remember": false
                 }
               ],
               "edges": [
@@ -116,6 +120,24 @@ object Config {
     private val memoryDeepRecallMaxCandidatesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CANDIDATES")?.toIntOrNull() ?: 40)
     private val memoryDeepRecallMaxCluesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CLUES")?.toIntOrNull() ?: 10)
     private val memoryPersonContextMaxCluesRef = AtomicInteger(System.getenv("MEMORY_PERSON_CONTEXT_MAX_CLUES")?.toIntOrNull() ?: 2)
+    private val memoryBufferedIngestionEnabledRef = AtomicReference(System.getenv("MEMORY_BUFFERED_INGESTION_ENABLED") != "0")
+    private val memoryObservationRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_OBSERVATION_RETENTION_DAYS")?.toIntOrNull() ?: 14)
+    private val memoryLowConfidenceObservationRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_LOW_CONFIDENCE_OBSERVATION_RETENTION_DAYS")?.toIntOrNull() ?: 3)
+    private val memoryObservationMinConfidenceRef = AtomicReference(System.getenv("MEMORY_OBSERVATION_MIN_CONFIDENCE")?.toDoubleOrNull() ?: 0.35)
+    private val memoryPromoteRepeatThresholdRef = AtomicInteger(System.getenv("MEMORY_PROMOTE_REPEAT_THRESHOLD")?.toIntOrNull() ?: 2)
+    private val memoryProjectFactPromoteRepeatThresholdRef = AtomicInteger(System.getenv("MEMORY_PROJECT_FACT_PROMOTE_REPEAT_THRESHOLD")?.toIntOrNull() ?: 2)
+    private val memoryWorkingMemorySlotsPerProjectRef = AtomicInteger(System.getenv("MEMORY_WORKING_MEMORY_SLOTS_PER_PROJECT")?.toIntOrNull() ?: 3)
+    private val memoryObservationDailyCapRef = AtomicInteger(System.getenv("MEMORY_OBSERVATION_DAILY_CAP")?.toIntOrNull() ?: 200)
+    private val memoryPromotedNodesDailyCapRef = AtomicInteger(System.getenv("MEMORY_PROMOTED_NODES_DAILY_CAP")?.toIntOrNull() ?: 20)
+    private val memoryDreamEnabledRef = AtomicReference(System.getenv("MEMORY_DREAM_ENABLED") == "1")
+    private val memoryAutoMaintenanceEnabledRef = AtomicReference(System.getenv("MEMORY_AUTO_MAINTENANCE_ENABLED") == "1")
+    private val memoryDreamDailyLimitRef = AtomicInteger(System.getenv("MEMORY_DREAM_DAILY_LIMIT")?.toIntOrNull() ?: 1)
+    private val memoryDreamIdleHoursRef = AtomicInteger(System.getenv("MEMORY_DREAM_IDLE_HOURS")?.toIntOrNull() ?: 12)
+    private val memoryDreamBatchMaxNodesRef = AtomicInteger(System.getenv("MEMORY_DREAM_BATCH_MAX_NODES")?.toIntOrNull() ?: 40)
+    private val memoryDreamDryRunDailyLimitRef = AtomicInteger(System.getenv("MEMORY_DREAM_DRY_RUN_DAILY_LIMIT")?.toIntOrNull() ?: 3)
+    private val memoryLongIdlePauseDaysRef = AtomicInteger(System.getenv("MEMORY_LONG_IDLE_PAUSE_DAYS")?.toIntOrNull() ?: 7)
+    private val memoryRecycleRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_RECYCLE_RETENTION_DAYS")?.toIntOrNull() ?: 30)
+    private val memoryDreamRecallMaxTracesRef = AtomicInteger(System.getenv("MEMORY_DREAM_RECALL_MAX_TRACES")?.toIntOrNull() ?: 2)
 
     var preset: String
         get() = presetRef.get()
@@ -224,6 +246,78 @@ object Config {
         get() = memoryPersonContextMaxCluesRef.get()
         set(value) { memoryPersonContextMaxCluesRef.set(value) }
 
+    var memoryBufferedIngestionEnabled: Boolean
+        get() = memoryBufferedIngestionEnabledRef.get()
+        set(value) { memoryBufferedIngestionEnabledRef.set(value) }
+
+    var memoryObservationRetentionDays: Int
+        get() = memoryObservationRetentionDaysRef.get()
+        set(value) { memoryObservationRetentionDaysRef.set(value) }
+
+    var memoryLowConfidenceObservationRetentionDays: Int
+        get() = memoryLowConfidenceObservationRetentionDaysRef.get()
+        set(value) { memoryLowConfidenceObservationRetentionDaysRef.set(value) }
+
+    var memoryObservationMinConfidence: Double
+        get() = memoryObservationMinConfidenceRef.get()
+        set(value) { memoryObservationMinConfidenceRef.set(value) }
+
+    var memoryPromoteRepeatThreshold: Int
+        get() = memoryPromoteRepeatThresholdRef.get()
+        set(value) { memoryPromoteRepeatThresholdRef.set(value) }
+
+    var memoryProjectFactPromoteRepeatThreshold: Int
+        get() = memoryProjectFactPromoteRepeatThresholdRef.get()
+        set(value) { memoryProjectFactPromoteRepeatThresholdRef.set(value) }
+
+    var memoryWorkingMemorySlotsPerProject: Int
+        get() = memoryWorkingMemorySlotsPerProjectRef.get()
+        set(value) { memoryWorkingMemorySlotsPerProjectRef.set(value) }
+
+    var memoryObservationDailyCap: Int
+        get() = memoryObservationDailyCapRef.get()
+        set(value) { memoryObservationDailyCapRef.set(value) }
+
+    var memoryPromotedNodesDailyCap: Int
+        get() = memoryPromotedNodesDailyCapRef.get()
+        set(value) { memoryPromotedNodesDailyCapRef.set(value) }
+
+    var memoryDreamEnabled: Boolean
+        get() = memoryDreamEnabledRef.get()
+        set(value) { memoryDreamEnabledRef.set(value) }
+
+    var memoryAutoMaintenanceEnabled: Boolean
+        get() = memoryAutoMaintenanceEnabledRef.get()
+        set(value) { memoryAutoMaintenanceEnabledRef.set(value) }
+
+    var memoryDreamDailyLimit: Int
+        get() = memoryDreamDailyLimitRef.get()
+        set(value) { memoryDreamDailyLimitRef.set(value) }
+
+    var memoryDreamIdleHours: Int
+        get() = memoryDreamIdleHoursRef.get()
+        set(value) { memoryDreamIdleHoursRef.set(value) }
+
+    var memoryDreamBatchMaxNodes: Int
+        get() = memoryDreamBatchMaxNodesRef.get()
+        set(value) { memoryDreamBatchMaxNodesRef.set(value) }
+
+    var memoryDreamDryRunDailyLimit: Int
+        get() = memoryDreamDryRunDailyLimitRef.get()
+        set(value) { memoryDreamDryRunDailyLimitRef.set(value) }
+
+    var memoryLongIdlePauseDays: Int
+        get() = memoryLongIdlePauseDaysRef.get()
+        set(value) { memoryLongIdlePauseDaysRef.set(value) }
+
+    var memoryRecycleRetentionDays: Int
+        get() = memoryRecycleRetentionDaysRef.get()
+        set(value) { memoryRecycleRetentionDaysRef.set(value) }
+
+    var memoryDreamRecallMaxTraces: Int
+        get() = memoryDreamRecallMaxTracesRef.get()
+        set(value) { memoryDreamRecallMaxTracesRef.set(value) }
+
     data class Snapshot(
         val preset: String,
         val upstream: String,
@@ -249,7 +343,25 @@ object Config {
         val memoryDeepRecallEnabled: Boolean,
         val memoryDeepRecallMaxCandidates: Int,
         val memoryDeepRecallMaxClues: Int,
-        val memoryPersonContextMaxClues: Int
+        val memoryPersonContextMaxClues: Int,
+        val memoryBufferedIngestionEnabled: Boolean,
+        val memoryObservationRetentionDays: Int,
+        val memoryLowConfidenceObservationRetentionDays: Int,
+        val memoryObservationMinConfidence: Double,
+        val memoryPromoteRepeatThreshold: Int,
+        val memoryProjectFactPromoteRepeatThreshold: Int,
+        val memoryWorkingMemorySlotsPerProject: Int,
+        val memoryObservationDailyCap: Int,
+        val memoryPromotedNodesDailyCap: Int,
+        val memoryDreamEnabled: Boolean,
+        val memoryAutoMaintenanceEnabled: Boolean,
+        val memoryDreamDailyLimit: Int,
+        val memoryDreamIdleHours: Int,
+        val memoryDreamBatchMaxNodes: Int,
+        val memoryDreamDryRunDailyLimit: Int,
+        val memoryLongIdlePauseDays: Int,
+        val memoryRecycleRetentionDays: Int,
+        val memoryDreamRecallMaxTraces: Int
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -278,6 +390,24 @@ object Config {
                 put("memory_deep_recall_max_candidates", memoryDeepRecallMaxCandidates)
                 put("memory_deep_recall_max_clues", memoryDeepRecallMaxClues)
                 put("memory_person_context_max_clues", memoryPersonContextMaxClues)
+                put("memory_buffered_ingestion_enabled", memoryBufferedIngestionEnabled)
+                put("memory_observation_retention_days", memoryObservationRetentionDays)
+                put("memory_low_confidence_observation_retention_days", memoryLowConfidenceObservationRetentionDays)
+                put("memory_observation_min_confidence", memoryObservationMinConfidence)
+                put("memory_promote_repeat_threshold", memoryPromoteRepeatThreshold)
+                put("memory_project_fact_promote_repeat_threshold", memoryProjectFactPromoteRepeatThreshold)
+                put("memory_working_memory_slots_per_project", memoryWorkingMemorySlotsPerProject)
+                put("memory_observation_daily_cap", memoryObservationDailyCap)
+                put("memory_promoted_nodes_daily_cap", memoryPromotedNodesDailyCap)
+                put("memory_dream_enabled", memoryDreamEnabled)
+                put("memory_auto_maintenance_enabled", memoryAutoMaintenanceEnabled)
+                put("memory_dream_daily_limit", memoryDreamDailyLimit)
+                put("memory_dream_idle_hours", memoryDreamIdleHours)
+                put("memory_dream_batch_max_nodes", memoryDreamBatchMaxNodes)
+                put("memory_dream_dry_run_daily_limit", memoryDreamDryRunDailyLimit)
+                put("memory_long_idle_pause_days", memoryLongIdlePauseDays)
+                put("memory_recycle_retention_days", memoryRecycleRetentionDays)
+                put("memory_dream_recall_max_traces", memoryDreamRecallMaxTraces)
             }
         }
     }
@@ -308,7 +438,25 @@ object Config {
             memoryDeepRecallEnabled = memoryDeepRecallEnabled,
             memoryDeepRecallMaxCandidates = memoryDeepRecallMaxCandidates,
             memoryDeepRecallMaxClues = memoryDeepRecallMaxClues,
-            memoryPersonContextMaxClues = memoryPersonContextMaxClues
+            memoryPersonContextMaxClues = memoryPersonContextMaxClues,
+            memoryBufferedIngestionEnabled = memoryBufferedIngestionEnabled,
+            memoryObservationRetentionDays = memoryObservationRetentionDays,
+            memoryLowConfidenceObservationRetentionDays = memoryLowConfidenceObservationRetentionDays,
+            memoryObservationMinConfidence = memoryObservationMinConfidence,
+            memoryPromoteRepeatThreshold = memoryPromoteRepeatThreshold,
+            memoryProjectFactPromoteRepeatThreshold = memoryProjectFactPromoteRepeatThreshold,
+            memoryWorkingMemorySlotsPerProject = memoryWorkingMemorySlotsPerProject,
+            memoryObservationDailyCap = memoryObservationDailyCap,
+            memoryPromotedNodesDailyCap = memoryPromotedNodesDailyCap,
+            memoryDreamEnabled = memoryDreamEnabled,
+            memoryAutoMaintenanceEnabled = memoryAutoMaintenanceEnabled,
+            memoryDreamDailyLimit = memoryDreamDailyLimit,
+            memoryDreamIdleHours = memoryDreamIdleHours,
+            memoryDreamBatchMaxNodes = memoryDreamBatchMaxNodes,
+            memoryDreamDryRunDailyLimit = memoryDreamDryRunDailyLimit,
+            memoryLongIdlePauseDays = memoryLongIdlePauseDays,
+            memoryRecycleRetentionDays = memoryRecycleRetentionDays,
+            memoryDreamRecallMaxTraces = memoryDreamRecallMaxTraces
         )
     }
 
@@ -338,6 +486,24 @@ object Config {
         memoryDeepRecallMaxCandidates = snapshot.memoryDeepRecallMaxCandidates
         memoryDeepRecallMaxClues = snapshot.memoryDeepRecallMaxClues
         memoryPersonContextMaxClues = snapshot.memoryPersonContextMaxClues
+        memoryBufferedIngestionEnabled = snapshot.memoryBufferedIngestionEnabled
+        memoryObservationRetentionDays = snapshot.memoryObservationRetentionDays
+        memoryLowConfidenceObservationRetentionDays = snapshot.memoryLowConfidenceObservationRetentionDays
+        memoryObservationMinConfidence = snapshot.memoryObservationMinConfidence
+        memoryPromoteRepeatThreshold = snapshot.memoryPromoteRepeatThreshold
+        memoryProjectFactPromoteRepeatThreshold = snapshot.memoryProjectFactPromoteRepeatThreshold
+        memoryWorkingMemorySlotsPerProject = snapshot.memoryWorkingMemorySlotsPerProject
+        memoryObservationDailyCap = snapshot.memoryObservationDailyCap
+        memoryPromotedNodesDailyCap = snapshot.memoryPromotedNodesDailyCap
+        memoryDreamEnabled = snapshot.memoryDreamEnabled
+        memoryAutoMaintenanceEnabled = snapshot.memoryAutoMaintenanceEnabled
+        memoryDreamDailyLimit = snapshot.memoryDreamDailyLimit
+        memoryDreamIdleHours = snapshot.memoryDreamIdleHours
+        memoryDreamBatchMaxNodes = snapshot.memoryDreamBatchMaxNodes
+        memoryDreamDryRunDailyLimit = snapshot.memoryDreamDryRunDailyLimit
+        memoryLongIdlePauseDays = snapshot.memoryLongIdlePauseDays
+        memoryRecycleRetentionDays = snapshot.memoryRecycleRetentionDays
+        memoryDreamRecallMaxTraces = snapshot.memoryDreamRecallMaxTraces
     }
 
     fun loadPersisted(jsonText: String?) {
@@ -379,7 +545,25 @@ object Config {
                     memoryDeepRecallEnabled = body.booleanValue("memory_deep_recall_enabled") ?: memoryDeepRecallEnabled,
                     memoryDeepRecallMaxCandidates = body.intValue("memory_deep_recall_max_candidates") ?: memoryDeepRecallMaxCandidates,
                     memoryDeepRecallMaxClues = body.intValue("memory_deep_recall_max_clues") ?: memoryDeepRecallMaxClues,
-                    memoryPersonContextMaxClues = body.intValue("memory_person_context_max_clues") ?: memoryPersonContextMaxClues
+                    memoryPersonContextMaxClues = body.intValue("memory_person_context_max_clues") ?: memoryPersonContextMaxClues,
+                    memoryBufferedIngestionEnabled = body.booleanValue("memory_buffered_ingestion_enabled") ?: memoryBufferedIngestionEnabled,
+                    memoryObservationRetentionDays = body.intValue("memory_observation_retention_days") ?: memoryObservationRetentionDays,
+                    memoryLowConfidenceObservationRetentionDays = body.intValue("memory_low_confidence_observation_retention_days") ?: memoryLowConfidenceObservationRetentionDays,
+                    memoryObservationMinConfidence = body.doubleValue("memory_observation_min_confidence") ?: memoryObservationMinConfidence,
+                    memoryPromoteRepeatThreshold = body.intValue("memory_promote_repeat_threshold") ?: memoryPromoteRepeatThreshold,
+                    memoryProjectFactPromoteRepeatThreshold = body.intValue("memory_project_fact_promote_repeat_threshold") ?: memoryProjectFactPromoteRepeatThreshold,
+                    memoryWorkingMemorySlotsPerProject = body.intValue("memory_working_memory_slots_per_project") ?: memoryWorkingMemorySlotsPerProject,
+                    memoryObservationDailyCap = body.intValue("memory_observation_daily_cap") ?: memoryObservationDailyCap,
+                    memoryPromotedNodesDailyCap = body.intValue("memory_promoted_nodes_daily_cap") ?: memoryPromotedNodesDailyCap,
+                    memoryDreamEnabled = body.booleanValue("memory_dream_enabled") ?: memoryDreamEnabled,
+                    memoryAutoMaintenanceEnabled = body.booleanValue("memory_auto_maintenance_enabled") ?: memoryAutoMaintenanceEnabled,
+                    memoryDreamDailyLimit = body.intValue("memory_dream_daily_limit") ?: memoryDreamDailyLimit,
+                    memoryDreamIdleHours = body.intValue("memory_dream_idle_hours") ?: memoryDreamIdleHours,
+                    memoryDreamBatchMaxNodes = body.intValue("memory_dream_batch_max_nodes") ?: memoryDreamBatchMaxNodes,
+                    memoryDreamDryRunDailyLimit = body.intValue("memory_dream_dry_run_daily_limit") ?: memoryDreamDryRunDailyLimit,
+                    memoryLongIdlePauseDays = body.intValue("memory_long_idle_pause_days") ?: memoryLongIdlePauseDays,
+                    memoryRecycleRetentionDays = body.intValue("memory_recycle_retention_days") ?: memoryRecycleRetentionDays,
+                    memoryDreamRecallMaxTraces = body.intValue("memory_dream_recall_max_traces") ?: memoryDreamRecallMaxTraces
                 )
             )
         } catch (e: Exception) {
