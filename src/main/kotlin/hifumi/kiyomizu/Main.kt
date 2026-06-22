@@ -339,6 +339,7 @@ fun main() {
                 val affect = DatabaseService.getGraphAffectDistribution()
                 val deepRecall = MemoryService.lastDeepRecallSummary()
                 val dream = MemoryService.lastConsolidationSummary()
+                val longIdlePaused = MemoryService.isLongIdleMaintenancePaused()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
                     put("trust", state.trust)
@@ -367,6 +368,7 @@ fun main() {
                     put("last_dream_summary", dream["dream_summary"]?.jsonPrimitive?.contentOrNull ?: "")
                     put("last_dream_journal", dream["dream_journal"]?.jsonPrimitive?.contentOrNull ?: "")
                     put("dream_next_allowed_at", dream["next_allowed_at"]?.jsonPrimitive?.longOrNull ?: 0L)
+                    put("memory_long_idle_paused", longIdlePaused)
                     put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
@@ -435,6 +437,34 @@ fun main() {
                 }
                 val result = MemoryService.runDreamDryRun()
                 call.respondText(result.toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/dream/confirm") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(
+                        buildJsonObject { put("error", "body must be a JSON object") }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+                val result = MemoryService.confirmDreamTrace(
+                    dreamNodeId = body["dream_node_id"]?.jsonPrimitive?.intOrNull,
+                    dreamUri = body["dream_uri"]?.jsonPrimitive?.contentOrNull,
+                    targetUri = body["target_uri"]?.jsonPrimitive?.contentOrNull,
+                    kind = body["kind"]?.jsonPrimitive?.contentOrNull,
+                    content = body["content"]?.jsonPrimitive?.contentOrNull
+                )
+                val ok = result["ok"]?.jsonPrimitive?.booleanOrNull == true
+                call.respondText(
+                    result.toString(),
+                    ContentType.Application.Json,
+                    if (ok) HttpStatusCode.OK else HttpStatusCode.BadRequest
+                )
             }
 
             get("/api/logs") {

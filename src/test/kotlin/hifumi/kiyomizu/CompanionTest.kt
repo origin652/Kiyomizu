@@ -2,6 +2,7 @@ package hifumi.kiyomizu
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -83,6 +84,7 @@ class CompanionTest {
         kind: String,
         content: String,
         keywords: List<String> = emptyList(),
+        topics: List<String> = emptyList(),
         triggerPhrases: List<String> = emptyList(),
         disclosure: String = "hint",
         priority: Double = 0.6,
@@ -99,8 +101,9 @@ class CompanionTest {
             kind = kind,
             content = content,
             normalizedText = content.trim().lowercase(),
-            searchableText = listOf(content, keywords.joinToString(" "), triggerPhrases.joinToString(" "), uri).joinToString(" "),
+            searchableText = listOf(content, keywords.joinToString(" "), topics.joinToString(" "), triggerPhrases.joinToString(" "), uri).joinToString(" "),
             keywords = keywords,
+            topics = topics,
             triggerPhrases = triggerPhrases,
             disclosure = disclosure,
             priority = priority,
@@ -224,6 +227,131 @@ class CompanionTest {
         DatabaseService.updateMemoryObservationStatus(id, "promoted", matchedNodeId = 42)
         assertEquals(0, DatabaseService.getBufferedObservationCount())
         assertEquals(1, DatabaseService.getObservationCountSince("promoted", now - 10))
+    }
+
+    @Test
+    fun activeWorkingMemorySlotsAreScopedByProject() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        insertNode(
+            uri = "working://project-a/current-parser",
+            kind = "working_memory",
+            content = "Project A parser task is active.",
+            keywords = listOf("parser"),
+            projectUri = "project://a"
+        )
+        insertNode(
+            uri = "working://project-b/current-ui",
+            kind = "working_memory",
+            content = "Project B UI task is active.",
+            keywords = listOf("ui"),
+            projectUri = "project://b"
+        )
+
+        val projectA = DatabaseService.getActiveWorkingMemoryNodes("project://a", limit = 10)
+        val projectB = DatabaseService.getActiveWorkingMemoryNodes("project://b", limit = 10)
+
+        assertEquals(1, projectA.size)
+        assertEquals("working://project-a/current-parser", projectA.first().uri)
+        assertEquals(1, projectB.size)
+        assertEquals("working://project-b/current-ui", projectB.first().uri)
+    }
+
+    @Test
+    fun expiredRecycleBinCompressionTombstonesAndCleansSearchTerms() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val nodeId = insertNode(
+            uri = "working://auto/noisy-temp-note",
+            kind = "working_memory",
+            content = "Temporary noisy note that should be compressed.",
+            keywords = listOf("noisy", "temporary"),
+            strength = 0.2
+        )
+        val node = assertNotNull(DatabaseService.getMemoryNodeById(nodeId))
+        assertTrue(DatabaseService.getSearchTermCount() > 0)
+
+        assertTrue(DatabaseService.archiveMemoryNodeToRecycle(node, "test cleanup", retentionDays = 1))
+        val expiredAt = Instant.now().epochSecond - 10
+        DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
+            conn.prepareStatement("UPDATE memory_recycle_bin SET purge_after = ? WHERE node_id = ?").use { pstmt ->
+                pstmt.setLong(1, expiredAt)
+                pstmt.setInt(2, nodeId)
+                pstmt.executeUpdate()
+            }
+        }
+
+        assertEquals(1, DatabaseService.compressExpiredRecycleBin())
+        val tombstone = DatabaseService.getMemoryNodeById(nodeId)
+        assertNotNull(tombstone)
+        assertEquals("tombstone", tombstone.status)
+        assertEquals(emptyList(), tombstone.keywords)
+        assertEquals(null, tombstone.rawEvidence)
+        assertEquals(0, DatabaseService.getSearchTermCount())
+        assertTrue(DatabaseService.searchMemoryNodes(listOf("noisy"), 10).isEmpty())
+    }
+
+    @Test
+    fun confirmDreamTraceCopiesDreamIntoOrdinaryFactNode() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val dreamId = insertNode(
+            uri = "dream://2026-06/archive-hall",
+            kind = "reflection",
+            content = "A dream trace about pruning an archive hall.",
+            keywords = listOf("archive", "pruning"),
+            topics = listOf("memory"),
+            status = "dream",
+            confidence = 0.4
+        )
+
+        val result = MemoryService.confirmDreamTrace(
+            dreamNodeId = dreamId,
+            dreamUri = null,
+            targetUri = "project://kiyomizu/memory/archive-pruning",
+            kind = "project_fact",
+            content = "Kiyomizu should prune noisy memory archive entries only after confirmation."
+        )
+
+        assertTrue(result["ok"]!!.jsonPrimitive.boolean)
+        val factUri = result["fact_uri"]!!.jsonPrimitive.content
+        val fact = DatabaseService.getMemoryNodeByUri(factUri)
+        assertNotNull(fact)
+        assertEquals("active", fact.status)
+        assertEquals("dream_confirmed", fact.source)
+        assertEquals(1, DatabaseService.getGraphEdgeCount())
+    }
+
+    @Test
+    fun dreamRunItemsCanBeReadBackForDryRunDisplay() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val runId = DatabaseService.insertDreamRun(
+            DatabaseService.DreamRunDraft(mode = "dry_run", status = "running")
+        )
+        DatabaseService.insertDreamRunItem(
+            dreamRunId = runId,
+            nodeId = null,
+            nodeUri = "working://auto/noisy-temp-note",
+            operation = "archive",
+            reason = "low strength temporary note",
+            result = "dry_run",
+            targetNodeId = null,
+            targetUri = null
+        )
+
+        val items = DatabaseService.getDreamRunItems(runId)
+        assertEquals(1, items.size)
+        assertEquals("archive", items.first().operation)
+        assertEquals("dry_run", items.first().result)
     }
 
     @Test

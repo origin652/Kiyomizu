@@ -152,6 +152,24 @@ object MemoryService {
         val reflectionNote: String?
     )
 
+    private data class DreamMaterial(
+        val sourceType: String,
+        val uri: String,
+        val kind: String,
+        val content: String,
+        val keywords: List<String>,
+        val topics: List<String>,
+        val strength: Double,
+        val confidence: Double,
+        val priority: Double,
+        val emotionValence: Double,
+        val emotionArousal: Double,
+        val updatedAt: Long,
+        val reason: String,
+        val node: DatabaseService.MemoryNodeRecord? = null,
+        val observation: DatabaseService.MemoryObservationRecord? = null
+    )
+
     private suspend fun HttpResponse.boundedBodyAsText(maxBytes: Int = maxUpstreamResponseBytes): String {
         val text = bodyAsText()
         if (text.toByteArray(Charsets.UTF_8).size > maxBytes) {
@@ -195,11 +213,16 @@ object MemoryService {
                 delay(3600 * 1000L)
                 if (!Config.memoryEnabled) continue
                 try {
+                    var ranModelMaintenance = false
                     if (shouldRunAutoDream()) {
                         runDream(mode = "auto", dryRun = false)
+                        ranModelMaintenance = true
+                    }
+                    if (!ranModelMaintenance && shouldRunAutoMaintenance()) {
+                        runAutoMaintenance()
                     }
                 } catch (e: Exception) {
-                    System.err.println("Error in companion dream job: ${e.message}")
+                    System.err.println("Error in companion maintenance job: ${e.message}")
                 }
             }
         }
@@ -226,6 +249,11 @@ object MemoryService {
         put("at", lastDeepRecallAtMs.get())
         put("candidates", lastDeepRecallCandidates.get())
         put("clues", lastDeepRecallClues.get())
+    }
+
+    fun isLongIdleMaintenancePaused(nowEpochSecond: Long = Instant.now().epochSecond): Boolean {
+        val idleSeconds = nowEpochSecond - (lastRequestAtMs.get() / 1000L)
+        return idleSeconds > Config.memoryLongIdlePauseDays * 86400L
     }
 
     fun cleanJsonString(str: String): String {
@@ -416,25 +444,101 @@ object MemoryService {
     ): DatabaseService.MemoryNodeRecord? {
         existing.firstOrNull { it.uri == candidate.uri }?.let { return it }
 
-        val candidateTokens = tokenize(candidate.content) + candidate.keywords + candidate.topics + candidate.aliases
+        val candidateTokens = (
+            tokenize(candidate.content) +
+                candidate.keywords +
+                candidate.topics +
+                candidate.aliases +
+                candidate.triggerPhrases +
+                extractUriSegments(candidate.uri)
+            ).map { normalizeTerm(it) }.filter { it.isNotBlank() }
         return existing
             .filter { it.kind == candidate.kind }
             .map { node ->
-                val textScore = if (node.normalizedText == candidate.normalizedText) {
+                val nodeTokens = (
+                    tokenize(node.content) +
+                        node.keywords +
+                        node.topics +
+                        node.aliases +
+                        node.triggerPhrases +
+                        extractUriSegments(node.uri)
+                    ).map { normalizeTerm(it) }.filter { it.isNotBlank() }
+                val tokenScore = if (node.normalizedText == candidate.normalizedText) {
                     1.0
                 } else {
-                    jaccardScore(
-                        candidateTokens.map { normalizeTerm(it) },
-                        tokenize(node.content) + node.keywords + node.topics + node.aliases
-                    )
+                    jaccardScore(candidateTokens, nodeTokens)
                 }
-                val personMatch = if (!candidate.personUri.isNullOrBlank() && candidate.personUri == node.personUri) 0.2 else 0.0
-                val projectMatch = if (!candidate.projectUri.isNullOrBlank() && candidate.projectUri == node.projectUri) 0.2 else 0.0
-                node to (textScore + personMatch + projectMatch)
+                val uriScore = jaccardScore(extractUriSegments(candidate.uri), extractUriSegments(node.uri))
+                val triggerScore = jaccardScore(candidate.triggerPhrases, node.triggerPhrases)
+                val personMatch = if (!candidate.personUri.isNullOrBlank() && candidate.personUri == node.personUri) 0.16 else 0.0
+                val projectMatch = if (!candidate.projectUri.isNullOrBlank() && candidate.projectUri == node.projectUri) 0.16 else 0.0
+                val scopeMatch = if (!candidate.scopeHint.isNullOrBlank() && candidate.scopeHint == node.scopeHint) 0.08 else 0.0
+                val score = tokenScore * 0.74 + uriScore * 0.18 + triggerScore * 0.12 + personMatch + projectMatch + scopeMatch
+                val threshold = when (candidate.kind) {
+                    "identity", "preference", "relationship" -> 0.55
+                    "project_fact", "working_memory" -> 0.48
+                    "episodic_event" -> 0.68
+                    else -> 0.60
+                }
+                node to (score to threshold)
             }
-            .filter { it.second >= 0.9 }
+            .filter { it.second.first >= it.second.second }
+            .maxByOrNull { it.second.first }
+            ?.first
+    }
+
+    private fun workingMemorySlotScore(
+        draft: DatabaseService.MemoryNodeDraft,
+        node: DatabaseService.MemoryNodeRecord
+    ): Double {
+        val candidateTerms = (
+            tokenize(draft.content) +
+                draft.keywords +
+                draft.topics +
+                draft.aliases +
+                draft.triggerPhrases +
+                (draft.scopeHint?.let(::tokenize) ?: emptyList()) +
+                extractUriSegments(draft.uri)
+            ).map { normalizeTerm(it) }.filter { it.isNotBlank() }
+        val nodeTerms = (
+            tokenize(node.content) +
+                node.keywords +
+                node.topics +
+                node.aliases +
+                node.triggerPhrases +
+                (node.scopeHint?.let(::tokenize) ?: emptyList()) +
+                extractUriSegments(node.uri)
+            ).map { normalizeTerm(it) }.filter { it.isNotBlank() }
+        val topicScore = jaccardScore(draft.topics, node.topics)
+        val scopeScore = if (!draft.scopeHint.isNullOrBlank() && draft.scopeHint == node.scopeHint) 0.18 else 0.0
+        val uriScore = if (draft.uri == node.uri) 1.0 else jaccardScore(extractUriSegments(draft.uri), extractUriSegments(node.uri))
+        return jaccardScore(candidateTerms, nodeTerms) * 0.72 + topicScore * 0.25 + scopeScore + uriScore * 0.20
+    }
+
+    private fun findWorkingMemorySlot(
+        draft: DatabaseService.MemoryNodeDraft,
+        allowFullFallback: Boolean
+    ): DatabaseService.MemoryNodeRecord? {
+        if (draft.kind != "working_memory") return null
+        val maxSlots = Config.memoryWorkingMemorySlotsPerProject.coerceAtLeast(1)
+        val slots = DatabaseService.getActiveWorkingMemoryNodes(draft.projectUri, limit = max(maxSlots * 4, 12))
+        if (slots.isEmpty()) return null
+
+        val scored = slots.map { it to workingMemorySlotScore(draft, it) }
+        scored.filter { it.second >= 0.35 }
             .maxByOrNull { it.second }
             ?.first
+            ?.let { return it }
+
+        if (allowFullFallback && slots.size >= maxSlots) {
+            return scored.maxByOrNull { it.second }?.first ?: slots.minByOrNull { it.updatedAt }
+        }
+        return null
+    }
+
+    private fun workingMemorySlotHasCapacity(draft: DatabaseService.MemoryNodeDraft): Boolean {
+        val maxSlots = Config.memoryWorkingMemorySlotsPerProject.coerceAtLeast(1)
+        return DatabaseService.getActiveWorkingMemoryNodes(draft.projectUri, limit = maxSlots).size < maxSlots
     }
 
     private fun mergeNodeDraft(
@@ -451,7 +555,13 @@ object MemoryService {
         val mergedEntities = mergeList(existing.entities, incoming.entities)
         val mergedTopics = mergeList(existing.topics, incoming.topics)
         val mergedTriggers = mergeList(existing.triggerPhrases, incoming.triggerPhrases)
-        val mergedContent = if (incoming.content.length >= existing.content.length) incoming.content else existing.content
+        val incomingClearlyStronger = incoming.confidence >= existing.confidence + 0.15 ||
+            incoming.priority >= existing.priority + 0.15
+        val mergedContent = when {
+            existing.kind == "working_memory" -> incoming.content
+            incomingClearlyStronger && incoming.content.length <= existing.content.length * 2 -> incoming.content
+            else -> existing.content
+        }
         val mergedPersonUri = incoming.personUri ?: existing.personUri
         val mergedProjectUri = incoming.projectUri ?: existing.projectUri
         val mergedScopeHint = incoming.scopeHint ?: existing.scopeHint
@@ -741,17 +851,147 @@ object MemoryService {
         if (DatabaseService.countDreamRunsSince("auto", todayStartEpochSecond()) >= Config.memoryDreamDailyLimit) return false
         val latest = DatabaseService.getLatestDreamRun("auto")
         if (latest?.nextAllowedAt != null && latest.nextAllowedAt > now) return false
+        return hasEnoughMaintenanceMaterial()
+    }
+
+    private fun shouldRunAutoMaintenance(): Boolean {
+        if (!Config.memoryEnabled || !Config.memoryAutoMaintenanceEnabled) return false
+        val now = Instant.now().epochSecond
+        val lastRequest = lastRequestAtMs.get() / 1000L
+        val idleSeconds = now - lastRequest
+        if (idleSeconds < Config.memoryDreamIdleHours * 3600L) return false
+        if (idleSeconds > Config.memoryLongIdlePauseDays * 86400L) return false
+        if (DatabaseService.countDreamRunsSince("maintenance", todayStartEpochSecond()) >= 1) return false
+        val latest = DatabaseService.getLatestDreamRun("maintenance")
+        if (latest?.nextAllowedAt != null && latest.nextAllowedAt > now) return false
+        return hasEnoughMaintenanceMaterial()
+    }
+
+    private fun hasEnoughMaintenanceMaterial(): Boolean {
         return DatabaseService.getGraphNodeCount("active") + DatabaseService.getBufferedObservationCount() >= 5
     }
 
-    private fun buildDreamPrompt(candidates: List<DatabaseService.MemoryNodeRecord>): String {
+    private fun materialFromNode(node: DatabaseService.MemoryNodeRecord, reason: String): DreamMaterial {
+        return DreamMaterial(
+            sourceType = "node",
+            uri = node.uri,
+            kind = node.kind,
+            content = node.content,
+            keywords = node.keywords,
+            topics = node.topics,
+            strength = node.strength,
+            confidence = node.confidence,
+            priority = node.priority,
+            emotionValence = node.emotionValence,
+            emotionArousal = node.emotionArousal,
+            updatedAt = node.updatedAt,
+            reason = reason,
+            node = node
+        )
+    }
+
+    private fun materialFromObservation(observation: DatabaseService.MemoryObservationRecord): DreamMaterial {
+        return DreamMaterial(
+            sourceType = "observation",
+            uri = "observation://${observation.id}",
+            kind = observation.kind,
+            content = observation.content,
+            keywords = observation.keywords,
+            topics = observation.topics,
+            strength = (observation.seenCount / 3.0).coerceIn(0.1, 1.0),
+            confidence = observation.confidence,
+            priority = observation.priority,
+            emotionValence = observation.emotionValence,
+            emotionArousal = observation.emotionArousal,
+            updatedAt = observation.lastSeenAt,
+            reason = "buffered observation seen ${observation.seenCount} time(s)",
+            observation = observation
+        )
+    }
+
+    private fun likelyDuplicateNodes(limit: Int): List<DatabaseService.MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val recent = DatabaseService.getRecentGraphMemoryNodes(limit = max(limit * 8, 80))
+        val selected = linkedMapOf<Int, DatabaseService.MemoryNodeRecord>()
+        val groups = recent.groupBy { node ->
+            listOf(node.kind, node.personUri.orEmpty(), node.projectUri.orEmpty(), node.scopeHint.orEmpty()).joinToString("|")
+        }
+        for (group in groups.values.filter { it.size > 1 }) {
+            val sorted = group.sortedByDescending { it.updatedAt }
+            for (index in sorted.indices) {
+                val left = sorted[index]
+                val leftTerms = collectNodeTerms(left)
+                for (right in sorted.drop(index + 1)) {
+                    if (selected.size >= limit) return selected.values.toList()
+                    val overlap = jaccardScore(leftTerms, collectNodeTerms(right))
+                    val threshold = if (left.kind == "episodic_event") 0.65 else 0.42
+                    if (overlap >= threshold) {
+                        selected[left.id] = left
+                        selected[right.id] = right
+                    }
+                }
+            }
+        }
+        return selected.values.take(limit)
+    }
+
+    private fun collectDreamMaterials(limit: Int): List<DreamMaterial> {
+        val materialLimit = limit.coerceAtLeast(1)
+        val nodeBudget = max(materialLimit - minOf(materialLimit / 4, 10), 1)
+        val observationBudget = materialLimit - nodeBudget
+        val nodes = linkedMapOf<Int, DreamMaterial>()
+
+        DatabaseService.getRecentGraphMemoryNodes(limit = max(nodeBudget / 3, 4)).forEach {
+            nodes[it.id] = materialFromNode(it, "recent active memory")
+        }
+        DatabaseService.getOldWeakGraphMemoryNodes(
+            limit = max(nodeBudget / 3, 4),
+            olderThanSeconds = 14 * 86400L,
+            maxStrength = 0.45
+        ).forEach {
+            nodes.putIfAbsent(it.id, materialFromNode(it, "old low-strength memory"))
+        }
+        DatabaseService.getEmotionallySalientGraphMemoryNodes(limit = max(nodeBudget / 4, 3)).forEach {
+            nodes.putIfAbsent(it.id, materialFromNode(it, "emotionally salient memory"))
+        }
+        likelyDuplicateNodes(limit = max(nodeBudget / 4, 3)).forEach {
+            nodes.putIfAbsent(it.id, materialFromNode(it, "possible duplicate cluster"))
+        }
+
+        val observations = DatabaseService.getBufferedObservationsForMaintenance(observationBudget)
+            .map(::materialFromObservation)
+
+        return (nodes.values + observations)
+            .sortedWith(
+                compareByDescending<DreamMaterial> { it.priority + it.confidence + emotionalSalience(it.emotionValence, it.emotionArousal) }
+                    .thenByDescending { it.updatedAt }
+            )
+            .take(materialLimit)
+    }
+
+    private fun buildDreamPrompt(
+        materials: List<DreamMaterial>,
+        allowDreamNarrative: Boolean,
+        allowDreamNodes: Boolean,
+        allowMaintenanceOps: Boolean
+    ): String {
+        val operationTypes = buildList {
+            if (allowMaintenanceOps) add("merge")
+            if (allowMaintenanceOps) add("create_consolidated_node")
+            if (allowMaintenanceOps) add("archive")
+            if (allowMaintenanceOps) add("tombstone")
+            if (allowDreamNodes) add("create_dream_node")
+            add("skip")
+        }.joinToString("|")
         return buildString {
             append(
                 """
-                You are Kiyomizu's private dreaming and memory-maintenance system.
+                You are Kiyomizu's private ${if (allowDreamNarrative) "dreaming and " else ""}memory-maintenance system.
                 Produce JSON only. Dreams are not facts.
-                Use lightly fragmented dream imagery in dream_journal, but keep operations precise.
+                ${if (allowDreamNarrative) "Use lightly fragmented dream imagery in dream_journal, but keep operations precise." else "Keep dream_journal empty or a concise audit note; this run is maintenance, not a dream."}
                 Do not invent new user facts. Sensitive or third-party details must be anonymized in dream_journal.
+                ${if (allowMaintenanceOps) "You may propose cleanup and consolidation operations." else "Do not propose merge, archive, tombstone, or consolidated fact operations; only dream traces and skips are allowed."}
+                ${if (allowDreamNodes) "Dream nodes must use dream:// URIs and remain marked as dream-source traces." else "Do not create dream nodes in this maintenance run."}
                 Return this shape:
                 {
                   "dream_summary": "clear searchable summary",
@@ -760,8 +1000,8 @@ object MemoryService {
                   "emotions": ["emotion"],
                   "operations": [
                     {
-                      "type": "create_consolidated_node|create_dream_node|archive|skip",
-                      "source_uri": "uri for archive/skip",
+                      "type": "$operationTypes",
+                      "source_uri": "uri for merge/archive/tombstone/skip",
                       "target_uri": "uri for created nodes",
                       "kind": "project_fact",
                       "content": "clear node content",
@@ -776,11 +1016,18 @@ object MemoryService {
                   "emotion_reflection": {"mood": "reflective", "note": "short private note"}
                 }
 
-                Candidate memory nodes:
+                Candidate materials:
                 """.trimIndent()
             )
-            candidates.forEachIndexed { index, node ->
-                append("\n${index + 1}. uri=${node.uri} kind=${node.kind} strength=${"%.2f".format(node.strength)} confidence=${"%.2f".format(node.confidence)} content=${node.content}")
+            materials.forEachIndexed { index, material ->
+                append(
+                    "\n${index + 1}. source=${material.sourceType} uri=${material.uri} kind=${material.kind} " +
+                        "reason=${material.reason} strength=${"%.2f".format(material.strength)} " +
+                        "confidence=${"%.2f".format(material.confidence)} priority=${"%.2f".format(material.priority)} " +
+                        "emotion=${"%.2f".format(material.emotionValence)}/${"%.2f".format(material.emotionArousal)} " +
+                        "keywords=${material.keywords.joinToString(",")} topics=${material.topics.joinToString(",")} " +
+                        "content=${material.content}"
+                )
             }
         }
     }
@@ -827,18 +1074,115 @@ object MemoryService {
         )
     }
 
+    private fun nodeDraftFromRecord(node: DatabaseService.MemoryNodeRecord): DatabaseService.MemoryNodeDraft {
+        return DatabaseService.MemoryNodeDraft(
+            uri = node.uri,
+            kind = node.kind,
+            content = node.content,
+            normalizedText = node.normalizedText,
+            searchableText = node.searchableText,
+            keywords = node.keywords,
+            aliases = node.aliases,
+            entities = node.entities,
+            topics = node.topics,
+            triggerPhrases = node.triggerPhrases,
+            disclosure = node.disclosure,
+            priority = node.priority,
+            confidence = node.confidence,
+            strength = node.strength,
+            emotionValence = node.emotionValence,
+            emotionArousal = node.emotionArousal,
+            scopeHint = node.scopeHint,
+            personUri = node.personUri,
+            projectUri = node.projectUri,
+            status = node.status,
+            source = node.source,
+            rawEvidence = node.rawEvidence
+        )
+    }
+
+    private fun materialNodeByUri(
+        uri: String?,
+        byUri: Map<String, DatabaseService.MemoryNodeRecord>
+    ): DatabaseService.MemoryNodeRecord? {
+        if (uri.isNullOrBlank()) return null
+        return byUri[uri] ?: byUri[normalizeUri(uri, "working_memory", uri)]
+    }
+
+    private fun materialObservationByUri(
+        uri: String?,
+        byUri: Map<String, DatabaseService.MemoryObservationRecord>
+    ): DatabaseService.MemoryObservationRecord? {
+        if (uri.isNullOrBlank()) return null
+        return byUri[uri] ?: uri.removePrefix("observation://").toIntOrNull()?.let { id ->
+            byUri["observation://$id"]
+        }
+    }
+
+    private fun linkDreamOperationSources(
+        createdNodeId: Int,
+        op: DreamOperationPayload,
+        nodeByUri: Map<String, DatabaseService.MemoryNodeRecord>,
+        observationByUri: Map<String, DatabaseService.MemoryObservationRecord>
+    ) {
+        op.sourceUris.forEach { sourceUri ->
+            materialNodeByUri(sourceUri, nodeByUri)?.let { sourceNode ->
+                if (sourceNode.id != createdNodeId) {
+                    DatabaseService.upsertMemoryEdge(
+                        DatabaseService.MemoryEdgeDraft(createdNodeId, sourceNode.id, "derived_from", 0.8)
+                    )
+                }
+            }
+            materialObservationByUri(sourceUri, observationByUri)?.let { observation ->
+                DatabaseService.updateMemoryObservationStatus(observation.id, "promoted", createdNodeId)
+            }
+        }
+    }
+
     suspend fun runDreamDryRun(): JsonObject {
-        return runDream(mode = "dry_run", dryRun = true)
+        return runMemoryModelCycle(
+            mode = "dry_run",
+            dryRun = true,
+            allowDreamNarrative = true,
+            allowDreamNodes = true,
+            allowMaintenanceOps = true
+        )
+    }
+
+    private suspend fun runAutoMaintenance(): JsonObject {
+        return runMemoryModelCycle(
+            mode = "maintenance",
+            dryRun = false,
+            allowDreamNarrative = false,
+            allowDreamNodes = false,
+            allowMaintenanceOps = true
+        )
     }
 
     private suspend fun runDream(mode: String, dryRun: Boolean): JsonObject {
+        return runMemoryModelCycle(
+            mode = mode,
+            dryRun = dryRun,
+            allowDreamNarrative = true,
+            allowDreamNodes = true,
+            allowMaintenanceOps = dryRun || Config.memoryAutoMaintenanceEnabled
+        )
+    }
+
+    private suspend fun runMemoryModelCycle(
+        mode: String,
+        dryRun: Boolean,
+        allowDreamNarrative: Boolean,
+        allowDreamNodes: Boolean,
+        allowMaintenanceOps: Boolean
+    ): JsonObject {
         val now = Instant.now().epochSecond
         val nextAllowedAt = now + Config.memoryDreamIdleHours * 3600L
         val dreamRunId = DatabaseService.insertDreamRun(
             DatabaseService.DreamRunDraft(mode = mode, status = "running", nextAllowedAt = nextAllowedAt)
         )
-        val candidates = DatabaseService.getRecentGraphMemoryNodes(limit = Config.memoryDreamBatchMaxNodes)
-        if (candidates.isEmpty()) {
+        val materials = collectDreamMaterials(Config.memoryDreamBatchMaxNodes)
+        if (materials.isEmpty()) {
             val draft = DatabaseService.DreamRunDraft(mode = mode, status = "skipped", error = "no memory candidates", nextAllowedAt = nextAllowedAt)
             DatabaseService.updateDreamRun(dreamRunId, draft)
             return buildDreamRunJson(dreamRunId, draft)
@@ -847,7 +1191,7 @@ object MemoryService {
             val draft = DatabaseService.DreamRunDraft(
                 mode = mode,
                 status = "skipped",
-                inputNodeCount = candidates.size,
+                inputNodeCount = materials.size,
                 error = "memory summary key is not configured",
                 nextAllowedAt = nextAllowedAt
             )
@@ -855,12 +1199,20 @@ object MemoryService {
             return buildDreamRunJson(dreamRunId, draft)
         }
 
-        val raw = callSummaryModel(buildDreamPrompt(candidates), requireJson = true)
+        val raw = callSummaryModel(
+            buildDreamPrompt(
+                materials = materials,
+                allowDreamNarrative = allowDreamNarrative,
+                allowDreamNodes = allowDreamNodes,
+                allowMaintenanceOps = allowMaintenanceOps
+            ),
+            requireJson = true
+        )
         if (raw == null) {
             val draft = DatabaseService.DreamRunDraft(
                 mode = mode,
                 status = "failed",
-                inputNodeCount = candidates.size,
+                inputNodeCount = materials.size,
                 error = "dream model returned no response",
                 nextAllowedAt = nextAllowedAt
             )
@@ -873,7 +1225,7 @@ object MemoryService {
             val draft = DatabaseService.DreamRunDraft(
                 mode = mode,
                 status = "failed",
-                inputNodeCount = candidates.size,
+                inputNodeCount = materials.size,
                 error = "dream model response was not a JSON object",
                 nextAllowedAt = nextAllowedAt
             )
@@ -882,16 +1234,55 @@ object MemoryService {
         }
 
         val dream = parseDreamModelResult(parsed)
+        var merged = 0
         var archived = 0
+        var tombstoned = 0
         var createdDream = 0
         var createdConsolidated = 0
         var skipped = 0
-        val byUri = candidates.associateBy { it.uri }
+        val nodeByUri = materials.mapNotNull { material -> material.node?.let { material.uri to it } }.toMap()
+        val observationByUri = materials.mapNotNull { material ->
+            material.observation?.let { material.uri to it }
+        }.toMap()
 
-        for (op in dream.operations.take(20)) {
+        operationLoop@ for (op in dream.operations.take(20)) {
             when (op.type) {
+                "merge" -> {
+                    if (!allowMaintenanceOps) {
+                        skipped += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, null, op.sourceUri, op.type, "maintenance operations are disabled", if (dryRun) "dry_run" else "skipped", targetUri = op.targetUri)
+                        continue@operationLoop
+                    }
+                    val source = materialNodeByUri(op.sourceUri, nodeByUri)
+                    val target = materialNodeByUri(op.targetUri, nodeByUri) ?: op.targetUri?.let {
+                        DatabaseService.getMemoryNodeByUri(normalizeUri(it, "working_memory", it))
+                    }?.takeIf { it.status == "active" }
+                    val unsafePersonMerge = source?.personUri != null && target?.personUri != null && source.personUri != target.personUri
+                    if (source == null || target == null || source.id == target.id || source.disclosure == "sensitive" || unsafePersonMerge) {
+                        skipped += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, source?.id, op.sourceUri, op.type, op.reason ?: "unsafe or missing merge nodes", if (dryRun) "dry_run" else "skipped", target?.id, target?.uri ?: op.targetUri)
+                    } else if (dryRun) {
+                        DatabaseService.insertDreamRunItem(dreamRunId, source.id, source.uri, op.type, op.reason, "dry_run", target.id, target.uri)
+                    } else {
+                        val mergedDraft = mergeNodeDraft(target, nodeDraftFromRecord(source)).copy(status = "active")
+                        DatabaseService.updateMemoryNode(target.id, mergedDraft)
+                        DatabaseService.replaceMemorySearchTerms(target.id, deriveSearchTerms(mergedDraft))
+                        DatabaseService.archiveMemoryNodeToRecycle(source, op.reason ?: "merged by memory maintenance", Config.memoryRecycleRetentionDays)
+                        DatabaseService.upsertMemoryEdge(
+                            DatabaseService.MemoryEdgeDraft(target.id, source.id, "supersedes", 0.9)
+                        )
+                        merged += 1
+                        archived += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, source.id, source.uri, op.type, op.reason, "applied", target.id, target.uri)
+                    }
+                }
                 "archive", "tombstone" -> {
-                    val node = op.sourceUri?.let { byUri[normalizeUri(it, "working_memory", it)] }
+                    if (!allowMaintenanceOps) {
+                        skipped += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, null, op.sourceUri, op.type, "maintenance operations are disabled", if (dryRun) "dry_run" else "skipped")
+                        continue@operationLoop
+                    }
+                    val node = materialNodeByUri(op.sourceUri, nodeByUri)
                     if (node == null || node.disclosure == "sensitive") {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.sourceUri, op.type, op.reason ?: "unsafe or missing source node", if (dryRun) "dry_run" else "skipped")
@@ -899,12 +1290,22 @@ object MemoryService {
                         DatabaseService.insertDreamRunItem(dreamRunId, node.id, node.uri, op.type, op.reason, "dry_run")
                     } else {
                         DatabaseService.archiveMemoryNodeToRecycle(node, op.reason ?: "dream maintenance", Config.memoryRecycleRetentionDays)
-                        archived += 1
+                        if (op.type == "tombstone") tombstoned += 1 else archived += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, node.id, node.uri, op.type, op.reason, "applied")
                     }
                 }
                 "create_consolidated_node" -> {
-                    val draft = nodeDraftFromDreamOperation(op, dream.dreamSummary, status = "active", source = "dream_consolidation")
+                    if (!allowMaintenanceOps) {
+                        skipped += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, null, op.targetUri, op.type, "maintenance operations are disabled", if (dryRun) "dry_run" else "skipped")
+                        continue@operationLoop
+                    }
+                    val draft = nodeDraftFromDreamOperation(
+                        op,
+                        dream.dreamSummary,
+                        status = "active",
+                        source = if (mode == "maintenance") "maintenance_consolidation" else "dream_consolidation"
+                    )
                     if (draft == null) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.targetUri, op.type, "missing content", if (dryRun) "dry_run" else "skipped")
@@ -919,11 +1320,17 @@ object MemoryService {
                             DatabaseService.insertMemoryNode(draft)
                         }
                         DatabaseService.replaceMemorySearchTerms(nodeId, deriveSearchTerms(draft))
+                        linkDreamOperationSources(nodeId, op, nodeByUri, observationByUri)
                         createdConsolidated += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "applied", nodeId, draft.uri)
                     }
                 }
                 "create_dream_node" -> {
+                    if (!allowDreamNodes) {
+                        skipped += 1
+                        DatabaseService.insertDreamRunItem(dreamRunId, null, op.targetUri, op.type, "dream nodes are disabled for this run", if (dryRun) "dry_run" else "skipped")
+                        continue@operationLoop
+                    }
                     val dreamOp = op.copy(
                         targetUri = op.targetUri ?: "dream://${Instant.now().toString().substring(0, 10)}/$dreamRunId-${slugify(dream.dreamSummary.ifBlank { "fragment" })}",
                         kind = "reflection"
@@ -942,6 +1349,7 @@ object MemoryService {
                         } else {
                             val nodeId = DatabaseService.insertMemoryNode(draft)
                             DatabaseService.replaceMemorySearchTerms(nodeId, deriveSearchTerms(draft))
+                            linkDreamOperationSources(nodeId, dreamOp, nodeByUri, observationByUri)
                             createdDream += 1
                             DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "applied", nodeId, draft.uri)
                         }
@@ -955,14 +1363,17 @@ object MemoryService {
         }
 
         if (!dryRun && !dream.reflectionNote.isNullOrBlank()) {
-            DatabaseService.insertReflection("[dream] ${dream.reflectionNote}")
+            val reflectionPrefix = if (mode == "maintenance") "[maintenance]" else "[dream]"
+            DatabaseService.insertReflection("$reflectionPrefix ${dream.reflectionNote}")
         }
 
         val finalDraft = DatabaseService.DreamRunDraft(
             mode = mode,
             status = "completed",
-            inputNodeCount = candidates.size,
+            inputNodeCount = materials.size,
+            mergedCount = merged,
             archivedCount = archived,
+            tombstonedCount = tombstoned,
             createdDreamCount = createdDream,
             createdConsolidatedCount = createdConsolidated,
             skippedCount = skipped,
@@ -982,7 +1393,9 @@ object MemoryService {
             put("mode", draft.mode)
             put("status", draft.status)
             put("input_node_count", draft.inputNodeCount)
+            put("merged_count", draft.mergedCount)
             put("archived_count", draft.archivedCount)
+            put("tombstoned_count", draft.tombstonedCount)
             put("created_dream_count", draft.createdDreamCount)
             put("created_consolidated_count", draft.createdConsolidatedCount)
             put("skipped_count", draft.skippedCount)
@@ -992,6 +1405,112 @@ object MemoryService {
             put("symbols", buildJsonArray { draft.dreamSymbols.forEach { add(JsonPrimitive(it)) } })
             put("emotions", buildJsonArray { draft.dreamEmotions.forEach { add(JsonPrimitive(it)) } })
             put("next_allowed_at", draft.nextAllowedAt ?: 0L)
+            put("items", buildJsonArray {
+                DatabaseService.getDreamRunItems(dreamRunId, limit = 100).forEach { item ->
+                    add(buildJsonObject {
+                        put("id", item.id)
+                        put("node_id", item.nodeId ?: 0)
+                        put("node_uri", item.nodeUri ?: "")
+                        put("operation", item.operation)
+                        put("reason", item.reason ?: "")
+                        put("result", item.result)
+                        put("target_node_id", item.targetNodeId ?: 0)
+                        put("target_uri", item.targetUri ?: "")
+                        put("created_at", item.createdAt)
+                    })
+                }
+            })
+        }
+    }
+
+    fun confirmDreamTrace(
+        dreamNodeId: Int?,
+        dreamUri: String?,
+        targetUri: String?,
+        kind: String?,
+        content: String?
+    ): JsonObject {
+        val dream = when {
+            dreamNodeId != null && dreamNodeId > 0 -> DatabaseService.getMemoryNodeById(dreamNodeId)
+            !dreamUri.isNullOrBlank() -> DatabaseService.getMemoryNodeByUri(normalizeUri(dreamUri, "reflection", dreamUri))
+            else -> null
+        } ?: return buildJsonObject {
+            put("ok", false)
+            put("error", "dream node was not found")
+        }
+
+        if (dream.status != "dream" || !dream.uri.startsWith("dream://")) {
+            return buildJsonObject {
+                put("ok", false)
+                put("error", "source node is not a dream trace")
+            }
+        }
+
+        val factKind = kind?.trim()?.ifBlank { null } ?: "project_fact"
+        val factContent = content?.trim()?.ifBlank { null } ?: dream.content
+        val normalizedTargetUri = normalizeUri(targetUri, factKind, factContent)
+        if (normalizedTargetUri.startsWith("dream://")) {
+            return buildJsonObject {
+                put("ok", false)
+                put("error", "confirmed fact target URI must not use dream://")
+            }
+        }
+
+        val draft = DatabaseService.MemoryNodeDraft(
+            uri = normalizedTargetUri,
+            kind = factKind,
+            content = factContent,
+            normalizedText = normalizeText(factContent),
+            searchableText = buildSearchableText(
+                content = factContent,
+                keywords = dream.keywords,
+                aliases = dream.aliases,
+                entities = dream.entities,
+                topics = dream.topics,
+                triggerPhrases = dream.triggerPhrases,
+                uri = normalizedTargetUri,
+                scopeHint = dream.scopeHint,
+                personUri = dream.personUri,
+                projectUri = dream.projectUri
+            ),
+            keywords = dream.keywords,
+            aliases = dream.aliases,
+            entities = dream.entities,
+            topics = dream.topics,
+            triggerPhrases = dream.triggerPhrases,
+            disclosure = dream.disclosure,
+            priority = max(dream.priority, 0.55),
+            confidence = max(dream.confidence, 0.65),
+            strength = minOf(Config.memoryInitialStrength, Config.memoryMaxStrength),
+            emotionValence = dream.emotionValence,
+            emotionArousal = dream.emotionArousal,
+            scopeHint = dream.scopeHint,
+            personUri = dream.personUri,
+            projectUri = dream.projectUri,
+            status = "active",
+            source = "dream_confirmed",
+            rawEvidence = "confirmed from dream trace ${dream.uri}"
+        )
+
+        val existing = DatabaseService.getMemoryNodeByUri(draft.uri)
+        val factNodeId = if (existing != null) {
+            val merged = mergeNodeDraft(existing, draft).copy(status = "active", source = "dream_confirmed")
+            DatabaseService.updateMemoryNode(existing.id, merged)
+            DatabaseService.replaceMemorySearchTerms(existing.id, deriveSearchTerms(merged))
+            existing.id
+        } else {
+            val nodeId = DatabaseService.insertMemoryNode(draft)
+            DatabaseService.replaceMemorySearchTerms(nodeId, deriveSearchTerms(draft))
+            nodeId
+        }
+        DatabaseService.upsertMemoryEdge(DatabaseService.MemoryEdgeDraft(factNodeId, dream.id, "derived_from", 1.0))
+
+        return buildJsonObject {
+            put("ok", true)
+            put("dream_node_id", dream.id)
+            put("dream_uri", dream.uri)
+            put("fact_node_id", factNodeId)
+            put("fact_uri", draft.uri)
         }
     }
 
@@ -1180,7 +1699,7 @@ object MemoryService {
         existingNodes: MutableList<DatabaseService.MemoryNodeRecord>,
         uriToId: MutableMap<String, Int>
     ): Int {
-        val duplicate = findDuplicateNode(existingNodes, draft)
+        val duplicate = findDuplicateNode(existingNodes, draft) ?: findWorkingMemorySlot(draft, allowFullFallback = true)
         val nodeId = if (duplicate != null) {
             val merged = mergeNodeDraft(duplicate, draft)
             DatabaseService.updateMemoryNode(duplicate.id, merged)
@@ -1282,7 +1801,8 @@ object MemoryService {
             if (shouldIgnoreObservation(payload)) continue
             val observationDraft = summaryNodeToObservationDraft(payload)
             val nodeDraft = summaryNodeToDraft(payload)
-            val existingDuplicate = findDuplicateNode(existingNodes, nodeDraft)
+            val existingDuplicate = findDuplicateNode(existingNodes, nodeDraft) ?:
+                findWorkingMemorySlot(nodeDraft, allowFullFallback = false)
             if (existingDuplicate != null) {
                 val merged = mergeNodeDraft(existingDuplicate, nodeDraft)
                 DatabaseService.updateMemoryNode(existingDuplicate.id, merged)
@@ -1298,6 +1818,21 @@ object MemoryService {
                 DatabaseService.getMemoryNodeById(existingDuplicate.id)?.let { fresh ->
                     existingNodes.removeAll { it.id == fresh.id }
                     existingNodes.add(fresh)
+                }
+                continue
+            }
+
+            if (payload.kind == "working_memory" &&
+                workingMemorySlotHasCapacity(nodeDraft) &&
+                promotedToday < Config.memoryPromotedNodesDailyCap
+            ) {
+                if (observationsToday < Config.memoryObservationDailyCap) {
+                    val observationId = DatabaseService.insertMemoryObservation(observationDraft)
+                    DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observationDraft))
+                    observationsToday += 1
+                    val nodeId = upsertMemoryDraft(payload, nodeDraft, existingNodes, uriToId)
+                    DatabaseService.updateMemoryObservationStatus(observationId, "promoted", nodeId)
+                    promotedToday += 1
                 }
                 continue
             }

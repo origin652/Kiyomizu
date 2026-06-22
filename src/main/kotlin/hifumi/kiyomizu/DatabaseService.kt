@@ -1153,6 +1153,19 @@ object DatabaseService {
         val nextAllowedAt: Long?
     )
 
+    data class DreamRunItemRecord(
+        val id: Int,
+        val dreamRunId: Int,
+        val nodeId: Int?,
+        val nodeUri: String?,
+        val operation: String,
+        val reason: String?,
+        val result: String,
+        val targetNodeId: Int?,
+        val targetUri: String?,
+        val createdAt: Long
+    )
+
     data class DreamRunDraft(
         val mode: String,
         val status: String,
@@ -1290,6 +1303,25 @@ object DatabaseService {
             dreamSymbols = parseStringList(rs.getString("dream_symbols")),
             dreamEmotions = parseStringList(rs.getString("dream_emotions")),
             nextAllowedAt = if (nextAllowedAtNull) null else nextAllowedAt
+        )
+    }
+
+    private fun readDreamRunItem(rs: java.sql.ResultSet): DreamRunItemRecord {
+        val nodeId = rs.getInt("node_id")
+        val nodeIdNull = rs.wasNull()
+        val targetNodeId = rs.getInt("target_node_id")
+        val targetNodeIdNull = rs.wasNull()
+        return DreamRunItemRecord(
+            id = rs.getInt("id"),
+            dreamRunId = rs.getInt("dream_run_id"),
+            nodeId = if (nodeIdNull) null else nodeId,
+            nodeUri = rs.getString("node_uri"),
+            operation = rs.getString("operation"),
+            reason = rs.getString("reason"),
+            result = rs.getString("result"),
+            targetNodeId = if (targetNodeIdNull) null else targetNodeId,
+            targetUri = rs.getString("target_uri"),
+            createdAt = rs.getLong("created_at")
         )
     }
 
@@ -1610,6 +1642,27 @@ object DatabaseService {
         return list
     }
 
+    fun getBufferedObservationsForMaintenance(limit: Int): List<MemoryObservationRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryObservationRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_observations
+                WHERE status = 'buffered'
+                ORDER BY seen_count DESC, priority DESC, confidence DESC, last_seen_at DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryObservation(rs))
+                }
+            }
+        }
+        return list
+    }
+
     fun updateMemoryObservationStatus(observationId: Int, status: String, matchedNodeId: Int? = null) {
         getConnection().use { conn ->
             conn.prepareStatement("""
@@ -1791,7 +1844,7 @@ object DatabaseService {
             conn.prepareStatement("""
                 SELECT COUNT(*)
                 FROM dream_runs
-                WHERE mode = ? AND started_at >= ? AND status IN ('completed', 'failed')
+                WHERE mode = ? AND started_at >= ? AND status IN ('completed', 'failed', 'skipped')
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, mode)
                 pstmt.setLong(2, sinceEpochSecond)
@@ -1800,6 +1853,28 @@ object DatabaseService {
             }
         }
         return 0
+    }
+
+    fun getDreamRunItems(dreamRunId: Int, limit: Int = 100): List<DreamRunItemRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<DreamRunItemRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM dream_run_items
+                WHERE dream_run_id = ?
+                ORDER BY id ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, dreamRunId)
+                pstmt.setInt(2, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readDreamRunItem(rs))
+                }
+            }
+        }
+        return list
     }
 
     fun archiveMemoryNodeToRecycle(node: MemoryNodeRecord, reason: String, retentionDays: Int): Boolean {
@@ -1851,6 +1926,8 @@ object DatabaseService {
         if (expired.isEmpty()) return 0
 
         getConnection().use { conn ->
+            conn.autoCommit = false
+            try {
             val placeholders = expired.joinToString(",") { "?" }
             conn.prepareStatement("""
                 UPDATE memory_nodes
@@ -1870,11 +1947,30 @@ object DatabaseService {
                 pstmt.setLong(1, now)
                 expired.forEachIndexed { index, id -> pstmt.setInt(index + 2, id) }
                 val count = pstmt.executeUpdate()
+                conn.prepareStatement("DELETE FROM memory_search_terms WHERE node_id IN ($placeholders)").use { deleteTerms ->
+                    expired.forEachIndexed { index, id -> deleteTerms.setInt(index + 1, id) }
+                    deleteTerms.executeUpdate()
+                }
+                try {
+                    conn.prepareStatement("DELETE FROM memory_nodes_fts WHERE node_id IN ($placeholders)").use { deleteFts ->
+                        expired.forEachIndexed { index, id -> deleteFts.setInt(index + 1, id) }
+                        deleteFts.executeUpdate()
+                    }
+                } catch (_: Exception) {
+                    // FTS table is optional.
+                }
                 conn.prepareStatement("DELETE FROM memory_recycle_bin WHERE purge_after <= ?").use { delete ->
                     delete.setLong(1, now)
                     delete.executeUpdate()
                 }
+                conn.commit()
                 return count
+            }
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
             }
         }
     }
@@ -2039,6 +2135,80 @@ object DatabaseService {
                 var position = 1
                 kinds.forEach { pstmt.setString(position++, it) }
                 pstmt.setInt(position, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryNode(rs))
+                }
+            }
+        }
+        return list
+    }
+
+    fun getOldWeakGraphMemoryNodes(limit: Int, olderThanSeconds: Long, maxStrength: Double): List<MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val cutoff = Instant.now().epochSecond - olderThanSeconds.coerceAtLeast(0L)
+        val list = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_nodes
+                WHERE status = 'active'
+                  AND updated_at <= ?
+                  AND strength <= ?
+                ORDER BY strength ASC, updated_at ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, cutoff)
+                pstmt.setDouble(2, maxStrength)
+                pstmt.setInt(3, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryNode(rs))
+                }
+            }
+        }
+        return list
+    }
+
+    fun getEmotionallySalientGraphMemoryNodes(limit: Int, minArousal: Double = 0.55): List<MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_nodes
+                WHERE status = 'active'
+                  AND (emotion_arousal >= ? OR emotion_valence <= 0.30 OR emotion_valence >= 0.70)
+                ORDER BY emotion_arousal DESC, priority DESC, updated_at DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setDouble(1, minArousal)
+                pstmt.setInt(2, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryNode(rs))
+                }
+            }
+        }
+        return list
+    }
+
+    fun getActiveWorkingMemoryNodes(projectUri: String?, limit: Int): List<MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_nodes
+                WHERE status = 'active'
+                  AND kind = 'working_memory'
+                  AND ((? IS NULL AND project_uri IS NULL) OR project_uri = ?)
+                ORDER BY updated_at DESC, strength DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setNullableString(1, projectUri)
+                pstmt.setNullableString(2, projectUri)
+                pstmt.setInt(3, limit)
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
                     list.add(readMemoryNode(rs))
