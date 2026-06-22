@@ -1179,8 +1179,25 @@ input[disabled], textarea[disabled], select[disabled] {
   font-family: var(--font-mono);
   word-break: break-all;
 }
+.memory-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.memory-queue-actions .btn {
+  padding: 5px 8px;
+  font-size: var(--fs-xs);
+}
+.self-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 var(--sp-4);
+}
 @media (max-width: 760px) {
   .memory-queue-grid { grid-template-columns: 1fr; }
+  .self-create-row { grid-template-columns: 1fr; }
 }
 .eyebrow {
   font-size: var(--fs-xs);
@@ -1653,6 +1670,46 @@ input[disabled], textarea[disabled], select[disabled] {
             </div>
             <div class="dream-run-result" id="dream-dry-run-result" aria-live="polite"></div>
             <div class="panel-title-row">
+              <div class="eyebrow" id="t-self-memory-label">Self Memory</div>
+              <button class="btn btn-ghost" onclick="loadSelfMemory()" id="t-self-memory-refresh">Refresh self</button>
+            </div>
+            <div class="self-create-row">
+              <input type="text" id="self-memory-content" placeholder="I should..." autocomplete="off">
+              <button class="btn btn-secondary" onclick="createSelfMemory()" id="t-self-memory-create">Create self memory</button>
+            </div>
+            <div class="memory-queue-grid">
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-stable-self-label">Stable Self</div>
+                <div class="memory-queue-list" id="stable-self-list">
+                  <div class="empty" id="t-no-stable-self">No stable self memory.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-buffered-self-label">Buffered Self</div>
+                <div class="memory-queue-list" id="buffered-self-list">
+                  <div class="empty" id="t-no-buffered-self">No buffered self observations.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-dream-self-label">Dream-source Self</div>
+                <div class="memory-queue-list" id="dream-self-list">
+                  <div class="empty" id="t-no-dream-self">No dream-source self observations.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-conflict-self-label">Self Conflicts</div>
+                <div class="memory-queue-list" id="conflict-self-list">
+                  <div class="empty" id="t-no-conflict-self">No self conflicts.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-self-events-label">Self Events</div>
+                <div class="memory-queue-list" id="self-events-list">
+                  <div class="empty" id="t-no-self-events">No self events.</div>
+                </div>
+              </div>
+            </div>
+            <div class="panel-title-row">
               <div class="eyebrow" id="t-memory-queues-label">Memory Queues</div>
               <button class="btn btn-ghost" onclick="loadMemoryQueues()" id="t-memory-queues-refresh">Refresh queues</button>
             </div>
@@ -1971,6 +2028,28 @@ input[disabled], textarea[disabled], select[disabled] {
                   </div>
 
                   <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-self-toggle-label">
+                      <span>Enable Self Memory</span>
+                      <input type="checkbox" name="memory_self_enabled" class="cb-accent">
+                    </label>
+                    <label class="label-inline" id="t-comp-self-direct-toggle-label">
+                      <span>Allow Direct Self Updates</span>
+                      <input type="checkbox" name="memory_self_direct_update_enabled" class="cb-accent">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-self-recall-label">
+                      Self Recall Max Nodes (0-20)
+                      <input type="number" name="memory_self_recall_max_nodes" min="0" max="20" step="1">
+                    </label>
+                    <label id="t-comp-self-repeat-label">
+                      Self Promote Repeats (1-20)
+                      <input type="number" name="memory_self_promote_repeat_threshold" min="1" max="20" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
                     <label id="t-comp-project-repeat-label">
                       Project Fact Repeats (1-20)
                       <input type="number" name="memory_project_fact_promote_repeat_threshold" min="1" max="20" step="1">
@@ -2189,6 +2268,10 @@ const STRINGS = {
     compPersonCluesLabel: '人物上下文线索 (0-10)',
     compBufferedToggleLabel: '写入前先进入观察缓冲区',
     compPromoteRepeatLabel: '重复几次后晋升 (1-20)',
+    compSelfToggleLabel: '启用 self 记忆',
+    compSelfDirectToggleLabel: '允许对话直接修改 self',
+    compSelfRecallLabel: 'self 召回节点上限 (0-20)',
+    compSelfRepeatLabel: 'self 重复晋升阈值 (1-20)',
     compProjectRepeatLabel: '项目事实重复晋升阈值 (1-20)',
     compWorkingSlotsLabel: '每项目工作记忆槽位 (1-20)',
     compObservationRetentionLabel: '观察保留天数 (1-365)',
@@ -2249,6 +2332,22 @@ const STRINGS = {
     companionPanelTitle: '伴侣状态',
     companionRefresh: '刷新',
     dreamDryRun: '做梦 dry run',
+    selfMemoryLabel: 'Self 记忆',
+    selfMemoryRefresh: '刷新 self',
+    selfMemoryCreate: '创建 self 记忆',
+    stableSelfLabel: '稳定 self',
+    bufferedSelfLabel: '缓冲 self',
+    dreamSelfLabel: '梦来源 self',
+    conflictSelfLabel: 'self 冲突',
+    selfEventsLabel: 'self 事件',
+    noStableSelf: '暂无稳定 self 记忆。',
+    noBufferedSelf: '暂无缓冲 self 观察。',
+    noDreamSelf: '暂无梦来源 self 观察。',
+    noConflictSelf: '暂无 self 冲突。',
+    noSelfEvents: '暂无 self 事件。',
+    archiveSelf: '归档',
+    confirmSelf: '确认',
+    revertSelf: '撤销',
     memoryQueuesLabel: '记忆队列',
     memoryQueuesRefresh: '刷新队列',
     observationsLabel: '观察缓冲区',
@@ -2347,6 +2446,10 @@ const STRINGS = {
     compPersonCluesLabel: 'Person Context Clues (0-10)',
     compBufferedToggleLabel: 'Buffer memory before promotion',
     compPromoteRepeatLabel: 'Promote After Repeats (1-20)',
+    compSelfToggleLabel: 'Enable Self Memory',
+    compSelfDirectToggleLabel: 'Allow Direct Self Updates',
+    compSelfRecallLabel: 'Self Recall Max Nodes (0-20)',
+    compSelfRepeatLabel: 'Self Promote Repeats (1-20)',
     compProjectRepeatLabel: 'Project Fact Repeats (1-20)',
     compWorkingSlotsLabel: 'Working Slots / Project (1-20)',
     compObservationRetentionLabel: 'Observation Retention Days (1-365)',
@@ -2407,6 +2510,22 @@ const STRINGS = {
     companionPanelTitle: 'Companion State',
     companionRefresh: 'Refresh',
     dreamDryRun: 'Dream dry run',
+    selfMemoryLabel: 'Self Memory',
+    selfMemoryRefresh: 'Refresh self',
+    selfMemoryCreate: 'Create self memory',
+    stableSelfLabel: 'Stable Self',
+    bufferedSelfLabel: 'Buffered Self',
+    dreamSelfLabel: 'Dream-source Self',
+    conflictSelfLabel: 'Self Conflicts',
+    selfEventsLabel: 'Self Events',
+    noStableSelf: 'No stable self memory.',
+    noBufferedSelf: 'No buffered self observations.',
+    noDreamSelf: 'No dream-source self observations.',
+    noConflictSelf: 'No self conflicts.',
+    noSelfEvents: 'No self events.',
+    archiveSelf: 'Archive',
+    confirmSelf: 'Confirm',
+    revertSelf: 'Revert',
     memoryQueuesLabel: 'Memory Queues',
     memoryQueuesRefresh: 'Refresh queues',
     observationsLabel: 'Buffered Observations',
@@ -2505,6 +2624,10 @@ const STRINGS = {
     compPersonCluesLabel: '人物コンテキスト手がかり (0-10)',
     compBufferedToggleLabel: '昇格前に観察バッファへ保存',
     compPromoteRepeatLabel: '昇格する反復回数 (1-20)',
+    compSelfToggleLabel: 'self 記憶を有効化',
+    compSelfDirectToggleLabel: '会話から self を直接更新',
+    compSelfRecallLabel: 'self 想起ノード上限 (0-20)',
+    compSelfRepeatLabel: 'self 昇格反復閾値 (1-20)',
     compProjectRepeatLabel: 'プロジェクト事実の反復閾値 (1-20)',
     compWorkingSlotsLabel: 'プロジェクトごとの作業記憶枠 (1-20)',
     compObservationRetentionLabel: '観察保持日数 (1-365)',
@@ -2565,6 +2688,22 @@ const STRINGS = {
     companionPanelTitle: 'コンパニオン状態',
     companionRefresh: '更新',
     dreamDryRun: '夢 dry run',
+    selfMemoryLabel: 'Self 記憶',
+    selfMemoryRefresh: 'self を更新',
+    selfMemoryCreate: 'self 記憶を作成',
+    stableSelfLabel: '安定 self',
+    bufferedSelfLabel: 'バッファ self',
+    dreamSelfLabel: '夢由来 self',
+    conflictSelfLabel: 'self 衝突',
+    selfEventsLabel: 'self イベント',
+    noStableSelf: '安定 self 記憶はありません。',
+    noBufferedSelf: 'バッファ中の self 観察はありません。',
+    noDreamSelf: '夢由来 self 観察はありません。',
+    noConflictSelf: 'self 衝突はありません。',
+    noSelfEvents: 'self イベントはありません。',
+    archiveSelf: 'アーカイブ',
+    confirmSelf: '確認',
+    revertSelf: '取り消し',
     memoryQueuesLabel: '記憶キュー',
     memoryQueuesRefresh: 'キューを更新',
     observationsLabel: '観察バッファ',
@@ -2815,6 +2954,10 @@ function applyConfigData(d) {
   f.memory_person_context_max_clues.value = d.memory_person_context_max_clues !== undefined ? d.memory_person_context_max_clues : 2;
   f.memory_buffered_ingestion_enabled.checked = d.memory_buffered_ingestion_enabled !== undefined ? d.memory_buffered_ingestion_enabled : true;
   f.memory_promote_repeat_threshold.value = d.memory_promote_repeat_threshold !== undefined ? d.memory_promote_repeat_threshold : 2;
+  f.memory_self_enabled.checked = d.memory_self_enabled !== undefined ? d.memory_self_enabled : true;
+  f.memory_self_direct_update_enabled.checked = d.memory_self_direct_update_enabled !== undefined ? d.memory_self_direct_update_enabled : true;
+  f.memory_self_recall_max_nodes.value = d.memory_self_recall_max_nodes !== undefined ? d.memory_self_recall_max_nodes : 8;
+  f.memory_self_promote_repeat_threshold.value = d.memory_self_promote_repeat_threshold !== undefined ? d.memory_self_promote_repeat_threshold : 3;
   f.memory_project_fact_promote_repeat_threshold.value = d.memory_project_fact_promote_repeat_threshold !== undefined ? d.memory_project_fact_promote_repeat_threshold : 2;
   f.memory_working_memory_slots_per_project.value = d.memory_working_memory_slots_per_project !== undefined ? d.memory_working_memory_slots_per_project : 3;
   f.memory_observation_retention_days.value = d.memory_observation_retention_days !== undefined ? d.memory_observation_retention_days : 14;
@@ -2922,6 +3065,12 @@ function applyLang(lang) {
   const bufferedToggleLabel = document.querySelector('#t-comp-buffered-toggle-label span');
   if (bufferedToggleLabel) bufferedToggleLabel.textContent = s.compBufferedToggleLabel || 'Buffer memory before promotion';
   setText('t-comp-promote-repeat-label', s.compPromoteRepeatLabel || 'Promote After Repeats (1-20)', 'memory_promote_repeat_threshold');
+  const selfToggleLabel = document.querySelector('#t-comp-self-toggle-label span');
+  if (selfToggleLabel) selfToggleLabel.textContent = s.compSelfToggleLabel || 'Enable Self Memory';
+  const selfDirectToggleLabel = document.querySelector('#t-comp-self-direct-toggle-label span');
+  if (selfDirectToggleLabel) selfDirectToggleLabel.textContent = s.compSelfDirectToggleLabel || 'Allow Direct Self Updates';
+  setText('t-comp-self-recall-label', s.compSelfRecallLabel || 'Self Recall Max Nodes (0-20)', 'memory_self_recall_max_nodes');
+  setText('t-comp-self-repeat-label', s.compSelfRepeatLabel || 'Self Promote Repeats (1-20)', 'memory_self_promote_repeat_threshold');
   setText('t-comp-project-repeat-label', s.compProjectRepeatLabel || 'Project Fact Repeats (1-20)', 'memory_project_fact_promote_repeat_threshold');
   setText('t-comp-working-slots-label', s.compWorkingSlotsLabel || 'Working Slots / Project (1-20)', 'memory_working_memory_slots_per_project');
   setText('t-comp-observation-retention-label', s.compObservationRetentionLabel || 'Observation Retention Days (1-365)', 'memory_observation_retention_days');
@@ -2965,6 +3114,32 @@ function applyLang(lang) {
   if (companionRefresh) companionRefresh.textContent = s.companionRefresh || 'Refresh';
   const dreamDryRun = document.getElementById('t-dream-dry-run');
   if (dreamDryRun) dreamDryRun.textContent = s.dreamDryRun || 'Dream dry run';
+  const selfMemoryLabel = document.getElementById('t-self-memory-label');
+  if (selfMemoryLabel) selfMemoryLabel.textContent = s.selfMemoryLabel || 'Self Memory';
+  const selfMemoryRefresh = document.getElementById('t-self-memory-refresh');
+  if (selfMemoryRefresh) selfMemoryRefresh.textContent = s.selfMemoryRefresh || 'Refresh self';
+  const selfMemoryCreate = document.getElementById('t-self-memory-create');
+  if (selfMemoryCreate) selfMemoryCreate.textContent = s.selfMemoryCreate || 'Create self memory';
+  const stableSelfLabel = document.getElementById('t-stable-self-label');
+  if (stableSelfLabel) stableSelfLabel.textContent = s.stableSelfLabel || 'Stable Self';
+  const bufferedSelfLabel = document.getElementById('t-buffered-self-label');
+  if (bufferedSelfLabel) bufferedSelfLabel.textContent = s.bufferedSelfLabel || 'Buffered Self';
+  const dreamSelfLabel = document.getElementById('t-dream-self-label');
+  if (dreamSelfLabel) dreamSelfLabel.textContent = s.dreamSelfLabel || 'Dream-source Self';
+  const conflictSelfLabel = document.getElementById('t-conflict-self-label');
+  if (conflictSelfLabel) conflictSelfLabel.textContent = s.conflictSelfLabel || 'Self Conflicts';
+  const selfEventsLabel = document.getElementById('t-self-events-label');
+  if (selfEventsLabel) selfEventsLabel.textContent = s.selfEventsLabel || 'Self Events';
+  const noStableSelf = document.getElementById('t-no-stable-self');
+  if (noStableSelf) noStableSelf.textContent = s.noStableSelf || 'No stable self memory.';
+  const noBufferedSelf = document.getElementById('t-no-buffered-self');
+  if (noBufferedSelf) noBufferedSelf.textContent = s.noBufferedSelf || 'No buffered self observations.';
+  const noDreamSelf = document.getElementById('t-no-dream-self');
+  if (noDreamSelf) noDreamSelf.textContent = s.noDreamSelf || 'No dream-source self observations.';
+  const noConflictSelf = document.getElementById('t-no-conflict-self');
+  if (noConflictSelf) noConflictSelf.textContent = s.noConflictSelf || 'No self conflicts.';
+  const noSelfEvents = document.getElementById('t-no-self-events');
+  if (noSelfEvents) noSelfEvents.textContent = s.noSelfEvents || 'No self events.';
   const memoryQueuesLabel = document.getElementById('t-memory-queues-label');
   if (memoryQueuesLabel) memoryQueuesLabel.textContent = s.memoryQueuesLabel || 'Memory Queues';
   const memoryQueuesRefresh = document.getElementById('t-memory-queues-refresh');
@@ -3308,6 +3483,10 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_person_context_max_clues: Number(f.memory_person_context_max_clues.value),
     memory_buffered_ingestion_enabled: f.memory_buffered_ingestion_enabled.checked,
     memory_promote_repeat_threshold: Number(f.memory_promote_repeat_threshold.value),
+    memory_self_enabled: f.memory_self_enabled.checked,
+    memory_self_direct_update_enabled: f.memory_self_direct_update_enabled.checked,
+    memory_self_recall_max_nodes: Number(f.memory_self_recall_max_nodes.value),
+    memory_self_promote_repeat_threshold: Number(f.memory_self_promote_repeat_threshold.value),
     memory_project_fact_promote_repeat_threshold: Number(f.memory_project_fact_promote_repeat_threshold.value),
     memory_working_memory_slots_per_project: Number(f.memory_working_memory_slots_per_project.value),
     memory_observation_retention_days: Number(f.memory_observation_retention_days.value),
@@ -3565,6 +3744,147 @@ async function loadMemoryQueues() {
   }
 }
 
+function renderSelfList(containerId, emptyText, rows, renderMeta, actionsBuilder) {
+  const list = document.getElementById(containerId);
+  if (!list) return;
+  list.textContent = '';
+  if (!rows || rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = emptyText;
+    list.appendChild(empty);
+    return;
+  }
+  rows.forEach(row => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const content = document.createElement('div');
+    content.textContent = row.content || row.content_after || row.candidate_uri || row.uri || '—';
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    meta.textContent = renderMeta(row);
+    item.appendChild(content);
+    item.appendChild(meta);
+    const actions = actionsBuilder ? actionsBuilder(row) : [];
+    if (actions.length) {
+      const actionWrap = document.createElement('div');
+      actionWrap.className = 'memory-queue-actions';
+      actions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-ghost';
+        btn.textContent = action.label;
+        btn.onclick = action.onClick;
+        actionWrap.appendChild(btn);
+      });
+      item.appendChild(actionWrap);
+    }
+    list.appendChild(item);
+  });
+}
+
+async function loadSelfMemory() {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/self');
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus((s.error || 'Error: ') + (d.error || 'Failed to load self memory'), 'err');
+      return;
+    }
+    renderSelfList(
+      'stable-self-list',
+      s.noStableSelf || 'No stable self memory.',
+      d.stable_self || [],
+      row => `${row.kind || 'self'} · ${row.source || 'unknown'} · conf=${row.confidence ?? '—'} · ${row.uri || ''}`,
+      row => [{ label: s.archiveSelf || 'Archive', onClick: () => archiveSelfMemory(row.id) }]
+    );
+    renderSelfList(
+      'buffered-self-list',
+      s.noBufferedSelf || 'No buffered self observations.',
+      d.buffered_self || [],
+      row => `${row.kind || 'self'} · ${row.source || 'unknown'} · seen=${row.seen_count || 0} · conf=${row.confidence ?? '—'} · ${row.candidate_uri || ''}`,
+      row => [{ label: s.confirmSelf || 'Confirm', onClick: () => confirmSelfObservation(row.id) }]
+    );
+    renderSelfList(
+      'dream-self-list',
+      s.noDreamSelf || 'No dream-source self observations.',
+      d.dream_source_self || [],
+      row => `${row.status || 'buffered'} · conf=${row.confidence ?? '—'} · ${row.candidate_uri || ''}`,
+      row => [{ label: s.confirmSelf || 'Confirm', onClick: () => confirmSelfObservation(row.id) }]
+    );
+    renderSelfList(
+      'conflict-self-list',
+      s.noConflictSelf || 'No self conflicts.',
+      d.conflicts || [],
+      row => `${row.source || 'unknown'} · matched=${row.matched_node_id || '—'} · conf=${row.confidence ?? '—'} · ${row.candidate_uri || ''}`,
+      row => [{ label: s.confirmSelf || 'Confirm', onClick: () => confirmSelfObservation(row.id) }]
+    );
+    renderSelfList(
+      'self-events-list',
+      s.noSelfEvents || 'No self events.',
+      d.recent_events || [],
+      row => `${row.event_type || 'event'} · ${row.source || 'unknown'} · ${row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '—'} · ${row.node_uri || row.new_node_uri || row.previous_node_uri || ''}`,
+      row => [{ label: s.revertSelf || 'Revert', onClick: () => revertSelfEvent(row.id) }]
+    );
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e && e.message ? e.message : 'Failed to load self memory'), 'err');
+  }
+}
+
+async function createSelfMemory() {
+  const s = STRINGS[currentLang];
+  const input = document.getElementById('self-memory-content');
+  const content = input.value.trim();
+  if (!content) return;
+  const r = await fetchConfig('/api/companion/self', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  const d = await readJsonResponse(r);
+  if (!r.ok || d.error) {
+    setStatus((s.error || 'Error: ') + (d.error || 'Failed to create self memory'), 'err');
+    return;
+  }
+  input.value = '';
+  setStatus((s.saved || 'Saved: ') + 'self memory', 'success', 3000);
+  await loadSelfMemory();
+}
+
+async function archiveSelfMemory(id) {
+  const s = STRINGS[currentLang];
+  const r = await fetchConfig('/api/companion/self/' + encodeURIComponent(id) + '/archive', { method: 'POST' });
+  const d = await readJsonResponse(r);
+  if (!r.ok || d.error || d.ok === false) {
+    setStatus((s.error || 'Error: ') + (d.error || 'Failed to archive self memory'), 'err');
+    return;
+  }
+  await loadSelfMemory();
+}
+
+async function confirmSelfObservation(id) {
+  const s = STRINGS[currentLang];
+  const r = await fetchConfig('/api/companion/self/observations/' + encodeURIComponent(id) + '/confirm', { method: 'POST' });
+  const d = await readJsonResponse(r);
+  if (!r.ok || d.error) {
+    setStatus((s.error || 'Error: ') + (d.error || 'Failed to confirm self observation'), 'err');
+    return;
+  }
+  await loadSelfMemory();
+}
+
+async function revertSelfEvent(id) {
+  const s = STRINGS[currentLang];
+  const r = await fetchConfig('/api/companion/self/events/' + encodeURIComponent(id) + '/revert', { method: 'POST' });
+  const d = await readJsonResponse(r);
+  if (!r.ok || d.error || d.ok === false) {
+    setStatus((s.error || 'Error: ') + (d.error || 'Failed to revert self event'), 'err');
+    return;
+  }
+  await loadSelfMemory();
+}
+
 async function loadCompanionState() {
   const r = await fetchConfig('/api/companion/state');
   if (!r.ok) return;
@@ -3625,6 +3945,7 @@ async function loadCompanionState() {
     });
   }
   await loadMemoryQueues();
+  await loadSelfMemory();
 }
 
 function renderDreamDryRunResult(d) {

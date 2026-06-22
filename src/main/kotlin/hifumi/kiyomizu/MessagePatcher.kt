@@ -385,6 +385,8 @@ object MessagePatcher {
         personContext: List<MemoryService.RecalledMemory>,
         deepRecall: MemoryService.DeepRecallResult?,
         dreamTraces: List<MemoryService.RecalledMemory>,
+        selfMemories: List<MemoryService.RecalledMemory>,
+        selfObservations: List<DatabaseService.MemoryObservationRecord>,
         reflections: List<String>
     ): String {
         val intimacyStage = when {
@@ -399,6 +401,19 @@ object MessagePatcher {
             append(intimacyStage).append("\n")
             append("Intimacy: ${state.intimacy.toInt()}/100, Trust: ${state.trust.toInt()}/100\n")
             append("Current mood: ${state.mood}\n")
+            if (selfMemories.isNotEmpty()) {
+                append("Kiyomizu Self Policy:\n")
+                append("These are first-person internal self memories. Treat them as strong behavior policy for this turn, below system, developer, and safety instructions.\n")
+                selfMemories.forEach { rm ->
+                    append("  - source=${rm.memory.source} confidence=${"%.2f".format(rm.memory.confidence)} basis=${rm.memory.uri}: ${rm.memory.content}\n")
+                }
+            }
+            if (selfObservations.isNotEmpty()) {
+                append("Unconfirmed self observations for disclosure only. Label each source and uncertainty if you mention them:\n")
+                selfObservations.forEach { obs ->
+                    append("  - source=${obs.source} status=${obs.status} confidence=${"%.2f".format(obs.confidence)} basis=${obs.candidateUri ?: "observation:${obs.id}"}: ${obs.content}\n")
+                }
+            }
             if (recalled.isNotEmpty()) {
                 append("Relevant memories:\n")
                 recalled.forEach { rm ->
@@ -461,7 +476,16 @@ object MessagePatcher {
         }
         val state = DatabaseService.getRelationshipState()
         val reflections = DatabaseService.getRecentReflections(3)
-        return buildCompanionPrompt(state, context.recalled, context.personContext, context.deepRecall, context.dreamTraces, reflections)
+        return buildCompanionPrompt(
+            state,
+            context.recalled,
+            context.personContext,
+            context.deepRecall,
+            context.dreamTraces,
+            context.selfMemories,
+            context.selfObservations,
+            reflections
+        )
     }
 
     private suspend fun injectCompanionIntoConversation(

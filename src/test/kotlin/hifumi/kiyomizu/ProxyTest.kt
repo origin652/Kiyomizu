@@ -68,6 +68,10 @@ class ProxyTest {
         Config.memoryLongIdlePauseDays = 7
         Config.memoryRecycleRetentionDays = 30
         Config.memoryDreamRecallMaxTraces = 2
+        Config.memorySelfEnabled = true
+        Config.memorySelfDirectUpdateEnabled = true
+        Config.memorySelfRecallMaxNodes = 8
+        Config.memorySelfPromoteRepeatThreshold = 3
     }
 
     @Test

@@ -60,6 +60,34 @@ object MemoryService {
         Regex("""思い出して""")
     )
 
+    private val selfRecallPatterns = listOf(
+        Regex("""\b(who are you|yourself|your self|your style|your tone|your boundary|your boundaries|your capability|your capabilities|can you|are you able|what do you think of yourself|your memory of yourself|dream about yourself|your dreams?)\b""", RegexOption.IGNORE_CASE),
+        Regex("""你是谁|你自己|你的.*风格|你的.*语气|你的.*边界|你的.*能力|你能不能|你会不会|你喜欢|你应该|你要|你可以|以后你|默认你|记住你|你梦到自己|未确认的你|对自己的记忆"""),
+        Regex("""あなたは|あなた自身|自分|君の|あなたの話し方|あなたの方針|あなたの境界|できる|覚えて|夢の中の自分""")
+    )
+
+    private val selfUncertainDisclosurePatterns = listOf(
+        Regex("""\b(dream|dreamed|dreamt|unconfirmed|inferred|inference|conflict|uncertain)\b""", RegexOption.IGNORE_CASE),
+        Regex("""梦|夢|未确认|推断|推論|冲突|衝突|不确定|不確か""")
+    )
+
+    private val directSelfUpdatePatterns = listOf(
+        Regex("""你(以后|今后|之後|要|应该|應該|可以|必须|必須|不要|别|別)|默认(你|情况下你)|记住(你|：|:)"""),
+        Regex("""\b(you should|you must|you need to|you can|from now on you|by default you|remember that you|always be|always answer)\b""", RegexOption.IGNORE_CASE),
+        Regex("""あなた(は|が).*(べき|して|できる)|これから.*あなた|覚えて.*あなた""")
+    )
+
+    private fun selfSourcePriority(source: String?): Int {
+        return when (source?.trim()?.lowercase()) {
+            "config", "user_direct" -> 5
+            "user_confirmed", "dream_confirmed" -> 4
+            "behavior_inferred", "conversation", "assistant_inferred" -> 3
+            "reflection", "maintenance_consolidation" -> 2
+            "dream", "dream_consolidation" -> 1
+            else -> 2
+        }
+    }
+
     data class RecalledMemory(
         val memory: DatabaseService.MemoryNodeRecord,
         val score: Double,
@@ -78,7 +106,9 @@ object MemoryService {
         val recalled: List<RecalledMemory>,
         val personContext: List<RecalledMemory>,
         val deepRecall: DeepRecallResult? = null,
-        val dreamTraces: List<RecalledMemory> = emptyList()
+        val dreamTraces: List<RecalledMemory> = emptyList(),
+        val selfMemories: List<RecalledMemory> = emptyList(),
+        val selfObservations: List<DatabaseService.MemoryObservationRecord> = emptyList()
     )
 
     private data class SummaryNodePayload(
@@ -318,6 +348,77 @@ object MemoryService {
         return slug.take(48).ifBlank { "memory" }
     }
 
+    private fun isSelfMemoryEnabled(): Boolean {
+        return Config.memoryEnabled && Config.memorySelfEnabled
+    }
+
+    private fun isSelfUri(uri: String?): Boolean {
+        return uri?.trim()?.lowercase()?.startsWith("self://") == true
+    }
+
+    private fun isSelfNode(node: DatabaseService.MemoryNodeRecord): Boolean {
+        return isSelfUri(node.uri) || node.personUri == kiyomizuUri
+    }
+
+    private fun isSelfObservation(observation: DatabaseService.MemoryObservationRecord): Boolean {
+        return isSelfUri(observation.candidateUri) || observation.personUri == kiyomizuUri
+    }
+
+    private fun isSelfPayload(payload: SummaryNodePayload): Boolean {
+        return isSelfUri(payload.uri) || payload.personUri == kiyomizuUri
+    }
+
+    private fun selfCategory(text: String, kind: String? = null, topics: List<String> = emptyList()): String {
+        topics.firstOrNull { it.startsWith("self:") }?.let { return it.substringAfter("self:").ifBlank { "general" } }
+        val normalized = normalizeText(text)
+        return when {
+            kind == "identity" ||
+                normalized.contains("是谁") ||
+                normalized.contains("我是") ||
+                Regex("""\b(who are you|identity|i am|i'm)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "identity"
+            normalized.contains("边界") ||
+                normalized.contains("boundary") ||
+                normalized.contains("refuse") ||
+                normalized.contains("拒绝") ||
+                normalized.contains("不要") ||
+                normalized.contains("不能") ||
+                normalized.contains("别") -> "boundary"
+            normalized.contains("能力") ||
+                normalized.contains("能不能") ||
+                normalized.contains("会不会") ||
+                normalized.contains("capability") ||
+                Regex("""\b(can|able|cannot|can't)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) -> "capability"
+            normalized.contains("风格") ||
+                normalized.contains("语气") ||
+                normalized.contains("回答") ||
+                normalized.contains("直接") ||
+                normalized.contains("简洁") ||
+                normalized.contains("详细") ||
+                normalized.contains("style") ||
+                normalized.contains("tone") ||
+                normalized.contains("answer") ||
+                normalized.contains("speak") -> "style"
+            normalized.contains("默认") ||
+                normalized.contains("习惯") ||
+                normalized.contains("偏好") ||
+                normalized.contains("default") ||
+                normalized.contains("prefer") -> "preference"
+            else -> "general"
+        }
+    }
+
+    private fun selfKindForCategory(category: String): String {
+        return when (category) {
+            "identity" -> "identity"
+            "boundary", "capability" -> "reflection"
+            else -> "preference"
+        }
+    }
+
+    private fun selfUriForContent(content: String, category: String): String {
+        return "self://$category/${slugify(content)}"
+    }
+
     private fun kindUriPrefix(kind: String): String {
         return when (kind) {
             "identity" -> "identity://auto"
@@ -442,7 +543,9 @@ object MemoryService {
         existing: List<DatabaseService.MemoryNodeRecord>,
         candidate: DatabaseService.MemoryNodeDraft
     ): DatabaseService.MemoryNodeRecord? {
-        existing.firstOrNull { it.uri == candidate.uri }?.let { return it }
+        val candidateIsSelf = isSelfUri(candidate.uri) || candidate.personUri == kiyomizuUri
+        val scopedExisting = existing.filter { isSelfNode(it) == candidateIsSelf }
+        scopedExisting.firstOrNull { it.uri == candidate.uri }?.let { return it }
 
         val candidateTokens = (
             tokenize(candidate.content) +
@@ -452,7 +555,7 @@ object MemoryService {
                 candidate.triggerPhrases +
                 extractUriSegments(candidate.uri)
             ).map { normalizeTerm(it) }.filter { it.isNotBlank() }
-        return existing
+        return scopedExisting
             .filter { it.kind == candidate.kind }
             .map { node ->
                 val nodeTokens = (
@@ -1258,7 +1361,7 @@ object MemoryService {
                         DatabaseService.getMemoryNodeByUri(normalizeUri(it, "working_memory", it))
                     }?.takeIf { it.status == "active" }
                     val unsafePersonMerge = source?.personUri != null && target?.personUri != null && source.personUri != target.personUri
-                    if (source == null || target == null || source.id == target.id || source.disclosure == "sensitive" || unsafePersonMerge) {
+                    if (source == null || target == null || source.id == target.id || source.disclosure == "sensitive" || unsafePersonMerge || isSelfNode(source) || isSelfNode(target)) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, source?.id, op.sourceUri, op.type, op.reason ?: "unsafe or missing merge nodes", if (dryRun) "dry_run" else "skipped", target?.id, target?.uri ?: op.targetUri)
                     } else if (dryRun) {
@@ -1283,7 +1386,7 @@ object MemoryService {
                         continue@operationLoop
                     }
                     val node = materialNodeByUri(op.sourceUri, nodeByUri)
-                    if (node == null || node.disclosure == "sensitive") {
+                    if (node == null || node.disclosure == "sensitive" || isSelfNode(node)) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.sourceUri, op.type, op.reason ?: "unsafe or missing source node", if (dryRun) "dry_run" else "skipped")
                     } else if (dryRun) {
@@ -1309,6 +1412,25 @@ object MemoryService {
                     if (draft == null) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.targetUri, op.type, "missing content", if (dryRun) "dry_run" else "skipped")
+                    } else if (isSelfUri(draft.uri)) {
+                        if (dryRun) {
+                            DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "dry_run")
+                        } else {
+                            val selfDraft = selfNodeDraft(
+                                content = draft.content,
+                                rawUri = draft.uri,
+                                rawKind = draft.kind,
+                                priority = draft.priority,
+                                confidence = draft.confidence,
+                                source = draft.source,
+                                rawEvidence = draft.rawEvidence
+                            )
+                            val observation = observationDraftFromSelfDraft(selfDraft, draft.source, draft.rawEvidence)
+                            val observationId = DatabaseService.insertMemoryObservation(observation)
+                            DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observation))
+                            createdConsolidated += 1
+                            DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason ?: "self dream observation buffered", "applied", observationId, draft.uri)
+                        }
                     } else if (dryRun) {
                         DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "dry_run")
                     } else {
@@ -1339,6 +1461,25 @@ object MemoryService {
                     if (draft == null) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.targetUri, op.type, "missing dream content", if (dryRun) "dry_run" else "skipped")
+                    } else if (isSelfUri(draft.uri)) {
+                        if (dryRun) {
+                            DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "dry_run")
+                        } else {
+                            val selfDraft = selfNodeDraft(
+                                content = draft.content,
+                                rawUri = draft.uri,
+                                rawKind = draft.kind,
+                                priority = draft.priority,
+                                confidence = draft.confidence,
+                                source = "dream",
+                                rawEvidence = draft.rawEvidence
+                            )
+                            val observation = observationDraftFromSelfDraft(selfDraft, "dream", draft.rawEvidence)
+                            val observationId = DatabaseService.insertMemoryObservation(observation)
+                            DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observation))
+                            createdDream += 1
+                            DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason ?: "self dream observation buffered", "applied", observationId, draft.uri)
+                        }
                     } else if (dryRun) {
                         DatabaseService.insertDreamRunItem(dreamRunId, null, draft.uri, op.type, op.reason, "dry_run")
                     } else {
@@ -1516,7 +1657,11 @@ object MemoryService {
 
     private fun summaryNodeToDraft(payload: SummaryNodePayload): DatabaseService.MemoryNodeDraft {
         val normalizedUri = normalizeUri(payload.uri, payload.kind, payload.content)
-        val personUri = inferPersonUri(payload.content, payload.entities, payload.personUri)
+        val personUri = if (isSelfUri(normalizedUri)) {
+            kiyomizuUri
+        } else {
+            inferPersonUri(payload.content, payload.entities, payload.personUri)
+        }
         val projectUri = inferProjectUri(payload.content, payload.topics, payload.projectUri)
         val searchableText = buildSearchableText(
             content = payload.content,
@@ -1557,7 +1702,11 @@ object MemoryService {
 
     private fun summaryNodeToObservationDraft(payload: SummaryNodePayload): DatabaseService.MemoryObservationDraft {
         val normalizedUri = normalizeUri(payload.uri, payload.kind, payload.content)
-        val personUri = inferPersonUri(payload.content, payload.entities, payload.personUri)
+        val personUri = if (isSelfUri(normalizedUri)) {
+            kiyomizuUri
+        } else {
+            inferPersonUri(payload.content, payload.entities, payload.personUri)
+        }
         val projectUri = inferProjectUri(payload.content, payload.topics, payload.projectUri)
         val searchableText = buildSearchableText(
             content = payload.content,
@@ -1630,6 +1779,457 @@ object MemoryService {
         return deriveSearchTerms(nodeLikeDraft)
     }
 
+    private fun selfNodeDraft(
+        content: String,
+        rawUri: String? = null,
+        rawKind: String? = null,
+        priority: Double = 0.85,
+        confidence: Double = 0.9,
+        source: String = "config",
+        rawEvidence: String? = null
+    ): DatabaseService.MemoryNodeDraft {
+        val category = selfCategory(content, rawKind)
+        val kind = rawKind?.takeIf {
+            it in setOf("identity", "preference", "relationship", "project_fact", "episodic_event", "working_memory", "reflection")
+        } ?: selfKindForCategory(category)
+        val uri = normalizeUri(rawUri ?: selfUriForContent(content, category), kind, content).let {
+            if (it.startsWith("self://")) it else selfUriForContent(content, category)
+        }
+        val keywords = (tokenize(content).take(10) + category).distinct()
+        val topics = listOf("self", "self:$category")
+        val triggers = keywords.take(8)
+        val searchableText = buildSearchableText(
+            content = content,
+            keywords = keywords,
+            aliases = emptyList(),
+            entities = listOf(kiyomizuUri),
+            topics = topics,
+            triggerPhrases = triggers,
+            uri = uri,
+            scopeHint = "global",
+            personUri = kiyomizuUri,
+            projectUri = null
+        )
+        return DatabaseService.MemoryNodeDraft(
+            uri = uri,
+            kind = kind,
+            content = content,
+            normalizedText = normalizeText(content),
+            searchableText = searchableText,
+            keywords = keywords,
+            entities = listOf(kiyomizuUri),
+            topics = topics,
+            triggerPhrases = triggers,
+            disclosure = "private",
+            priority = priority.coerceIn(0.0, 1.0),
+            confidence = confidence.coerceIn(0.0, 1.0),
+            strength = Config.memoryMaxStrength.coerceIn(0.0, 1.0),
+            emotionValence = 0.55,
+            emotionArousal = 0.25,
+            scopeHint = "global",
+            personUri = kiyomizuUri,
+            status = "active",
+            source = source,
+            rawEvidence = rawEvidence
+        )
+    }
+
+    private fun observationDraftFromSelfDraft(
+        draft: DatabaseService.MemoryNodeDraft,
+        source: String,
+        rawEvidence: String?,
+        retentionDays: Int = Config.memoryObservationRetentionDays
+    ): DatabaseService.MemoryObservationDraft {
+        return DatabaseService.MemoryObservationDraft(
+            candidateUri = draft.uri,
+            kind = draft.kind,
+            content = draft.content,
+            normalizedText = draft.normalizedText,
+            searchableText = draft.searchableText,
+            keywords = draft.keywords,
+            aliases = draft.aliases,
+            entities = draft.entities,
+            topics = draft.topics,
+            triggerPhrases = draft.triggerPhrases,
+            personUri = kiyomizuUri,
+            scopeHint = "global",
+            priority = draft.priority,
+            confidence = draft.confidence,
+            emotionValence = draft.emotionValence,
+            emotionArousal = draft.emotionArousal,
+            novelty = 0.6,
+            source = source,
+            rawEvidence = rawEvidence,
+            expiresAt = Instant.now().epochSecond + retentionDays.coerceAtLeast(1) * 86400L
+        )
+    }
+
+    private fun selfConflictScore(
+        existing: DatabaseService.MemoryNodeRecord,
+        incoming: DatabaseService.MemoryNodeDraft
+    ): Double {
+        val existingCategory = selfCategory(existing.content, existing.kind, existing.topics)
+        val incomingCategory = selfCategory(incoming.content, incoming.kind, incoming.topics)
+        if (existingCategory != incomingCategory) return 0.0
+        if (existing.normalizedText == incoming.normalizedText || existing.uri == incoming.uri) return 1.0
+        val existingTerms = collectNodeTerms(existing)
+        val incomingTerms = (
+            tokenize(incoming.content) +
+                incoming.keywords +
+                incoming.topics +
+                incoming.triggerPhrases +
+                extractUriSegments(incoming.uri)
+            ).map { normalizeTerm(it) }.filter { it.isNotBlank() }.toSet()
+        return 0.45 + jaccardScore(existingTerms, incomingTerms)
+    }
+
+    private fun insertConflictObservation(
+        draft: DatabaseService.MemoryNodeDraft,
+        matchedNodeId: Int?,
+        source: String,
+        reason: String
+    ): Int {
+        val observation = observationDraftFromSelfDraft(draft, source, draft.rawEvidence)
+        val observationId = DatabaseService.insertMemoryObservation(observation)
+        DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observation))
+        DatabaseService.updateMemoryObservationStatus(observationId, "conflict", matchedNodeId)
+        DatabaseService.insertSelfMemoryEvent(
+            DatabaseService.SelfMemoryEventDraft(
+                eventType = "conflict",
+                nodeId = matchedNodeId,
+                nodeUri = matchedNodeId?.let { DatabaseService.getMemoryNodeById(it)?.uri },
+                observationId = observationId,
+                source = source,
+                reason = reason,
+                contentAfter = draft.content
+            )
+        )
+        return observationId
+    }
+
+    private fun upsertSelfDraftWithAudit(
+        draft: DatabaseService.MemoryNodeDraft,
+        source: String,
+        reason: String,
+        observationId: Int? = null
+    ): DatabaseService.MemoryNodeRecord? {
+        if (!isSelfUri(draft.uri) && draft.personUri != kiyomizuUri) return null
+        val incomingPriority = selfSourcePriority(source)
+        val existingSelf = DatabaseService.listSelfMemoryNodes("active", 200)
+        val conflicts = existingSelf
+            .filter { selfConflictScore(it, draft) >= 0.60 }
+            .filter { it.uri != draft.uri }
+
+        val blocking = conflicts.firstOrNull { selfSourcePriority(it.source) > incomingPriority }
+        if (blocking != null) {
+            insertConflictObservation(
+                draft = draft,
+                matchedNodeId = blocking.id,
+                source = source,
+                reason = "lower-priority self source cannot override ${blocking.source}"
+            )
+            return null
+        }
+
+        val sameUri = DatabaseService.getMemoryNodeByUri(draft.uri)
+        val nodeId = if (sameUri != null && isSelfNode(sameUri)) {
+            val before = sameUri.content
+            DatabaseService.updateMemoryNode(sameUri.id, draft.copy(status = "active", source = source))
+            DatabaseService.replaceMemorySearchTerms(sameUri.id, deriveSearchTerms(draft))
+            DatabaseService.insertSelfMemoryEvent(
+                DatabaseService.SelfMemoryEventDraft(
+                    eventType = if (sameUri.status == "active") "edit" else "restore",
+                    nodeId = sameUri.id,
+                    nodeUri = draft.uri,
+                    observationId = observationId,
+                    source = source,
+                    reason = reason,
+                    contentBefore = before,
+                    contentAfter = draft.content
+                )
+            )
+            sameUri.id
+        } else {
+            val inserted = DatabaseService.insertMemoryNode(draft)
+            DatabaseService.replaceMemorySearchTerms(inserted, deriveSearchTerms(draft))
+            DatabaseService.insertSelfMemoryEvent(
+                DatabaseService.SelfMemoryEventDraft(
+                    eventType = "create",
+                    nodeId = inserted,
+                    nodeUri = draft.uri,
+                    observationId = observationId,
+                    newNodeId = inserted,
+                    newNodeUri = draft.uri,
+                    source = source,
+                    reason = reason,
+                    contentAfter = draft.content
+                )
+            )
+            inserted
+        }
+
+        conflicts
+            .filter { selfSourcePriority(it.source) <= incomingPriority }
+            .forEach { old ->
+                if (old.status == "active") {
+                    DatabaseService.archiveMemoryNodeToRecycle(old, reason, Config.memoryRecycleRetentionDays)
+                    DatabaseService.upsertMemoryEdge(DatabaseService.MemoryEdgeDraft(nodeId, old.id, "supersedes", 1.0))
+                    DatabaseService.insertSelfMemoryEvent(
+                        DatabaseService.SelfMemoryEventDraft(
+                            eventType = "archive",
+                            nodeId = old.id,
+                            nodeUri = old.uri,
+                            previousNodeId = old.id,
+                            previousNodeUri = old.uri,
+                            newNodeId = nodeId,
+                            newNodeUri = draft.uri,
+                            source = source,
+                            reason = reason,
+                            contentBefore = old.content,
+                            contentAfter = draft.content
+                        )
+                    )
+                }
+            }
+
+        return DatabaseService.getMemoryNodeById(nodeId)
+    }
+
+    fun createSelfMemory(
+        content: String,
+        uri: String? = null,
+        kind: String? = null,
+        priority: Double = 0.85,
+        confidence: Double = 0.9,
+        source: String = "config",
+        reason: String = "manual self memory create"
+    ): DatabaseService.MemoryNodeRecord? {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return null
+        val draft = selfNodeDraft(
+            content = trimmed,
+            rawUri = uri,
+            rawKind = kind,
+            priority = priority,
+            confidence = confidence,
+            source = source,
+            rawEvidence = reason
+        )
+        return upsertSelfDraftWithAudit(draft, source, reason)
+    }
+
+    fun editSelfMemory(
+        nodeId: Int,
+        content: String? = null,
+        uri: String? = null,
+        priority: Double? = null,
+        confidence: Double? = null
+    ): DatabaseService.MemoryNodeRecord? {
+        val existing = DatabaseService.getMemoryNodeById(nodeId)?.takeIf { isSelfNode(it) } ?: return null
+        val nextContent = content?.trim()?.ifBlank { null } ?: existing.content
+        val draft = selfNodeDraft(
+            content = nextContent,
+            rawUri = uri?.trim()?.ifBlank { null } ?: existing.uri,
+            rawKind = existing.kind,
+            priority = priority ?: existing.priority,
+            confidence = confidence ?: existing.confidence,
+            source = "config",
+            rawEvidence = "manual self memory edit"
+        )
+        DatabaseService.updateMemoryNode(existing.id, draft)
+        DatabaseService.replaceMemorySearchTerms(existing.id, deriveSearchTerms(draft))
+        DatabaseService.insertSelfMemoryEvent(
+            DatabaseService.SelfMemoryEventDraft(
+                eventType = "edit",
+                nodeId = existing.id,
+                nodeUri = draft.uri,
+                source = "config",
+                reason = "manual self memory edit",
+                contentBefore = existing.content,
+                contentAfter = draft.content
+            )
+        )
+        return DatabaseService.getMemoryNodeById(existing.id)
+    }
+
+    fun archiveSelfMemory(nodeId: Int, reason: String = "manual self memory archive"): Boolean {
+        val node = DatabaseService.getMemoryNodeById(nodeId)?.takeIf { isSelfNode(it) } ?: return false
+        val archived = DatabaseService.archiveMemoryNodeToRecycle(node, reason, Config.memoryRecycleRetentionDays)
+        if (archived) {
+            DatabaseService.insertSelfMemoryEvent(
+                DatabaseService.SelfMemoryEventDraft(
+                    eventType = "archive",
+                    nodeId = node.id,
+                    nodeUri = node.uri,
+                    previousNodeId = node.id,
+                    previousNodeUri = node.uri,
+                    source = "config",
+                    reason = reason,
+                    contentBefore = node.content
+                )
+            )
+        }
+        return archived
+    }
+
+    fun confirmSelfObservation(observationId: Int): DatabaseService.MemoryNodeRecord? {
+        val observation = DatabaseService.getMemoryObservationById(observationId)?.takeIf { isSelfObservation(it) } ?: return null
+        val draft = selfNodeDraft(
+            content = observation.content,
+            rawUri = observation.candidateUri,
+            rawKind = observation.kind,
+            priority = max(observation.priority, 0.75),
+            confidence = max(observation.confidence, 0.75),
+            source = "user_confirmed",
+            rawEvidence = "confirmed self observation ${observation.id}; original source=${observation.source}"
+        )
+        val node = upsertSelfDraftWithAudit(
+            draft = draft,
+            source = "user_confirmed",
+            reason = "confirmed buffered self observation",
+            observationId = observation.id
+        ) ?: return null
+        DatabaseService.updateMemoryObservationStatus(observation.id, "promoted", node.id)
+        DatabaseService.insertSelfMemoryEvent(
+            DatabaseService.SelfMemoryEventDraft(
+                eventType = "confirm",
+                nodeId = node.id,
+                nodeUri = node.uri,
+                observationId = observation.id,
+                newNodeId = node.id,
+                newNodeUri = node.uri,
+                source = "user_confirmed",
+                reason = "confirmed buffered self observation",
+                contentBefore = observation.content,
+                contentAfter = node.content
+            )
+        )
+        return node
+    }
+
+    fun revertSelfMemoryEvent(eventId: Int): JsonObject {
+        val event = DatabaseService.getSelfMemoryEventById(eventId) ?: return buildJsonObject {
+            put("ok", false)
+            put("error", "self memory event not found")
+        }
+        val changed = mutableListOf<String>()
+        event.newNodeId?.let { newNodeId ->
+            val newNode = DatabaseService.getMemoryNodeById(newNodeId)
+            if (newNode != null && isSelfNode(newNode) && newNode.status == "active") {
+                DatabaseService.archiveMemoryNodeToRecycle(newNode, "reverted self event ${event.id}", Config.memoryRecycleRetentionDays)
+                changed += "archived_new"
+            }
+        }
+        event.previousNodeId?.let { previousNodeId ->
+            val previous = DatabaseService.getMemoryNodeById(previousNodeId)
+            if (previous != null && isSelfNode(previous)) {
+                DatabaseService.setMemoryNodeStatus(previous.id, "active")
+                changed += "restored_previous"
+            }
+        }
+        if (event.eventType == "edit" && event.nodeId != null && !event.contentBefore.isNullOrBlank()) {
+            val node = DatabaseService.getMemoryNodeById(event.nodeId)
+            if (node != null && isSelfNode(node)) {
+                val restored = nodeDraftFromRecord(node).copy(
+                    content = event.contentBefore,
+                    normalizedText = normalizeText(event.contentBefore),
+                    searchableText = buildSearchableText(
+                        content = event.contentBefore,
+                        keywords = node.keywords,
+                        aliases = node.aliases,
+                        entities = node.entities,
+                        topics = node.topics,
+                        triggerPhrases = node.triggerPhrases,
+                        uri = node.uri,
+                        scopeHint = node.scopeHint,
+                        personUri = node.personUri,
+                        projectUri = node.projectUri
+                    ),
+                    status = "active"
+                )
+                DatabaseService.updateMemoryNode(node.id, restored)
+                DatabaseService.replaceMemorySearchTerms(node.id, deriveSearchTerms(restored))
+                changed += "restored_content"
+            }
+        }
+        DatabaseService.insertSelfMemoryEvent(
+            DatabaseService.SelfMemoryEventDraft(
+                eventType = "revert",
+                nodeId = event.nodeId,
+                nodeUri = event.nodeUri,
+                previousNodeId = event.previousNodeId,
+                previousNodeUri = event.previousNodeUri,
+                newNodeId = event.newNodeId,
+                newNodeUri = event.newNodeUri,
+                source = "config",
+                reason = "reverted self event ${event.id}",
+                contentBefore = event.contentAfter,
+                contentAfter = event.contentBefore
+            )
+        )
+        return buildJsonObject {
+            put("ok", changed.isNotEmpty())
+            put("event_id", event.id)
+            put("changed", buildJsonArray { changed.forEach { add(JsonPrimitive(it)) } })
+            if (changed.isEmpty()) put("error", "event had nothing reversible")
+        }
+    }
+
+    private fun shouldDirectlyUpdateSelf(userText: String): Boolean {
+        if (!isSelfMemoryEnabled() || !Config.memorySelfDirectUpdateEnabled) return false
+        val trimmed = userText.trim()
+        if (trimmed.length < 6) return false
+        val longTerm = Regex("""以后|今后|从现在|默认|记住|always|from now on|by default|remember|これから|覚えて""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(trimmed)
+        val questionLike = trimmed.endsWith("?") || trimmed.endsWith("？") || trimmed.contains("吗") || trimmed.contains("嗎")
+        if (questionLike && !longTerm) return false
+        return directSelfUpdatePatterns.any { it.containsMatchIn(trimmed) }
+    }
+
+    private fun secondPersonInstructionToSelfContent(userText: String): String {
+        val trimmed = userText.trim().trim('。', '.', '！', '!')
+        val chineseLike = Regex("""[\u4e00-\u9fff]""").containsMatchIn(trimmed)
+        if (!chineseLike) {
+            val cleaned = trimmed
+                .replace(Regex("""(?i)\b(from now on|by default|remember that)\b"""), "")
+                .replace(Regex("""(?i)\byou should\b"""), "I should")
+                .replace(Regex("""(?i)\byou must\b"""), "I must")
+                .replace(Regex("""(?i)\byou need to\b"""), "I need to")
+                .replace(Regex("""(?i)\byou can\b"""), "I can")
+                .trim()
+            return if (Regex("""\bI\b""").containsMatchIn(cleaned)) cleaned else "I should follow this stable self policy: $trimmed"
+        }
+        return trimmed
+            .replace("请记住", "")
+            .replace("记住", "")
+            .replace("从现在开始", "")
+            .replace("以后都", "以后")
+            .replace("你以后要", "我以后要")
+            .replace("你以后应该", "我以后应该")
+            .replace("你应该", "我应该")
+            .replace("你要", "我要")
+            .replace("你可以", "我可以")
+            .replace("你必须", "我必须")
+            .replace("你不要", "我不要")
+            .replace("你别", "我别")
+            .replace("默认你", "默认我")
+            .trim()
+            .ifBlank { "我应该遵循这条稳定的 self 策略：$trimmed" }
+    }
+
+    fun tryApplyDirectSelfUpdate(userText: String): Boolean {
+        if (!shouldDirectlyUpdateSelf(userText)) return false
+        val content = secondPersonInstructionToSelfContent(userText)
+        val node = createSelfMemory(
+            content = content,
+            source = "user_direct",
+            priority = 0.95,
+            confidence = 0.95,
+            reason = "direct user self instruction: ${userText.take(240)}"
+        )
+        return node != null
+    }
+
     private fun explicitRememberRequested(userText: String): Boolean {
         val normalized = normalizeText(userText)
         return Regex("""\b(remember this|please remember|don't forget|do not forget|keep this in mind)\b""", RegexOption.IGNORE_CASE)
@@ -1654,6 +2254,14 @@ object MemoryService {
     }
 
     private fun shouldPromoteObservation(payload: SummaryNodePayload, seenCount: Int, userText: String): Boolean {
+        if (isSelfPayload(payload)) {
+            val source = payload.source.trim().lowercase()
+            if (source == "dream" || source.contains("dream") || source == "reflection") return false
+            if (payload.explicitRemember || explicitRememberRequested(userText)) return true
+            return seenCount >= Config.memorySelfPromoteRepeatThreshold &&
+                payload.confidence >= 0.65 &&
+                payload.priority >= 0.50
+        }
         if (payload.explicitRemember || explicitRememberRequested(userText)) return true
         return when (payload.kind) {
             "identity", "preference", "relationship" -> payload.confidence >= 0.75 && payload.priority >= 0.55
@@ -1779,6 +2387,12 @@ object MemoryService {
         ensureNodeExists(kiyomizuUri, existingNodes, uriToId)
 
         for (payload in summaryNodes) {
+            if (isSelfPayload(payload)) {
+                val observationDraft = summaryNodeToObservationDraft(payload)
+                val observationId = DatabaseService.insertMemoryObservation(observationDraft)
+                DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observationDraft))
+                continue
+            }
             upsertMemoryDraft(payload, summaryNodeToDraft(payload), existingNodes, uriToId)
         }
         saveSummaryEdges(summaryEdges, existingNodes, uriToId)
@@ -1804,6 +2418,34 @@ object MemoryService {
             val existingDuplicate = findDuplicateNode(existingNodes, nodeDraft) ?:
                 findWorkingMemorySlot(nodeDraft, allowFullFallback = false)
             if (existingDuplicate != null) {
+                if (isSelfPayload(payload) && isSelfNode(existingDuplicate)) {
+                    val incomingPriority = selfSourcePriority(payload.source)
+                    val existingPriority = selfSourcePriority(existingDuplicate.source)
+                    val source = payload.source.trim().lowercase()
+                    val dreamOrReflection = source.contains("dream") || source == "reflection"
+                    if (dreamOrReflection || incomingPriority < existingPriority) {
+                        val observationId = DatabaseService.insertMemoryObservation(observationDraft)
+                        DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observationDraft))
+                        val status = if (existingDuplicate.normalizedText == nodeDraft.normalizedText) "merged" else "conflict"
+                        DatabaseService.updateMemoryObservationStatus(observationId, status, existingDuplicate.id)
+                        if (status == "conflict") {
+                            DatabaseService.insertSelfMemoryEvent(
+                                DatabaseService.SelfMemoryEventDraft(
+                                    eventType = "conflict",
+                                    nodeId = existingDuplicate.id,
+                                    nodeUri = existingDuplicate.uri,
+                                    observationId = observationId,
+                                    source = payload.source,
+                                    reason = "self observation did not override stable self from ${existingDuplicate.source}",
+                                    contentBefore = existingDuplicate.content,
+                                    contentAfter = nodeDraft.content
+                                )
+                            )
+                        }
+                        observationsToday += 1
+                        continue
+                    }
+                }
                 val merged = mergeNodeDraft(existingDuplicate, nodeDraft)
                 DatabaseService.updateMemoryNode(existingDuplicate.id, merged)
                 DatabaseService.replaceMemorySearchTerms(existingDuplicate.id, deriveSearchTerms(merged))
@@ -1869,7 +2511,9 @@ object MemoryService {
         scope.launch {
             try {
                 val userText = MessagePatcher.extractLatestUserText(path, originalJson)?.trim().orEmpty()
-                if (userText.isEmpty() || responseText.isBlank()) return@launch
+                if (userText.isEmpty()) return@launch
+                tryApplyDirectSelfUpdate(userText)
+                if (responseText.isBlank()) return@launch
 
                 val history = "User: $userText\nAssistant: $responseText"
                 val result = fetchSummarizationAndStateUpdate(history) ?: return@launch
@@ -2143,6 +2787,62 @@ object MemoryService {
             .take(limit)
     }
 
+    private fun shouldTriggerSelfRecall(userQuery: String): Boolean {
+        if (!isSelfMemoryEnabled()) return false
+        val trimmed = userQuery.trim()
+        if (trimmed.isEmpty()) return false
+        return selfRecallPatterns.any { it.containsMatchIn(trimmed) }
+    }
+
+    private fun shouldIncludeSelfObservations(userQuery: String): Boolean {
+        if (!shouldTriggerSelfRecall(userQuery)) return false
+        return selfUncertainDisclosurePatterns.any { it.containsMatchIn(userQuery) }
+    }
+
+    private fun selectSelfMemories(context: RecallContext, now: Long = Instant.now().epochSecond): List<RecalledMemory> {
+        if (!shouldTriggerSelfRecall(context.query)) return emptyList()
+        val limit = Config.memorySelfRecallMaxNodes.coerceAtLeast(0)
+        if (limit == 0) return emptyList()
+        val category = selfCategory(context.query)
+        val candidates = DatabaseService.listSelfMemoryNodes("active", limit = max(limit * 6, 24))
+            .filter { isSelfUri(it.uri) }
+        return candidates
+            .map { node ->
+                val nodeCategory = selfCategory(node.content, node.kind, node.topics)
+                val categoryBoost = if (nodeCategory == category) 1.0 else 0.0
+                val queryHits = context.queryTerms.count { term ->
+                    node.searchableText.lowercase().contains(term) || node.uri.lowercase().contains(term)
+                } * 0.15
+                val score = scoreNode(context, node, now) + categoryBoost + queryHits + selfSourcePriority(node.source) * 0.25
+                RecalledMemory(node, score, associated = false, channel = "self")
+            }
+            .sortedWith(
+                compareByDescending<RecalledMemory> { selfSourcePriority(it.memory.source) }
+                    .thenByDescending { selfCategory(it.memory.content, it.memory.kind, it.memory.topics) == category }
+                    .thenByDescending { it.score }
+                    .thenByDescending { it.memory.priority }
+                    .thenByDescending { it.memory.confidence }
+                    .thenBy { it.memory.uri }
+                    .thenBy { it.memory.id }
+            )
+            .take(limit)
+    }
+
+    private fun selectSelfObservationsForDisclosure(userQuery: String): List<DatabaseService.MemoryObservationRecord> {
+        if (!shouldIncludeSelfObservations(userQuery)) return emptyList()
+        val buffered = DatabaseService.listSelfMemoryObservations("buffered", 12)
+        val conflicts = DatabaseService.listSelfMemoryObservations("conflict", 8)
+        return (buffered + conflicts)
+            .distinctBy { it.id }
+            .sortedWith(
+                compareByDescending<DatabaseService.MemoryObservationRecord> { it.source == "dream" || it.source.contains("dream") }
+                    .thenByDescending { it.lastSeenAt }
+                    .thenByDescending { it.priority }
+                    .thenBy { it.candidateUri ?: "" }
+            )
+            .take(8)
+    }
+
     private suspend fun fetchDeepRecallReconstruction(
         userQuery: String,
         candidates: List<ScoredNode>
@@ -2247,7 +2947,7 @@ object MemoryService {
     }
 
     suspend fun buildCompanionMemoryContext(userQuery: String): CompanionMemoryContext {
-        if (!Config.memoryEnabled) return CompanionMemoryContext(emptyList(), emptyList(), null, emptyList())
+        if (!Config.memoryEnabled) return CompanionMemoryContext(emptyList(), emptyList(), null, emptyList(), emptyList(), emptyList())
         val normalContext = buildRecallContext(userQuery, deepRecall = false)
         val (recalled, personContext) = normalRecall(normalContext)
 
@@ -2257,7 +2957,20 @@ object MemoryService {
             null
         }
         val dreamTraces = selectDreamTraces(buildRecallContext(userQuery, deepRecall = deepRecallResult != null))
-        return CompanionMemoryContext(recalled = recalled, personContext = personContext, deepRecall = deepRecallResult, dreamTraces = dreamTraces)
+        val selfContext = buildRecallContext(userQuery, deepRecall = deepRecallResult != null)
+        val selfMemories = selectSelfMemories(selfContext)
+        val selfObservations = selectSelfObservationsForDisclosure(userQuery)
+        selfMemories.forEach { memory ->
+            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.25, Config.memoryMaxStrength)
+        }
+        return CompanionMemoryContext(
+            recalled = recalled,
+            personContext = personContext,
+            deepRecall = deepRecallResult,
+            dreamTraces = dreamTraces,
+            selfMemories = selfMemories,
+            selfObservations = selfObservations
+        )
     }
 
     suspend fun recallMemories(userQuery: String): List<RecalledMemory> {

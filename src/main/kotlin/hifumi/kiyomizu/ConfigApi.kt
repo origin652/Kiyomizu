@@ -61,6 +61,10 @@ object ConfigApi {
             put("memory_long_idle_pause_days", Config.memoryLongIdlePauseDays)
             put("memory_recycle_retention_days", Config.memoryRecycleRetentionDays)
             put("memory_dream_recall_max_traces", Config.memoryDreamRecallMaxTraces)
+            put("memory_self_enabled", Config.memorySelfEnabled)
+            put("memory_self_direct_update_enabled", Config.memorySelfDirectUpdateEnabled)
+            put("memory_self_recall_max_nodes", Config.memorySelfRecallMaxNodes)
+            put("memory_self_promote_repeat_threshold", Config.memorySelfPromoteRepeatThreshold)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -115,6 +119,10 @@ object ConfigApi {
         var nextMemoryLongIdlePauseDays = Config.memoryLongIdlePauseDays
         var nextMemoryRecycleRetentionDays = Config.memoryRecycleRetentionDays
         var nextMemoryDreamRecallMaxTraces = Config.memoryDreamRecallMaxTraces
+        var nextMemorySelfEnabled = Config.memorySelfEnabled
+        var nextMemorySelfDirectUpdateEnabled = Config.memorySelfDirectUpdateEnabled
+        var nextMemorySelfRecallMaxNodes = Config.memorySelfRecallMaxNodes
+        var nextMemorySelfPromoteRepeatThreshold = Config.memorySelfPromoteRepeatThreshold
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var replaceSummaryKey: String? = null
@@ -379,6 +387,26 @@ object ConfigApi {
                 errors.add("memory_dream_recall_max_traces must be an integer 0-10")
             }
         }
+        body.readBoolean("memory_self_enabled", errors) {
+            nextMemorySelfEnabled = it
+        }
+        body.readBoolean("memory_self_direct_update_enabled", errors) {
+            nextMemorySelfDirectUpdateEnabled = it
+        }
+        body.readInt("memory_self_recall_max_nodes", errors) {
+            if (it in 0..20) {
+                nextMemorySelfRecallMaxNodes = it
+            } else {
+                errors.add("memory_self_recall_max_nodes must be an integer 0-20")
+            }
+        }
+        body.readInt("memory_self_promote_repeat_threshold", errors) {
+            if (it in 1..20) {
+                nextMemorySelfPromoteRepeatThreshold = it
+            } else {
+                errors.add("memory_self_promote_repeat_threshold must be an integer 1-20")
+            }
+        }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
@@ -472,7 +500,11 @@ object ConfigApi {
             memoryDreamDryRunDailyLimit = nextMemoryDreamDryRunDailyLimit,
             memoryLongIdlePauseDays = nextMemoryLongIdlePauseDays,
             memoryRecycleRetentionDays = nextMemoryRecycleRetentionDays,
-            memoryDreamRecallMaxTraces = nextMemoryDreamRecallMaxTraces
+            memoryDreamRecallMaxTraces = nextMemoryDreamRecallMaxTraces,
+            memorySelfEnabled = nextMemorySelfEnabled,
+            memorySelfDirectUpdateEnabled = nextMemorySelfDirectUpdateEnabled,
+            memorySelfRecallMaxNodes = nextMemorySelfRecallMaxNodes,
+            memorySelfPromoteRepeatThreshold = nextMemorySelfPromoteRepeatThreshold
         )
 
         try {

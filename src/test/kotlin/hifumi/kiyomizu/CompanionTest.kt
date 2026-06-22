@@ -76,6 +76,10 @@ class CompanionTest {
         Config.memoryLongIdlePauseDays = 7
         Config.memoryRecycleRetentionDays = 30
         Config.memoryDreamRecallMaxTraces = 2
+        Config.memorySelfEnabled = true
+        Config.memorySelfDirectUpdateEnabled = true
+        Config.memorySelfRecallMaxNodes = 8
+        Config.memorySelfPromoteRepeatThreshold = 3
         Config.memorySummaryKey = ""
     }
 
@@ -227,6 +231,86 @@ class CompanionTest {
         DatabaseService.updateMemoryObservationStatus(id, "promoted", matchedNodeId = 42)
         assertEquals(0, DatabaseService.getBufferedObservationCount())
         assertEquals(1, DatabaseService.getObservationCountSince("promoted", now - 10))
+    }
+
+    @Test
+    fun directSelfInstructionCreatesStableSelfMemory() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+
+        val applied = MemoryService.tryApplyDirectSelfUpdate("你以后要更直接地回答技术问题")
+
+        assertTrue(applied)
+        val self = DatabaseService.listSelfMemoryNodes("active", 20).filter { it.uri.startsWith("self://") }
+        assertEquals(1, self.size)
+        assertTrue(self.first().content.contains("我以后要更直接地回答技术问题"))
+        assertEquals("person://self/kiyomizu", self.first().personUri)
+        assertEquals("user_direct", self.first().source)
+    }
+
+    @Test
+    fun ordinaryRequestDoesNotCreateSelfMemory() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+
+        val applied = MemoryService.tryApplyDirectSelfUpdate("帮我写一个 Kotlin 测试")
+
+        assertFalse(applied)
+        val self = DatabaseService.listSelfMemoryNodes("active", 20).filter { it.uri.startsWith("self://") }
+        assertTrue(self.isEmpty())
+    }
+
+    @Test
+    fun activeSelfMemorySurvivesGraphDecay() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        insertNode(
+            uri = "self://style/direct-technical-answers",
+            kind = "preference",
+            content = "I should answer technical questions directly.",
+            keywords = listOf("direct", "technical"),
+            topics = listOf("self", "self:style"),
+            strength = 0.01,
+            personUri = "person://self/kiyomizu"
+        )
+
+        DatabaseService.decayGraphMemoryNodes(0.1)
+
+        val self = DatabaseService.listSelfMemoryNodes("active", 20).filter { it.uri.startsWith("self://") }
+        assertEquals(1, self.size)
+    }
+
+    @Test
+    fun selfRecallOnlyInjectsOnSelfRelatedQueries() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryRecallMaxNodes = 0
+        insertNode(
+            uri = "self://style/direct-technical-answers",
+            kind = "preference",
+            content = "I should answer technical questions directly.",
+            keywords = listOf("direct", "technical"),
+            topics = listOf("self", "self:style"),
+            triggerPhrases = listOf("style"),
+            priority = 0.9,
+            confidence = 0.9,
+            personUri = "person://self/kiyomizu"
+        )
+
+        val normal = MemoryService.buildCompanionMemoryContext("请解释一下 Kotlin data class")
+        assertTrue(normal.selfMemories.isEmpty())
+
+        val selfQuery = MemoryService.buildCompanionMemoryContext("你的回答风格是什么？")
+        assertEquals(1, selfQuery.selfMemories.size)
+        assertEquals("self://style/direct-technical-answers", selfQuery.selfMemories.first().memory.uri)
     }
 
     @Test

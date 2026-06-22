@@ -299,6 +299,25 @@ object DatabaseService {
                     )
                 """.trimIndent())
 
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS self_memory_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type TEXT NOT NULL,
+                        node_id INTEGER,
+                        node_uri TEXT,
+                        observation_id INTEGER,
+                        previous_node_id INTEGER,
+                        previous_node_uri TEXT,
+                        new_node_id INTEGER,
+                        new_node_uri TEXT,
+                        source TEXT NOT NULL,
+                        reason TEXT,
+                        content_before TEXT,
+                        content_after TEXT,
+                        created_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_kind ON memory_nodes(kind)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_person_uri ON memory_nodes(person_uri)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_project_uri ON memory_nodes(project_uri)")
@@ -318,6 +337,8 @@ object DatabaseService {
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_observation_terms_term ON memory_observation_terms(term)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_dream_runs_started_at ON dream_runs(started_at DESC)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_recycle_bin_purge_after ON memory_recycle_bin(purge_after)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_created ON self_memory_events(created_at DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_node ON self_memory_events(node_id)")
 
                 try {
                     stmt.execute("""
@@ -1179,6 +1200,38 @@ object DatabaseService {
         val purgeAfter: Long
     )
 
+    data class SelfMemoryEventRecord(
+        val id: Int,
+        val eventType: String,
+        val nodeId: Int?,
+        val nodeUri: String?,
+        val observationId: Int?,
+        val previousNodeId: Int?,
+        val previousNodeUri: String?,
+        val newNodeId: Int?,
+        val newNodeUri: String?,
+        val source: String,
+        val reason: String?,
+        val contentBefore: String?,
+        val contentAfter: String?,
+        val createdAt: Long
+    )
+
+    data class SelfMemoryEventDraft(
+        val eventType: String,
+        val nodeId: Int? = null,
+        val nodeUri: String? = null,
+        val observationId: Int? = null,
+        val previousNodeId: Int? = null,
+        val previousNodeUri: String? = null,
+        val newNodeId: Int? = null,
+        val newNodeUri: String? = null,
+        val source: String,
+        val reason: String? = null,
+        val contentBefore: String? = null,
+        val contentAfter: String? = null
+    )
+
     data class DreamRunDraft(
         val mode: String,
         val status: String,
@@ -1353,6 +1406,29 @@ object DatabaseService {
         )
     }
 
+    private fun readSelfMemoryEvent(rs: java.sql.ResultSet): SelfMemoryEventRecord {
+        fun nullableInt(column: String): Int? {
+            val value = rs.getInt(column)
+            return if (rs.wasNull()) null else value
+        }
+        return SelfMemoryEventRecord(
+            id = rs.getInt("id"),
+            eventType = rs.getString("event_type"),
+            nodeId = nullableInt("node_id"),
+            nodeUri = rs.getString("node_uri"),
+            observationId = nullableInt("observation_id"),
+            previousNodeId = nullableInt("previous_node_id"),
+            previousNodeUri = rs.getString("previous_node_uri"),
+            newNodeId = nullableInt("new_node_id"),
+            newNodeUri = rs.getString("new_node_uri"),
+            source = rs.getString("source"),
+            reason = rs.getString("reason"),
+            contentBefore = rs.getString("content_before"),
+            contentAfter = rs.getString("content_after"),
+            createdAt = rs.getLong("created_at")
+        )
+    }
+
     fun insertMemoryNode(draft: MemoryNodeDraft): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
@@ -1443,6 +1519,27 @@ object DatabaseService {
             }
         }
         upsertMemoryNodeFts(nodeId, draft)
+    }
+
+    fun setMemoryNodeStatus(nodeId: Int, status: String) {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_nodes
+                SET status = ?, updated_at = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, status)
+                pstmt.setLong(2, Instant.now().epochSecond)
+                pstmt.setInt(3, nodeId)
+                pstmt.executeUpdate()
+            }
+            if (status == "active") {
+                conn.prepareStatement("DELETE FROM memory_recycle_bin WHERE node_id = ?").use { pstmt ->
+                    pstmt.setInt(1, nodeId)
+                    pstmt.executeUpdate()
+                }
+            }
+        }
     }
 
     private fun upsertMemoryNodeFts(nodeId: Int, draft: MemoryNodeDraft) {
@@ -1971,6 +2068,67 @@ object DatabaseService {
         return list
     }
 
+    fun insertSelfMemoryEvent(draft: SelfMemoryEventDraft): Int {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO self_memory_events (
+                    event_type, node_id, node_uri, observation_id, previous_node_id, previous_node_uri,
+                    new_node_id, new_node_uri, source, reason, content_before, content_after, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, draft.eventType)
+                if (draft.nodeId != null) pstmt.setInt(2, draft.nodeId) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                pstmt.setNullableString(3, draft.nodeUri)
+                if (draft.observationId != null) pstmt.setInt(4, draft.observationId) else pstmt.setNull(4, java.sql.Types.INTEGER)
+                if (draft.previousNodeId != null) pstmt.setInt(5, draft.previousNodeId) else pstmt.setNull(5, java.sql.Types.INTEGER)
+                pstmt.setNullableString(6, draft.previousNodeUri)
+                if (draft.newNodeId != null) pstmt.setInt(7, draft.newNodeId) else pstmt.setNull(7, java.sql.Types.INTEGER)
+                pstmt.setNullableString(8, draft.newNodeUri)
+                pstmt.setString(9, draft.source)
+                pstmt.setNullableString(10, draft.reason)
+                pstmt.setNullableString(11, draft.contentBefore)
+                pstmt.setNullableString(12, draft.contentAfter)
+                pstmt.setLong(13, now)
+                pstmt.executeUpdate()
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return -1
+    }
+
+    fun getSelfMemoryEventById(id: Int): SelfMemoryEventRecord? {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT * FROM self_memory_events WHERE id = ? LIMIT 1").use { pstmt ->
+                pstmt.setInt(1, id)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return readSelfMemoryEvent(rs)
+            }
+        }
+        return null
+    }
+
+    fun listSelfMemoryEvents(limit: Int): List<SelfMemoryEventRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<SelfMemoryEventRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM self_memory_events
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readSelfMemoryEvent(rs))
+            }
+        }
+        return list
+    }
+
     fun archiveMemoryNodeToRecycle(node: MemoryNodeRecord, reason: String, retentionDays: Int): Boolean {
         val now = Instant.now().epochSecond
         val purgeAfter = now + retentionDays.coerceAtLeast(1) * 86400L
@@ -2366,7 +2524,13 @@ object DatabaseService {
 
     fun decayGraphMemoryNodes(threshold: Double) {
         getConnection().use { conn ->
-            conn.prepareStatement("DELETE FROM memory_nodes WHERE status = 'active' AND strength < ?").use { pstmt ->
+            conn.prepareStatement("""
+                DELETE FROM memory_nodes
+                WHERE status = 'active'
+                  AND strength < ?
+                  AND uri NOT LIKE 'self://%'
+                  AND COALESCE(person_uri, '') != 'person://self/kiyomizu'
+            """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, threshold)
                 pstmt.executeUpdate()
             }
@@ -2433,6 +2597,58 @@ object DatabaseService {
                 while (rs.next()) {
                     list.add(readMemoryNode(rs))
                 }
+            }
+        }
+        return list
+    }
+
+    fun listSelfMemoryNodes(status: String?, limit: Int): List<MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryNodeRecord>()
+        val sql = buildString {
+            append("""
+                SELECT *
+                FROM memory_nodes
+                WHERE (uri LIKE 'self://%' OR person_uri = 'person://self/kiyomizu')
+            """.trimIndent())
+            if (!status.isNullOrBlank()) {
+                append(" AND status = ?")
+            }
+            append(" ORDER BY priority DESC, confidence DESC, uri ASC, id ASC LIMIT ?")
+        }
+        getConnection().use { conn ->
+            conn.prepareStatement(sql).use { pstmt ->
+                var position = 1
+                if (!status.isNullOrBlank()) pstmt.setString(position++, status)
+                pstmt.setInt(position, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryNode(rs))
+            }
+        }
+        return list
+    }
+
+    fun listSelfMemoryObservations(status: String?, limit: Int): List<MemoryObservationRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryObservationRecord>()
+        val sql = buildString {
+            append("""
+                SELECT *
+                FROM memory_observations
+                WHERE (candidate_uri LIKE 'self://%' OR person_uri = 'person://self/kiyomizu')
+            """.trimIndent())
+            if (!status.isNullOrBlank()) {
+                append(" AND status = ?")
+            }
+            append(" ORDER BY last_seen_at DESC, priority DESC, confidence DESC, id DESC LIMIT ?")
+        }
+        getConnection().use { conn ->
+            conn.prepareStatement(sql).use { pstmt ->
+                var position = 1
+                if (!status.isNullOrBlank()) pstmt.setString(position++, status)
+                pstmt.setInt(position, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryObservation(rs))
             }
         }
         return list

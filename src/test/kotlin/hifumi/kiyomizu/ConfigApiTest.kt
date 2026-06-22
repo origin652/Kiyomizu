@@ -56,6 +56,10 @@ class ConfigApiTest {
         Config.memoryLongIdlePauseDays = 7
         Config.memoryRecycleRetentionDays = 30
         Config.memoryDreamRecallMaxTraces = 2
+        Config.memorySelfEnabled = true
+        Config.memorySelfDirectUpdateEnabled = true
+        Config.memorySelfRecallMaxNodes = 8
+        Config.memorySelfPromoteRepeatThreshold = 3
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -185,6 +189,10 @@ class ConfigApiTest {
                 put("memory_dream_idle_hours", 18)
                 put("memory_long_idle_pause_days", 14)
                 put("memory_dream_recall_max_traces", 1)
+                put("memory_self_enabled", false)
+                put("memory_self_direct_update_enabled", false)
+                put("memory_self_recall_max_nodes", 4)
+                put("memory_self_promote_repeat_threshold", 5)
             })
 
             assertTrue(result.errors.isEmpty())
@@ -212,6 +220,10 @@ class ConfigApiTest {
             assertEquals(18, Config.memoryDreamIdleHours)
             assertEquals(14, Config.memoryLongIdlePauseDays)
             assertEquals(1, Config.memoryDreamRecallMaxTraces)
+            assertFalse(Config.memorySelfEnabled)
+            assertFalse(Config.memorySelfDirectUpdateEnabled)
+            assertEquals(4, Config.memorySelfRecallMaxNodes)
+            assertEquals(5, Config.memorySelfPromoteRepeatThreshold)
         }
     }
 }

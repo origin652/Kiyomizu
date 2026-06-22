@@ -49,9 +49,12 @@ object Config {
             Identity rules:
             - User first-person references like "I", "me", "my", "我", "我的" refer to person://user/primary.
             - Assistant first-person references refer to person://self/kiyomizu.
+            - Durable first-person assistant self-knowledge, behavior strategy, style, boundary, or capability observations may use self://... candidate_uri with person_uri = person://self/kiyomizu.
             - Only create other person nodes when the text explicitly mentions them.
             Memory principles:
             - Prefer durable identity, preference, relationship, project_fact, episodic_event, and working_memory observations.
+            - Assistant self observations should be first-person self-descriptions, not second-person commands.
+            - Do not promote dream-source self claims as facts; mark source=dream when they come from dreams.
             - Keep each observation atomic, specific, and in the same language the user used.
             - It is valid to return an empty observations array when the exchange has no durable memory value.
             - Do not invent facts that were not stated or strongly implied.
@@ -138,6 +141,10 @@ object Config {
     private val memoryLongIdlePauseDaysRef = AtomicInteger(System.getenv("MEMORY_LONG_IDLE_PAUSE_DAYS")?.toIntOrNull() ?: 7)
     private val memoryRecycleRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_RECYCLE_RETENTION_DAYS")?.toIntOrNull() ?: 30)
     private val memoryDreamRecallMaxTracesRef = AtomicInteger(System.getenv("MEMORY_DREAM_RECALL_MAX_TRACES")?.toIntOrNull() ?: 2)
+    private val memorySelfEnabledRef = AtomicReference(System.getenv("MEMORY_SELF_ENABLED") != "0")
+    private val memorySelfDirectUpdateEnabledRef = AtomicReference(System.getenv("MEMORY_SELF_DIRECT_UPDATE_ENABLED") != "0")
+    private val memorySelfRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_SELF_RECALL_MAX_NODES")?.toIntOrNull() ?: 8)
+    private val memorySelfPromoteRepeatThresholdRef = AtomicInteger(System.getenv("MEMORY_SELF_PROMOTE_REPEAT_THRESHOLD")?.toIntOrNull() ?: 3)
 
     var preset: String
         get() = presetRef.get()
@@ -318,6 +325,22 @@ object Config {
         get() = memoryDreamRecallMaxTracesRef.get()
         set(value) { memoryDreamRecallMaxTracesRef.set(value) }
 
+    var memorySelfEnabled: Boolean
+        get() = memorySelfEnabledRef.get()
+        set(value) { memorySelfEnabledRef.set(value) }
+
+    var memorySelfDirectUpdateEnabled: Boolean
+        get() = memorySelfDirectUpdateEnabledRef.get()
+        set(value) { memorySelfDirectUpdateEnabledRef.set(value) }
+
+    var memorySelfRecallMaxNodes: Int
+        get() = memorySelfRecallMaxNodesRef.get()
+        set(value) { memorySelfRecallMaxNodesRef.set(value) }
+
+    var memorySelfPromoteRepeatThreshold: Int
+        get() = memorySelfPromoteRepeatThresholdRef.get()
+        set(value) { memorySelfPromoteRepeatThresholdRef.set(value) }
+
     data class Snapshot(
         val preset: String,
         val upstream: String,
@@ -361,7 +384,11 @@ object Config {
         val memoryDreamDryRunDailyLimit: Int,
         val memoryLongIdlePauseDays: Int,
         val memoryRecycleRetentionDays: Int,
-        val memoryDreamRecallMaxTraces: Int
+        val memoryDreamRecallMaxTraces: Int,
+        val memorySelfEnabled: Boolean,
+        val memorySelfDirectUpdateEnabled: Boolean,
+        val memorySelfRecallMaxNodes: Int,
+        val memorySelfPromoteRepeatThreshold: Int
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -408,6 +435,10 @@ object Config {
                 put("memory_long_idle_pause_days", memoryLongIdlePauseDays)
                 put("memory_recycle_retention_days", memoryRecycleRetentionDays)
                 put("memory_dream_recall_max_traces", memoryDreamRecallMaxTraces)
+                put("memory_self_enabled", memorySelfEnabled)
+                put("memory_self_direct_update_enabled", memorySelfDirectUpdateEnabled)
+                put("memory_self_recall_max_nodes", memorySelfRecallMaxNodes)
+                put("memory_self_promote_repeat_threshold", memorySelfPromoteRepeatThreshold)
             }
         }
     }
@@ -456,7 +487,11 @@ object Config {
             memoryDreamDryRunDailyLimit = memoryDreamDryRunDailyLimit,
             memoryLongIdlePauseDays = memoryLongIdlePauseDays,
             memoryRecycleRetentionDays = memoryRecycleRetentionDays,
-            memoryDreamRecallMaxTraces = memoryDreamRecallMaxTraces
+            memoryDreamRecallMaxTraces = memoryDreamRecallMaxTraces,
+            memorySelfEnabled = memorySelfEnabled,
+            memorySelfDirectUpdateEnabled = memorySelfDirectUpdateEnabled,
+            memorySelfRecallMaxNodes = memorySelfRecallMaxNodes,
+            memorySelfPromoteRepeatThreshold = memorySelfPromoteRepeatThreshold
         )
     }
 
@@ -504,6 +539,10 @@ object Config {
         memoryLongIdlePauseDays = snapshot.memoryLongIdlePauseDays
         memoryRecycleRetentionDays = snapshot.memoryRecycleRetentionDays
         memoryDreamRecallMaxTraces = snapshot.memoryDreamRecallMaxTraces
+        memorySelfEnabled = snapshot.memorySelfEnabled
+        memorySelfDirectUpdateEnabled = snapshot.memorySelfDirectUpdateEnabled
+        memorySelfRecallMaxNodes = snapshot.memorySelfRecallMaxNodes
+        memorySelfPromoteRepeatThreshold = snapshot.memorySelfPromoteRepeatThreshold
     }
 
     fun loadPersisted(jsonText: String?) {
@@ -563,7 +602,11 @@ object Config {
                     memoryDreamDryRunDailyLimit = body.intValue("memory_dream_dry_run_daily_limit") ?: memoryDreamDryRunDailyLimit,
                     memoryLongIdlePauseDays = body.intValue("memory_long_idle_pause_days") ?: memoryLongIdlePauseDays,
                     memoryRecycleRetentionDays = body.intValue("memory_recycle_retention_days") ?: memoryRecycleRetentionDays,
-                    memoryDreamRecallMaxTraces = body.intValue("memory_dream_recall_max_traces") ?: memoryDreamRecallMaxTraces
+                    memoryDreamRecallMaxTraces = body.intValue("memory_dream_recall_max_traces") ?: memoryDreamRecallMaxTraces,
+                    memorySelfEnabled = body.booleanValue("memory_self_enabled") ?: memorySelfEnabled,
+                    memorySelfDirectUpdateEnabled = body.booleanValue("memory_self_direct_update_enabled") ?: memorySelfDirectUpdateEnabled,
+                    memorySelfRecallMaxNodes = body.intValue("memory_self_recall_max_nodes") ?: memorySelfRecallMaxNodes,
+                    memorySelfPromoteRepeatThreshold = body.intValue("memory_self_promote_repeat_threshold") ?: memorySelfPromoteRepeatThreshold
                 )
             )
         } catch (e: Exception) {

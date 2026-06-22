@@ -460,6 +460,118 @@ fun main() {
                 }.toString(), ContentType.Application.Json)
             }
 
+            get("/api/companion/self") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val stable = DatabaseService.listSelfMemoryNodes("active", 100).filter { it.uri.startsWith("self://") }
+                val buffered = DatabaseService.listSelfMemoryObservations("buffered", 100)
+                val conflicts = DatabaseService.listSelfMemoryObservations("conflict", 100)
+                val dreamSource = buffered.filter { it.source.contains("dream", ignoreCase = true) }
+                val events = DatabaseService.listSelfMemoryEvents(50)
+                call.respondText(buildJsonObject {
+                    put("stable_self", buildJsonArray { stable.forEach { add(memoryNodeJson(it)) } })
+                    put("buffered_self", buildJsonArray { buffered.forEach { add(memoryObservationJson(it)) } })
+                    put("dream_source_self", buildJsonArray { dreamSource.forEach { add(memoryObservationJson(it)) } })
+                    put("conflicts", buildJsonArray { conflicts.forEach { add(memoryObservationJson(it)) } })
+                    put("recent_events", buildJsonArray { events.forEach { add(selfEventJson(it)) } })
+                }.toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/self") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                val content = body?.get("content")?.jsonPrimitive?.contentOrNull?.trim()
+                if (body == null || content.isNullOrBlank()) {
+                    call.respondText(buildJsonObject { put("error", "content must not be blank") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val node = MemoryService.createSelfMemory(
+                    content = content,
+                    uri = body["uri"]?.jsonPrimitive?.contentOrNull,
+                    kind = body["kind"]?.jsonPrimitive?.contentOrNull,
+                    priority = body["priority"]?.jsonPrimitive?.doubleOrNull ?: 0.85,
+                    confidence = body["confidence"]?.jsonPrimitive?.doubleOrNull ?: 0.9,
+                    source = "config",
+                    reason = "manual self memory create"
+                )
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "self memory was not created") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                } else {
+                    call.respondText(buildJsonObject { put("self", memoryNodeJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            patch("/api/companion/self/{id}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@patch }
+                if (!requireConfigAuth(call)) return@patch
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid self id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@patch
+                }
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@patch
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(buildJsonObject { put("error", "body must be a JSON object") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@patch
+                }
+                val node = MemoryService.editSelfMemory(
+                    nodeId = id,
+                    content = body["content"]?.jsonPrimitive?.contentOrNull,
+                    uri = body["uri"]?.jsonPrimitive?.contentOrNull,
+                    priority = body["priority"]?.jsonPrimitive?.doubleOrNull,
+                    confidence = body["confidence"]?.jsonPrimitive?.doubleOrNull
+                )
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "self memory not found") }.toString(), ContentType.Application.Json, HttpStatusCode.NotFound)
+                } else {
+                    call.respondText(buildJsonObject { put("self", memoryNodeJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            post("/api/companion/self/{id}/archive") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid self id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val ok = MemoryService.archiveSelfMemory(id)
+                call.respondText(buildJsonObject { put("ok", ok) }.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound)
+            }
+
+            post("/api/companion/self/observations/{id}/confirm") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid observation id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val node = MemoryService.confirmSelfObservation(id)
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "self observation not found or blocked by higher-priority self memory") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                } else {
+                    call.respondText(buildJsonObject { put("self", memoryNodeJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            post("/api/companion/self/events/{id}/revert") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid event id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val result = MemoryService.revertSelfMemoryEvent(id)
+                val ok = result["ok"]?.jsonPrimitive?.booleanOrNull == true
+                call.respondText(result.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.BadRequest)
+            }
+
             get("/api/companion/recycle-bin") {
                 if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
                 if (!requireConfigAuth(call)) return@get
@@ -616,6 +728,69 @@ private suspend fun receiveTextLimited(call: ApplicationCall, maxBytes: Long): S
     }
 
     return out.toString(Charsets.UTF_8.name())
+}
+
+private fun memoryNodeJson(m: DatabaseService.MemoryNodeRecord): JsonObject {
+    return buildJsonObject {
+        put("id", m.id)
+        put("uri", m.uri)
+        put("content", m.content)
+        put("kind", m.kind)
+        put("source", m.source)
+        put("status", m.status)
+        put("priority", m.priority)
+        put("confidence", m.confidence)
+        put("strength", m.strength)
+        put("person_uri", m.personUri ?: "")
+        put("scope_hint", m.scopeHint ?: "")
+        put("raw_evidence", m.rawEvidence ?: "")
+        put("keywords", buildJsonArray { m.keywords.forEach { add(it) } })
+        put("topics", buildJsonArray { m.topics.forEach { add(it) } })
+        put("created_at", m.createdAt)
+        put("updated_at", m.updatedAt)
+    }
+}
+
+private fun memoryObservationJson(observation: DatabaseService.MemoryObservationRecord): JsonObject {
+    return buildJsonObject {
+        put("id", observation.id)
+        put("candidate_uri", observation.candidateUri ?: "")
+        put("kind", observation.kind)
+        put("content", observation.content)
+        put("source", observation.source)
+        put("status", observation.status)
+        put("seen_count", observation.seenCount)
+        put("priority", observation.priority)
+        put("confidence", observation.confidence)
+        put("person_uri", observation.personUri ?: "")
+        put("scope_hint", observation.scopeHint ?: "")
+        put("matched_node_id", observation.matchedNodeId ?: 0)
+        put("raw_evidence", observation.rawEvidence ?: "")
+        put("keywords", buildJsonArray { observation.keywords.forEach { add(it) } })
+        put("topics", buildJsonArray { observation.topics.forEach { add(it) } })
+        put("first_seen_at", observation.firstSeenAt)
+        put("last_seen_at", observation.lastSeenAt)
+        put("expires_at", observation.expiresAt)
+    }
+}
+
+private fun selfEventJson(event: DatabaseService.SelfMemoryEventRecord): JsonObject {
+    return buildJsonObject {
+        put("id", event.id)
+        put("event_type", event.eventType)
+        put("node_id", event.nodeId ?: 0)
+        put("node_uri", event.nodeUri ?: "")
+        put("observation_id", event.observationId ?: 0)
+        put("previous_node_id", event.previousNodeId ?: 0)
+        put("previous_node_uri", event.previousNodeUri ?: "")
+        put("new_node_id", event.newNodeId ?: 0)
+        put("new_node_uri", event.newNodeUri ?: "")
+        put("source", event.source)
+        put("reason", event.reason ?: "")
+        put("content_before", event.contentBefore ?: "")
+        put("content_after", event.contentAfter ?: "")
+        put("created_at", event.createdAt)
+    }
 }
 
 private suspend fun respondPayloadTooLarge(call: ApplicationCall, maxBytes: Long) {
