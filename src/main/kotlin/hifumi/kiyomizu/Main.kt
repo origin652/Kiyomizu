@@ -425,6 +425,65 @@ fun main() {
                 }.toString(), ContentType.Application.Json)
             }
 
+            get("/api/companion/observations") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val q = call.request.queryParameters["q"]
+                val status = call.request.queryParameters["status"] ?: "buffered"
+                val kind = call.request.queryParameters["kind"]
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 50
+                val observations = DatabaseService.listMemoryObservations(q, status, kind, limit)
+                call.respondText(buildJsonObject {
+                    put("observations", buildJsonArray {
+                        observations.forEach { observation ->
+                            add(buildJsonObject {
+                                put("id", observation.id)
+                                put("candidate_uri", observation.candidateUri ?: "")
+                                put("kind", observation.kind)
+                                put("content", observation.content)
+                                put("status", observation.status)
+                                put("seen_count", observation.seenCount)
+                                put("priority", observation.priority)
+                                put("confidence", observation.confidence)
+                                put("person_uri", observation.personUri ?: "")
+                                put("project_uri", observation.projectUri ?: "")
+                                put("scope_hint", observation.scopeHint ?: "")
+                                put("matched_node_id", observation.matchedNodeId ?: 0)
+                                put("first_seen_at", observation.firstSeenAt)
+                                put("last_seen_at", observation.lastSeenAt)
+                                put("expires_at", observation.expiresAt)
+                                put("keywords", buildJsonArray { observation.keywords.forEach { add(it) } })
+                                put("topics", buildJsonArray { observation.topics.forEach { add(it) } })
+                            })
+                        }
+                    })
+                }.toString(), ContentType.Application.Json)
+            }
+
+            get("/api/companion/recycle-bin") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 50
+                val records = DatabaseService.listRecycleBin(limit)
+                call.respondText(buildJsonObject {
+                    put("items", buildJsonArray {
+                        records.forEach { item ->
+                            add(buildJsonObject {
+                                put("id", item.id)
+                                put("node_id", item.nodeId)
+                                put("uri", item.uri)
+                                put("content", item.content ?: "")
+                                put("reason", item.reason ?: "")
+                                put("created_at", item.createdAt)
+                                put("purge_after", item.purgeAfter)
+                                put("keywords", buildJsonArray { item.keywords.forEach { add(it) } })
+                                put("topics", buildJsonArray { item.topics.forEach { add(it) } })
+                            })
+                        }
+                    })
+                }.toString(), ContentType.Application.Json)
+            }
+
             post("/api/companion/dream/dry-run") {
                 if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
                 if (!requireConfigAuth(call)) return@post

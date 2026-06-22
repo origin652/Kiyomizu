@@ -1166,6 +1166,19 @@ object DatabaseService {
         val createdAt: Long
     )
 
+    data class RecycleBinRecord(
+        val id: Int,
+        val nodeId: Int,
+        val uri: String,
+        val content: String?,
+        val rawEvidence: String?,
+        val keywords: List<String>,
+        val topics: List<String>,
+        val reason: String?,
+        val createdAt: Long,
+        val purgeAfter: Long
+    )
+
     data class DreamRunDraft(
         val mode: String,
         val status: String,
@@ -1303,6 +1316,21 @@ object DatabaseService {
             dreamSymbols = parseStringList(rs.getString("dream_symbols")),
             dreamEmotions = parseStringList(rs.getString("dream_emotions")),
             nextAllowedAt = if (nextAllowedAtNull) null else nextAllowedAt
+        )
+    }
+
+    private fun readRecycleBinRecord(rs: java.sql.ResultSet): RecycleBinRecord {
+        return RecycleBinRecord(
+            id = rs.getInt("id"),
+            nodeId = rs.getInt("node_id"),
+            uri = rs.getString("uri"),
+            content = rs.getString("content"),
+            rawEvidence = rs.getString("raw_evidence"),
+            keywords = parseStringList(rs.getString("keywords")),
+            topics = parseStringList(rs.getString("topics")),
+            reason = rs.getString("reason"),
+            createdAt = rs.getLong("created_at"),
+            purgeAfter = rs.getLong("purge_after")
         )
     }
 
@@ -1663,6 +1691,52 @@ object DatabaseService {
         return list
     }
 
+    fun listMemoryObservations(
+        q: String?,
+        status: String?,
+        kind: String?,
+        limit: Int
+    ): List<MemoryObservationRecord> {
+        if (limit <= 0) return emptyList()
+        val clauses = mutableListOf<String>()
+        val params = mutableListOf<String>()
+
+        if (!status.isNullOrBlank()) {
+            clauses.add("status = ?")
+            params.add(status.trim())
+        }
+        if (!kind.isNullOrBlank()) {
+            clauses.add("kind = ?")
+            params.add(kind.trim())
+        }
+        if (!q.isNullOrBlank()) {
+            clauses.add("(LOWER(content) LIKE ? OR LOWER(searchable_text) LIKE ? OR LOWER(COALESCE(candidate_uri, '')) LIKE ?)")
+            repeat(3) { params.add("%${q.trim().lowercase()}%") }
+        }
+
+        val sql = buildString {
+            append("SELECT * FROM memory_observations")
+            if (clauses.isNotEmpty()) {
+                append(" WHERE ")
+                append(clauses.joinToString(" AND "))
+            }
+            append(" ORDER BY last_seen_at DESC, id DESC LIMIT ?")
+        }
+
+        val list = mutableListOf<MemoryObservationRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement(sql).use { pstmt ->
+                params.forEachIndexed { index, value -> pstmt.setString(index + 1, value) }
+                pstmt.setInt(params.size + 1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readMemoryObservation(rs))
+                }
+            }
+        }
+        return list
+    }
+
     fun updateMemoryObservationStatus(observationId: Int, status: String, matchedNodeId: Int? = null) {
         getConnection().use { conn ->
             conn.prepareStatement("""
@@ -1871,6 +1945,26 @@ object DatabaseService {
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
                     list.add(readDreamRunItem(rs))
+                }
+            }
+        }
+        return list
+    }
+
+    fun listRecycleBin(limit: Int): List<RecycleBinRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<RecycleBinRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_recycle_bin
+                ORDER BY purge_after ASC, id DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(readRecycleBinRecord(rs))
                 }
             }
         }

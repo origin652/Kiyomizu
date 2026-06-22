@@ -1148,6 +1148,40 @@ input[disabled], textarea[disabled], select[disabled] {
   word-break: break-all;
   font-family: var(--font-mono);
 }
+.memory-queue-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+}
+.memory-queue-panel {
+  min-width: 0;
+}
+.memory-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.memory-queue-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.memory-queue-meta {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+@media (max-width: 760px) {
+  .memory-queue-grid { grid-template-columns: 1fr; }
+}
 .eyebrow {
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -1618,6 +1652,24 @@ input[disabled], textarea[disabled], select[disabled] {
               <span id="t-dream-label">Last dream: </span><span id="companion-dream">—</span>
             </div>
             <div class="dream-run-result" id="dream-dry-run-result" aria-live="polite"></div>
+            <div class="panel-title-row">
+              <div class="eyebrow" id="t-memory-queues-label">Memory Queues</div>
+              <button class="btn btn-ghost" onclick="loadMemoryQueues()" id="t-memory-queues-refresh">Refresh queues</button>
+            </div>
+            <div class="memory-queue-grid">
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-observations-label">Buffered Observations</div>
+                <div class="memory-queue-list" id="observations-list">
+                  <div class="empty" id="t-no-observations">No buffered observations.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-recycle-label">Recycle Bin</div>
+                <div class="memory-queue-list" id="recycle-list">
+                  <div class="empty" id="t-no-recycle">Recycle bin is empty.</div>
+                </div>
+              </div>
+            </div>
             <div class="eyebrow" id="t-reflections-label">Recent Reflections</div>
             <div class="reflections-list" id="reflections-list">
               <div class="empty" id="t-no-reflections">No reflections yet.</div>
@@ -2197,6 +2249,12 @@ const STRINGS = {
     companionPanelTitle: '伴侣状态',
     companionRefresh: '刷新',
     dreamDryRun: '做梦 dry run',
+    memoryQueuesLabel: '记忆队列',
+    memoryQueuesRefresh: '刷新队列',
+    observationsLabel: '观察缓冲区',
+    recycleLabel: '回收区',
+    noObservations: '暂无缓冲观察。',
+    noRecycle: '回收区为空。',
     intimacyLabel: '亲密度',
     trustLabel: '信任度',
     memoryCountLabel: '图节点数：',
@@ -2349,6 +2407,12 @@ const STRINGS = {
     companionPanelTitle: 'Companion State',
     companionRefresh: 'Refresh',
     dreamDryRun: 'Dream dry run',
+    memoryQueuesLabel: 'Memory Queues',
+    memoryQueuesRefresh: 'Refresh queues',
+    observationsLabel: 'Buffered Observations',
+    recycleLabel: 'Recycle Bin',
+    noObservations: 'No buffered observations.',
+    noRecycle: 'Recycle bin is empty.',
     intimacyLabel: 'Intimacy',
     trustLabel: 'Trust',
     memoryCountLabel: 'Graph nodes: ',
@@ -2501,6 +2565,12 @@ const STRINGS = {
     companionPanelTitle: 'コンパニオン状態',
     companionRefresh: '更新',
     dreamDryRun: '夢 dry run',
+    memoryQueuesLabel: '記憶キュー',
+    memoryQueuesRefresh: 'キューを更新',
+    observationsLabel: '観察バッファ',
+    recycleLabel: 'リサイクル',
+    noObservations: 'バッファ中の観察はありません。',
+    noRecycle: 'リサイクルは空です。',
     intimacyLabel: '親密度',
     trustLabel: '信頼度',
     memoryCountLabel: 'グラフノード数：',
@@ -2895,6 +2965,18 @@ function applyLang(lang) {
   if (companionRefresh) companionRefresh.textContent = s.companionRefresh || 'Refresh';
   const dreamDryRun = document.getElementById('t-dream-dry-run');
   if (dreamDryRun) dreamDryRun.textContent = s.dreamDryRun || 'Dream dry run';
+  const memoryQueuesLabel = document.getElementById('t-memory-queues-label');
+  if (memoryQueuesLabel) memoryQueuesLabel.textContent = s.memoryQueuesLabel || 'Memory Queues';
+  const memoryQueuesRefresh = document.getElementById('t-memory-queues-refresh');
+  if (memoryQueuesRefresh) memoryQueuesRefresh.textContent = s.memoryQueuesRefresh || 'Refresh queues';
+  const observationsLabel = document.getElementById('t-observations-label');
+  if (observationsLabel) observationsLabel.textContent = s.observationsLabel || 'Buffered Observations';
+  const recycleLabel = document.getElementById('t-recycle-label');
+  if (recycleLabel) recycleLabel.textContent = s.recycleLabel || 'Recycle Bin';
+  const noObservations = document.getElementById('t-no-observations');
+  if (noObservations) noObservations.textContent = s.noObservations || 'No buffered observations.';
+  const noRecycle = document.getElementById('t-no-recycle');
+  if (noRecycle) noRecycle.textContent = s.noRecycle || 'Recycle bin is empty.';
   const intimacyLbl = document.getElementById('t-intimacy-label');
   if (intimacyLbl) intimacyLbl.textContent = s.intimacyLabel || 'Intimacy';
   const trustLbl = document.getElementById('t-trust-label');
@@ -3429,6 +3511,60 @@ async function importConfig(event) {
   }
 }
 
+function renderQueueList(containerId, emptyText, rows, renderMeta) {
+  const list = document.getElementById(containerId);
+  if (!list) return;
+  list.textContent = '';
+  if (!rows || rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = emptyText;
+    list.appendChild(empty);
+    return;
+  }
+  rows.forEach(row => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const content = document.createElement('div');
+    content.textContent = row.content || row.candidate_uri || row.uri || '—';
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    meta.textContent = renderMeta(row);
+    item.appendChild(content);
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
+}
+
+async function loadMemoryQueues() {
+  const s = STRINGS[currentLang];
+  try {
+    const observationsResponse = await fetchConfig('/api/companion/observations?status=buffered&limit=20');
+    if (observationsResponse.ok) {
+      const observationsData = await readJsonResponse(observationsResponse);
+      renderQueueList(
+        'observations-list',
+        s.noObservations || 'No buffered observations.',
+        observationsData.observations || [],
+        row => `${row.kind || 'memory'} · seen=${row.seen_count || 0} · conf=${row.confidence ?? '—'} · expires=${row.expires_at ? new Date(row.expires_at * 1000).toLocaleString() : '—'} · ${row.candidate_uri || ''}`
+      );
+    }
+
+    const recycleResponse = await fetchConfig('/api/companion/recycle-bin?limit=20');
+    if (recycleResponse.ok) {
+      const recycleData = await readJsonResponse(recycleResponse);
+      renderQueueList(
+        'recycle-list',
+        s.noRecycle || 'Recycle bin is empty.',
+        recycleData.items || [],
+        row => `${row.reason || 'archived'} · purge=${row.purge_after ? new Date(row.purge_after * 1000).toLocaleString() : '—'} · ${row.uri || ''}`
+      );
+    }
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e && e.message ? e.message : 'Failed to load memory queues'), 'err');
+  }
+}
+
 async function loadCompanionState() {
   const r = await fetchConfig('/api/companion/state');
   if (!r.ok) return;
@@ -3488,6 +3624,7 @@ async function loadCompanionState() {
       list.appendChild(item);
     });
   }
+  await loadMemoryQueues();
 }
 
 function renderDreamDryRunResult(d) {
