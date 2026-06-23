@@ -73,6 +73,10 @@ object ConfigApi {
             put("memory_model_recall_failure_threshold", Config.memoryModelRecallFailureThreshold)
             put("memory_model_recall_cooldown_seconds", Config.memoryModelRecallCooldownSeconds)
             put("memory_model_recall_trace_retention", Config.memoryModelRecallTraceRetention)
+            put("memory_traffic_classifier_enabled", Config.memoryTrafficClassifierEnabled)
+            put("memory_tool_internal_bypass_enabled", Config.memoryToolInternalBypassEnabled)
+            put("memory_unknown_disable_write", Config.memoryUnknownDisableWrite)
+            put("memory_task_disable_affect", Config.memoryTaskDisableAffect)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -138,6 +142,10 @@ object ConfigApi {
         var nextMemoryModelRecallFailureThreshold = Config.memoryModelRecallFailureThreshold
         var nextMemoryModelRecallCooldownSeconds = Config.memoryModelRecallCooldownSeconds
         var nextMemoryModelRecallTraceRetention = Config.memoryModelRecallTraceRetention
+        var nextMemoryTrafficClassifierEnabled = Config.memoryTrafficClassifierEnabled
+        var nextMemoryToolInternalBypassEnabled = Config.memoryToolInternalBypassEnabled
+        var nextMemoryUnknownDisableWrite = Config.memoryUnknownDisableWrite
+        var nextMemoryTaskDisableAffect = Config.memoryTaskDisableAffect
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var nextMemoryRecallModelKey = Config.memoryRecallModelKey
@@ -463,6 +471,18 @@ object ConfigApi {
                 errors.add("memory_model_recall_trace_retention must be an integer 1-5000")
             }
         }
+        body.readBoolean("memory_traffic_classifier_enabled", errors) {
+            nextMemoryTrafficClassifierEnabled = it
+        }
+        body.readBoolean("memory_tool_internal_bypass_enabled", errors) {
+            nextMemoryToolInternalBypassEnabled = it
+        }
+        body.readBoolean("memory_unknown_disable_write", errors) {
+            nextMemoryUnknownDisableWrite = it
+        }
+        body.readBoolean("memory_task_disable_affect", errors) {
+            nextMemoryTaskDisableAffect = it
+        }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
@@ -585,7 +605,11 @@ object ConfigApi {
             memoryRecallModelModel = nextMemoryRecallModelModel,
             memoryModelRecallFailureThreshold = nextMemoryModelRecallFailureThreshold,
             memoryModelRecallCooldownSeconds = nextMemoryModelRecallCooldownSeconds,
-            memoryModelRecallTraceRetention = nextMemoryModelRecallTraceRetention
+            memoryModelRecallTraceRetention = nextMemoryModelRecallTraceRetention,
+            memoryTrafficClassifierEnabled = nextMemoryTrafficClassifierEnabled,
+            memoryToolInternalBypassEnabled = nextMemoryToolInternalBypassEnabled,
+            memoryUnknownDisableWrite = nextMemoryUnknownDisableWrite,
+            memoryTaskDisableAffect = nextMemoryTaskDisableAffect
         )
 
         try {

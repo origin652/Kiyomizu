@@ -2941,23 +2941,40 @@ object MemoryService {
         saveSummaryEdgesBetweenExistingNodes(summaryEdges)
     }
 
-    fun extractAndSaveMemoriesAsync(path: String, originalJson: JsonObject, responseText: String) {
+    fun extractAndSaveMemoriesAsync(
+        path: String,
+        originalJson: JsonObject,
+        responseText: String,
+        trafficDecision: MemoryTrafficClassifier.Decision? = null
+    ) {
         if (!Config.memoryEnabled) return
 
         scope.launch {
             try {
                 val userText = MessagePatcher.extractLatestUserText(path, originalJson)?.trim().orEmpty()
                 if (userText.isEmpty()) return@launch
+                val primaryDecision = trafficDecision ?: MemoryTrafficClassifier.classify(path, originalJson, userText)
+                if (!primaryDecision.actions.extractMemory) {
+                    println("Skipping memory extraction for traffic_class=${primaryDecision.wireClass}: ${primaryDecision.reasons.joinToString(",")}")
+                    return@launch
+                }
+                val evidenceDecision = MemoryTrafficClassifier.shouldRejectEvidence(path, originalJson, userText, responseText)
+                if (!evidenceDecision.actions.extractMemory) {
+                    println("Skipping memory extraction after evidence filter for traffic_class=${evidenceDecision.wireClass}: ${evidenceDecision.reasons.joinToString(",")}")
+                    return@launch
+                }
                 tryApplyDirectSelfUpdate(userText)
                 if (responseText.isBlank()) return@launch
 
                 val history = "User: $userText\nAssistant: $responseText"
                 val result = fetchSummarizationAndStateUpdate(history) ?: return@launch
 
-                val intimacyDelta = result["intimacy_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-                val trustDelta = result["trust_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-                val mood = result["mood"]?.jsonPrimitive?.contentOrNull ?: "neutral"
-                DatabaseService.applyRelationshipDelta(intimacyDelta, trustDelta, mood)
+                if (primaryDecision.actions.updateAffect) {
+                    val intimacyDelta = result["intimacy_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                    val trustDelta = result["trust_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                    val mood = result["mood"]?.jsonPrimitive?.contentOrNull ?: "neutral"
+                    DatabaseService.applyRelationshipDelta(intimacyDelta, trustDelta, mood)
+                }
 
                 val summaryNodes = parseSummaryNodes(result)
                 val summaryEdges = parseSummaryEdges(result)
@@ -3159,7 +3176,10 @@ object MemoryService {
             .take(Config.memoryPersonContextMaxClues)
     }
 
-    private suspend fun normalRecall(context: RecallContext): Pair<List<RecalledMemory>, List<RecalledMemory>> {
+    private suspend fun normalRecall(
+        context: RecallContext,
+        updateAccess: Boolean = true
+    ): Pair<List<RecalledMemory>, List<RecalledMemory>> {
         val now = Instant.now().epochSecond
         val limit = Config.memoryRecallMaxNodes.coerceAtLeast(0)
         if (limit == 0) return emptyList<RecalledMemory>() to emptyList()
@@ -3188,8 +3208,10 @@ object MemoryService {
             .take(limit)
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
-        (recalled + personContext).forEach { memory ->
-            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
+        if (updateAccess) {
+            (recalled + personContext).forEach { memory ->
+                DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
+            }
         }
         return recalled to personContext
     }
@@ -3747,6 +3769,20 @@ object MemoryService {
             dreamTraces = dreamTraces,
             selfMemories = selfMemories,
             selfObservations = selfObservations
+        )
+    }
+
+    suspend fun buildTaskMemoryContext(userQuery: String): CompanionMemoryContext {
+        if (!Config.memoryEnabled) return CompanionMemoryContext(emptyList(), emptyList(), null, emptyList(), emptyList(), emptyList())
+        val context = buildRecallContext(userQuery, deepRecall = false)
+        val (recalled, personContext) = normalRecall(context, updateAccess = false)
+        return CompanionMemoryContext(
+            recalled = recalled,
+            personContext = personContext,
+            deepRecall = null,
+            dreamTraces = emptyList(),
+            selfMemories = emptyList(),
+            selfObservations = emptyList()
         )
     }
 

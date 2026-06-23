@@ -2094,6 +2094,28 @@ input[disabled], textarea[disabled], select[disabled] {
                   </label>
 
                   <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-traffic-classifier-toggle-label">
+                      <span>Enable Memory Traffic Classifier</span>
+                      <input type="checkbox" name="memory_traffic_classifier_enabled" class="cb-accent">
+                    </label>
+                    <label class="label-inline" id="t-comp-tool-bypass-toggle-label">
+                      <span>Bypass Tool/Internal Traffic</span>
+                      <input type="checkbox" name="memory_tool_internal_bypass_enabled" class="cb-accent">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-unknown-disable-write-label">
+                      <span>Disable Unknown Writes</span>
+                      <input type="checkbox" name="memory_unknown_disable_write" class="cb-accent">
+                    </label>
+                    <label class="label-inline" id="t-comp-task-disable-affect-label">
+                      <span>Disable Task Affect Updates</span>
+                      <input type="checkbox" name="memory_task_disable_affect" class="cb-accent">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
                     <label id="t-comp-decay-hours-label">
                       Decay Interval (Hours)
                       <input type="number" name="memory_decay_interval_hours" min="1" max="720">
@@ -2437,6 +2459,10 @@ const STRINGS = {
     compModelRecallFailureLabel: '召回失败熔断阈值 (1-20)',
     compModelRecallCooldownLabel: '召回熔断冷却秒数 (0-86400)',
     compModelRecallRetentionLabel: '召回 trace 保留条数 (1-5000)',
+    compTrafficClassifierToggleLabel: '启用记忆流量分类器',
+    compToolBypassToggleLabel: '旁路工具 / 内部请求',
+    compUnknownDisableWriteLabel: '不确定请求禁写记忆',
+    compTaskDisableAffectLabel: '任务请求禁情感更新',
     compDecayHoursLabel: '遗忘（衰减）检查间隔 (小时)',
     compDecayRateLabel: '记忆衰减速度 (0-1)',
     compThresholdLabel: '遗忘阈值 (0-1)',
@@ -2655,6 +2681,10 @@ const STRINGS = {
     compModelRecallFailureLabel: 'Recall Failure Threshold (1-20)',
     compModelRecallCooldownLabel: 'Recall Cooldown Seconds (0-86400)',
     compModelRecallRetentionLabel: 'Recall Trace Retention (1-5000)',
+    compTrafficClassifierToggleLabel: 'Enable Memory Traffic Classifier',
+    compToolBypassToggleLabel: 'Bypass Tool/Internal Traffic',
+    compUnknownDisableWriteLabel: 'Disable Unknown Writes',
+    compTaskDisableAffectLabel: 'Disable Task Affect Updates',
     compDecayHoursLabel: 'Decay Interval (Hours)',
     compDecayRateLabel: 'Memory Decay Rate (0-1)',
     compThresholdLabel: 'Forget Threshold (0-1)',
@@ -2873,6 +2903,10 @@ const STRINGS = {
     compModelRecallFailureLabel: '想起失敗しきい値 (1-20)',
     compModelRecallCooldownLabel: '想起クールダウン秒数 (0-86400)',
     compModelRecallRetentionLabel: '想起 trace 保持数 (1-5000)',
+    compTrafficClassifierToggleLabel: 'メモリ通信分類を有効化',
+    compToolBypassToggleLabel: 'ツール / 内部通信をバイパス',
+    compUnknownDisableWriteLabel: '不明リクエストの書き込みを無効化',
+    compTaskDisableAffectLabel: 'タスクリクエストの感情更新を無効化',
     compDecayHoursLabel: '忘却（減衰）チェック間隔 (時間)',
     compDecayRateLabel: '記憶減衰スピード (0〜1)',
     compThresholdLabel: '忘却しきい値 (0〜1)',
@@ -3242,6 +3276,10 @@ function applyConfigData(d) {
   f.memory_model_recall_failure_threshold.value = d.memory_model_recall_failure_threshold !== undefined ? d.memory_model_recall_failure_threshold : 3;
   f.memory_model_recall_cooldown_seconds.value = d.memory_model_recall_cooldown_seconds !== undefined ? d.memory_model_recall_cooldown_seconds : 300;
   f.memory_model_recall_trace_retention.value = d.memory_model_recall_trace_retention !== undefined ? d.memory_model_recall_trace_retention : 200;
+  f.memory_traffic_classifier_enabled.checked = d.memory_traffic_classifier_enabled !== undefined ? d.memory_traffic_classifier_enabled : true;
+  f.memory_tool_internal_bypass_enabled.checked = d.memory_tool_internal_bypass_enabled !== undefined ? d.memory_tool_internal_bypass_enabled : true;
+  f.memory_unknown_disable_write.checked = d.memory_unknown_disable_write !== undefined ? d.memory_unknown_disable_write : true;
+  f.memory_task_disable_affect.checked = d.memory_task_disable_affect !== undefined ? d.memory_task_disable_affect : true;
   f.memory_summary_prompt.value = d.memory_summary_prompt || '';
   f.memory_decay_interval_hours.value = d.memory_decay_interval_hours !== undefined ? d.memory_decay_interval_hours : 24;
   f.memory_decay_rate.value = d.memory_decay_rate !== undefined ? d.memory_decay_rate : 0.1;
@@ -3394,6 +3432,14 @@ function applyLang(lang) {
   setText('t-comp-model-recall-failure-label', s.compModelRecallFailureLabel || 'Recall Failure Threshold (1-20)', 'memory_model_recall_failure_threshold');
   setText('t-comp-model-recall-cooldown-label', s.compModelRecallCooldownLabel || 'Recall Cooldown Seconds (0-86400)', 'memory_model_recall_cooldown_seconds');
   setText('t-comp-model-recall-retention-label', s.compModelRecallRetentionLabel || 'Recall Trace Retention (1-5000)', 'memory_model_recall_trace_retention');
+  const trafficClassifierLabel = document.querySelector('#t-comp-traffic-classifier-toggle-label span');
+  if (trafficClassifierLabel) trafficClassifierLabel.textContent = s.compTrafficClassifierToggleLabel || 'Enable Memory Traffic Classifier';
+  const toolBypassLabel = document.querySelector('#t-comp-tool-bypass-toggle-label span');
+  if (toolBypassLabel) toolBypassLabel.textContent = s.compToolBypassToggleLabel || 'Bypass Tool/Internal Traffic';
+  const unknownDisableWriteLabel = document.querySelector('#t-comp-unknown-disable-write-label span');
+  if (unknownDisableWriteLabel) unknownDisableWriteLabel.textContent = s.compUnknownDisableWriteLabel || 'Disable Unknown Writes';
+  const taskDisableAffectLabel = document.querySelector('#t-comp-task-disable-affect-label span');
+  if (taskDisableAffectLabel) taskDisableAffectLabel.textContent = s.compTaskDisableAffectLabel || 'Disable Task Affect Updates';
   setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
   setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
   setText('t-comp-threshold-label', s.compThresholdLabel || 'Forget Threshold (0-1)', 'memory_threshold');
@@ -3850,6 +3896,10 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_model_recall_failure_threshold: Number(f.memory_model_recall_failure_threshold.value),
     memory_model_recall_cooldown_seconds: Number(f.memory_model_recall_cooldown_seconds.value),
     memory_model_recall_trace_retention: Number(f.memory_model_recall_trace_retention.value),
+    memory_traffic_classifier_enabled: f.memory_traffic_classifier_enabled.checked,
+    memory_tool_internal_bypass_enabled: f.memory_tool_internal_bypass_enabled.checked,
+    memory_unknown_disable_write: f.memory_unknown_disable_write.checked,
+    memory_task_disable_affect: f.memory_task_disable_affect.checked,
     memory_summary_prompt: f.memory_summary_prompt.value,
     memory_decay_interval_hours: Number(f.memory_decay_interval_hours.value),
     memory_decay_rate: Number(f.memory_decay_rate.value),
@@ -4490,6 +4540,15 @@ function formatUnknown(value) {
   return value === null || value === undefined || value === '' ? 'unknown' : String(value);
 }
 
+function parseDiagnosticsJson(value, fallback) {
+  if (!value || typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return fallback;
+  }
+}
+
 function formatTokenTotal(logs, field) {
   const known = logs
     .map(l => l[field])
@@ -4540,7 +4599,15 @@ function renderCacheDiagnostics(logs) {
     const tdPatch = document.createElement('td');
     tdPatch.className = 'diagnostic-cell';
     const eligible = l.patch_eligible === undefined ? 'unknown' : (l.patch_eligible ? 'eligible' : 'not eligible');
-    tdPatch.textContent = `${l.patched ? 'patched' : 'unchanged'} · ${eligible} · ${l.cache_mode || 'unknown'}/${l.cache_strategy || 'unknown'}`;
+    const trafficReasons = parseDiagnosticsJson(l.memory_traffic_reasons, []);
+    const trafficLabel = l.memory_traffic_class
+      ? `traffic=${l.memory_traffic_class}${l.memory_traffic_confidence !== undefined ? ' ' + Number(l.memory_traffic_confidence).toFixed(2) : ''}`
+      : 'traffic=unknown';
+    tdPatch.textContent =
+      `${l.patched ? 'patched' : 'unchanged'} · ${eligible} · ${l.cache_mode || 'unknown'}/${l.cache_strategy || 'unknown'} · ${trafficLabel}`;
+    if (Array.isArray(trafficReasons) && trafficReasons.length > 0) {
+      tdPatch.title = trafficReasons.join(', ');
+    }
 
     const tdBreakpoints = document.createElement('td');
     tdBreakpoints.className = 'diagnostic-mono diagnostic-cell';

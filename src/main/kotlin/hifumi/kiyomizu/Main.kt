@@ -704,6 +704,10 @@ fun main() {
                                 if (l.cacheCreationInputTokens != null) put("cache_creation_input_tokens", l.cacheCreationInputTokens)
                                 if (l.cachedPromptTokens != null) put("cached_prompt_tokens", l.cachedPromptTokens)
                                 if (l.usageJson != null) put("usage_json", l.usageJson)
+                                if (l.memoryTrafficClass != null) put("memory_traffic_class", l.memoryTrafficClass)
+                                if (l.memoryTrafficConfidence != null) put("memory_traffic_confidence", l.memoryTrafficConfidence)
+                                if (l.memoryTrafficReasons != null) put("memory_traffic_reasons", l.memoryTrafficReasons)
+                                if (l.memoryActions != null) put("memory_actions", l.memoryActions)
                             })
                         }
                     })
@@ -938,6 +942,7 @@ private fun Route.fallbackProxyRoute() {
             var hasBetaHeader = false
             var originalJson: JsonObject? = null
             var requestLogId: Int? = null
+            var memoryTrafficDecision: MemoryTrafficClassifier.Decision? = null
 
             val isJson = call.request.contentType().match(ContentType.Application.Json)
             if (requestBodyText.isNotEmpty() && isJson) {
@@ -945,13 +950,15 @@ private fun Route.fallbackProxyRoute() {
                     val parsed = Json.parseToJsonElement(requestBodyText) as? JsonObject
                     if (parsed != null) {
                         originalJson = parsed
-                        val patchedJson = MessagePatcher.patchJsonBody(path, parsed)
+                        val userText = MessagePatcher.extractLatestUserText(path, parsed)
+                        memoryTrafficDecision = MemoryTrafficClassifier.classify(path, parsed, userText)
+                        val patchedJson = MessagePatcher.patchJsonBody(path, parsed, memoryTrafficDecision)
                         finalBodyBytes = patchedJson.toString().toByteArray(Charsets.UTF_8)
-                        
+
                         if (Config.preset == "anthropic" && MessagePatcher.isAnthropicMessagesRequest(path, parsed)) {
                             hasBetaHeader = true
                         }
-                        requestLogId = ProxyService.logRequest(call.request.httpMethod.value, path, parsed, patchedJson)
+                        requestLogId = ProxyService.logRequest(call.request.httpMethod.value, path, parsed, patchedJson, memoryTrafficDecision)
                     }
                 } catch (e: Exception) {
                     System.err.println("Failed to parse request JSON: ${e.message}")
@@ -1005,11 +1012,11 @@ private fun Route.fallbackProxyRoute() {
                             System.err.println("Failed to record usage diagnostics: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")
                         }
                     }
-                    if (originalJson != null && isTextResponse && Config.memoryEnabled) {
+                    if (originalJson != null && isTextResponse && Config.memoryEnabled && memoryTrafficDecision?.actions?.extractMemory != false) {
                         runCatching {
                             val compiledText = compileResponseText(captured, isSse)
                             if (compiledText.isNotEmpty()) {
-                                MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
+                                MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText, memoryTrafficDecision)
                             }
                         }.onFailure { e ->
                             System.err.println("Failed to schedule memory extraction: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")

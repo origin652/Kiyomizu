@@ -89,6 +89,10 @@ class CompanionTest {
         Config.memoryModelRecallFailureThreshold = 3
         Config.memoryModelRecallCooldownSeconds = 300
         Config.memoryModelRecallTraceRetention = 200
+        Config.memoryTrafficClassifierEnabled = true
+        Config.memoryToolInternalBypassEnabled = true
+        Config.memoryUnknownDisableWrite = true
+        Config.memoryTaskDisableAffect = true
         Config.memorySummaryKey = ""
     }
 

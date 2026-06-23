@@ -690,7 +690,11 @@ object DatabaseService {
             "cache_read_input_tokens" to "INTEGER",
             "cache_creation_input_tokens" to "INTEGER",
             "cached_prompt_tokens" to "INTEGER",
-            "usage_json" to "TEXT"
+            "usage_json" to "TEXT",
+            "memory_traffic_class" to "TEXT",
+            "memory_traffic_confidence" to "REAL",
+            "memory_traffic_reasons" to "TEXT",
+            "memory_actions" to "TEXT"
         )
         conn.createStatement().use { stmt ->
             additions.forEach { (name, type) ->
@@ -3055,7 +3059,11 @@ object DatabaseService {
         val cacheReadInputTokens: Int?,
         val cacheCreationInputTokens: Int?,
         val cachedPromptTokens: Int?,
-        val usageJson: String?
+        val usageJson: String?,
+        val memoryTrafficClass: String?,
+        val memoryTrafficConfidence: Double?,
+        val memoryTrafficReasons: String?,
+        val memoryActions: String?
     )
 
     data class RequestUsageDraft(
@@ -3080,7 +3088,11 @@ object DatabaseService {
         cacheStrategy: String? = null,
         cacheBreakpoints: Int? = null,
         cacheBreakpointIndexes: List<Int> = emptyList(),
-        patchEligible: Boolean? = null
+        patchEligible: Boolean? = null,
+        memoryTrafficClass: String? = null,
+        memoryTrafficConfidence: Double? = null,
+        memoryTrafficReasons: String? = null,
+        memoryActions: String? = null
     ): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
@@ -3088,8 +3100,9 @@ object DatabaseService {
                 INSERT INTO request_logs (
                     at, method, pathname, patched, removed_thinking_blocks, model, message_count,
                     explicit_cache_blocks, cache_mode, cache_strategy, cache_breakpoints,
-                    cache_breakpoint_indexes, patch_eligible, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cache_breakpoint_indexes, patch_eligible, memory_traffic_class,
+                    memory_traffic_confidence, memory_traffic_reasons, memory_actions, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, at)
                 pstmt.setString(2, method)
@@ -3104,7 +3117,11 @@ object DatabaseService {
                 if (cacheBreakpoints != null) pstmt.setInt(11, cacheBreakpoints) else pstmt.setNull(11, java.sql.Types.INTEGER)
                 pstmt.setString(12, buildJsonArray { cacheBreakpointIndexes.forEach { add(JsonPrimitive(it)) } }.toString())
                 if (patchEligible != null) pstmt.setInt(13, if (patchEligible) 1 else 0) else pstmt.setNull(13, java.sql.Types.INTEGER)
-                pstmt.setLong(14, now)
+                pstmt.setNullableString(14, memoryTrafficClass)
+                if (memoryTrafficConfidence != null) pstmt.setDouble(15, memoryTrafficConfidence) else pstmt.setNull(15, java.sql.Types.REAL)
+                pstmt.setNullableString(16, memoryTrafficReasons)
+                pstmt.setNullableString(17, memoryActions)
+                pstmt.setLong(18, now)
                 pstmt.executeUpdate()
             }
             // Keep only the newest 1000 entries
@@ -3179,7 +3196,14 @@ object DatabaseService {
                         cacheReadInputTokens = nullableInt("cache_read_input_tokens"),
                         cacheCreationInputTokens = nullableInt("cache_creation_input_tokens"),
                         cachedPromptTokens = nullableInt("cached_prompt_tokens"),
-                        usageJson = rs.getString("usage_json")
+                        usageJson = rs.getString("usage_json"),
+                        memoryTrafficClass = rs.getString("memory_traffic_class"),
+                        memoryTrafficConfidence = run {
+                            val value = rs.getDouble("memory_traffic_confidence")
+                            if (rs.wasNull()) null else value
+                        },
+                        memoryTrafficReasons = rs.getString("memory_traffic_reasons"),
+                        memoryActions = rs.getString("memory_actions")
                     ))
                 }
             }

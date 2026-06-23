@@ -68,6 +68,10 @@ class ConfigApiTest {
         Config.memoryModelRecallFailureThreshold = 3
         Config.memoryModelRecallCooldownSeconds = 300
         Config.memoryModelRecallTraceRetention = 200
+        Config.memoryTrafficClassifierEnabled = true
+        Config.memoryToolInternalBypassEnabled = true
+        Config.memoryUnknownDisableWrite = true
+        Config.memoryTaskDisableAffect = true
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -96,6 +100,10 @@ class ConfigApiTest {
             assertTrue("memory_recall_model_key" !in publicJson)
             assertEquals("true", publicJson["memory_recall_model_key_configured"]?.jsonPrimitive?.content)
             assertEquals("false", publicJson["memory_model_recall_enabled"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_traffic_classifier_enabled"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_tool_internal_bypass_enabled"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_unknown_disable_write"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_task_disable_affect"]?.jsonPrimitive?.content)
             assertTrue("memory_embedding_url" !in publicJson)
             assertTrue("memory_embedding_model" !in publicJson)
             assertTrue("memory_embedding_key_configured" !in publicJson)
@@ -232,6 +240,10 @@ class ConfigApiTest {
                 put("memory_self_direct_update_enabled", false)
                 put("memory_self_recall_max_nodes", 4)
                 put("memory_self_promote_repeat_threshold", 5)
+                put("memory_traffic_classifier_enabled", false)
+                put("memory_tool_internal_bypass_enabled", false)
+                put("memory_unknown_disable_write", false)
+                put("memory_task_disable_affect", false)
             })
 
             assertTrue(result.errors.isEmpty())
@@ -271,6 +283,10 @@ class ConfigApiTest {
             assertFalse(Config.memorySelfDirectUpdateEnabled)
             assertEquals(4, Config.memorySelfRecallMaxNodes)
             assertEquals(5, Config.memorySelfPromoteRepeatThreshold)
+            assertFalse(Config.memoryTrafficClassifierEnabled)
+            assertFalse(Config.memoryToolInternalBypassEnabled)
+            assertFalse(Config.memoryUnknownDisableWrite)
+            assertFalse(Config.memoryTaskDisableAffect)
         }
     }
 }
