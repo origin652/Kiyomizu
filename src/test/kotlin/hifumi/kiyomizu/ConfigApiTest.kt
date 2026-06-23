@@ -61,6 +61,13 @@ class ConfigApiTest {
         Config.memorySelfDirectUpdateEnabled = true
         Config.memorySelfRecallMaxNodes = 8
         Config.memorySelfPromoteRepeatThreshold = 3
+        Config.memoryModelRecallEnabled = false
+        Config.memoryRecallModelUrl = ""
+        Config.memoryRecallModelKey = ""
+        Config.memoryRecallModelModel = ""
+        Config.memoryModelRecallFailureThreshold = 3
+        Config.memoryModelRecallCooldownSeconds = 300
+        Config.memoryModelRecallTraceRetention = 200
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -81,10 +88,14 @@ class ConfigApiTest {
         withIsolatedDb {
             resetConfig()
             Config.memorySummaryKey = "summary-secret"
+            Config.memoryRecallModelKey = "recall-secret"
 
             val publicJson = ConfigApi.publicConfigJson()
             assertTrue("memory_summary_key" !in publicJson)
             assertEquals("true", publicJson["memory_summary_key_configured"]?.jsonPrimitive?.content)
+            assertTrue("memory_recall_model_key" !in publicJson)
+            assertEquals("true", publicJson["memory_recall_model_key_configured"]?.jsonPrimitive?.content)
+            assertEquals("false", publicJson["memory_model_recall_enabled"]?.jsonPrimitive?.content)
             assertTrue("memory_embedding_url" !in publicJson)
             assertTrue("memory_embedding_model" !in publicJson)
             assertTrue("memory_embedding_key_configured" !in publicJson)
@@ -99,10 +110,13 @@ class ConfigApiTest {
 
             val clearResult = ConfigApi.applyUpdate(buildJsonObject {
                 put("clear_memory_summary_key", true)
+                put("clear_memory_recall_model_key", true)
             })
             assertTrue(clearResult.errors.isEmpty())
             assertEquals("", Config.memorySummaryKey)
+            assertEquals("", Config.memoryRecallModelKey)
             assertTrue("memory_summary_key" !in clearResult.responseBody)
+            assertTrue("memory_recall_model_key" !in clearResult.responseBody)
         }
     }
 
@@ -117,17 +131,26 @@ class ConfigApiTest {
                 put("memory_deep_recall_max_candidates", 2)
                 put("memory_deep_recall_max_clues", 5)
                 put("memory_maintenance_aggressiveness", "reckless")
+                put("memory_model_recall_failure_threshold", 0)
+                put("memory_model_recall_cooldown_seconds", -1)
+                put("memory_model_recall_trace_retention", 0)
             })
 
             assertTrue(result.errors.contains("memory_decay_rate must be between 0.0 and 1.0"))
             assertTrue(result.errors.contains("memory_recall_max_nodes must be an integer 0-20"))
             assertTrue(result.errors.contains("memory_deep_recall_max_clues must be less than or equal to memory_deep_recall_max_candidates"))
             assertTrue(result.errors.contains("memory_maintenance_aggressiveness must be one of: standard, aggressive"))
+            assertTrue(result.errors.contains("memory_model_recall_failure_threshold must be an integer 1-20"))
+            assertTrue(result.errors.contains("memory_model_recall_cooldown_seconds must be an integer 0-86400"))
+            assertTrue(result.errors.contains("memory_model_recall_trace_retention must be an integer 1-5000"))
             assertEquals(0.1, Config.memoryDecayRate)
             assertEquals(6, Config.memoryRecallMaxNodes)
             assertEquals(40, Config.memoryDeepRecallMaxCandidates)
             assertEquals(10, Config.memoryDeepRecallMaxClues)
             assertEquals("aggressive", Config.memoryMaintenanceAggressiveness)
+            assertEquals(3, Config.memoryModelRecallFailureThreshold)
+            assertEquals(300, Config.memoryModelRecallCooldownSeconds)
+            assertEquals(200, Config.memoryModelRecallTraceRetention)
         }
     }
 
@@ -139,12 +162,15 @@ class ConfigApiTest {
             val result = ConfigApi.applyUpdate(buildJsonObject {
                 put("upstream", "http://169.254.169.254")
                 put("memory_summary_url", "https://localhost:11434")
+                put("memory_recall_model_url", "http://127.0.0.1:11434")
             })
 
             assertTrue(result.errors.any { it.contains("upstream must use https") })
             assertTrue(result.errors.any { it.contains("memory_summary_url must not target localhost") })
+            assertTrue(result.errors.any { it.contains("memory_recall_model_url must use https") })
             assertEquals("https://example.com", Config.upstream)
             assertEquals("https://generativelanguage.googleapis.com", Config.memorySummaryUrl)
+            assertEquals("", Config.memoryRecallModelUrl)
         }
     }
 
@@ -181,6 +207,13 @@ class ConfigApiTest {
                 put("cache_ttl", "5m")
                 put("memory_enabled", true)
                 put("memory_summary_key", "summary-secret")
+                put("memory_model_recall_enabled", true)
+                put("memory_recall_model_url", "https://recall.example.com")
+                put("memory_recall_model_key", "recall-secret")
+                put("memory_recall_model_model", "recall-mini")
+                put("memory_model_recall_failure_threshold", 5)
+                put("memory_model_recall_cooldown_seconds", 120)
+                put("memory_model_recall_trace_retention", 321)
                 put("memory_recall_max_nodes", 8)
                 put("memory_deep_recall_enabled", false)
                 put("memory_deep_recall_max_candidates", 24)
@@ -213,6 +246,13 @@ class ConfigApiTest {
             assertEquals("5m", Config.cacheTtl)
             assertTrue(Config.memoryEnabled)
             assertEquals("summary-secret", Config.memorySummaryKey)
+            assertTrue(Config.memoryModelRecallEnabled)
+            assertEquals("https://recall.example.com", Config.memoryRecallModelUrl)
+            assertEquals("recall-secret", Config.memoryRecallModelKey)
+            assertEquals("recall-mini", Config.memoryRecallModelModel)
+            assertEquals(5, Config.memoryModelRecallFailureThreshold)
+            assertEquals(120, Config.memoryModelRecallCooldownSeconds)
+            assertEquals(321, Config.memoryModelRecallTraceRetention)
             assertEquals(8, Config.memoryRecallMaxNodes)
             assertFalse(Config.memoryDeepRecallEnabled)
             assertEquals(24, Config.memoryDeepRecallMaxCandidates)

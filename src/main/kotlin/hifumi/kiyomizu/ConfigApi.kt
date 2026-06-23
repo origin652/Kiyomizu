@@ -66,6 +66,13 @@ object ConfigApi {
             put("memory_self_direct_update_enabled", Config.memorySelfDirectUpdateEnabled)
             put("memory_self_recall_max_nodes", Config.memorySelfRecallMaxNodes)
             put("memory_self_promote_repeat_threshold", Config.memorySelfPromoteRepeatThreshold)
+            put("memory_model_recall_enabled", Config.memoryModelRecallEnabled)
+            put("memory_recall_model_url", Config.memoryRecallModelUrl)
+            put("memory_recall_model_key_configured", Config.memoryRecallModelKey.isNotBlank())
+            put("memory_recall_model_model", Config.memoryRecallModelModel)
+            put("memory_model_recall_failure_threshold", Config.memoryModelRecallFailureThreshold)
+            put("memory_model_recall_cooldown_seconds", Config.memoryModelRecallCooldownSeconds)
+            put("memory_model_recall_trace_retention", Config.memoryModelRecallTraceRetention)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -125,10 +132,19 @@ object ConfigApi {
         var nextMemorySelfDirectUpdateEnabled = Config.memorySelfDirectUpdateEnabled
         var nextMemorySelfRecallMaxNodes = Config.memorySelfRecallMaxNodes
         var nextMemorySelfPromoteRepeatThreshold = Config.memorySelfPromoteRepeatThreshold
+        var nextMemoryModelRecallEnabled = Config.memoryModelRecallEnabled
+        var nextMemoryRecallModelUrl = Config.memoryRecallModelUrl
+        var nextMemoryRecallModelModel = Config.memoryRecallModelModel
+        var nextMemoryModelRecallFailureThreshold = Config.memoryModelRecallFailureThreshold
+        var nextMemoryModelRecallCooldownSeconds = Config.memoryModelRecallCooldownSeconds
+        var nextMemoryModelRecallTraceRetention = Config.memoryModelRecallTraceRetention
 
         var nextMemorySummaryKey = Config.memorySummaryKey
+        var nextMemoryRecallModelKey = Config.memoryRecallModelKey
         var replaceSummaryKey: String? = null
+        var replaceRecallModelKey: String? = null
         var clearSummaryKey = false
+        var clearRecallModelKey = false
 
         body.readString("preset", errors) {
             if (it in listOf("anthropic", "custom")) {
@@ -417,12 +433,48 @@ object ConfigApi {
                 errors.add("memory_self_promote_repeat_threshold must be an integer 1-20")
             }
         }
+        body.readBoolean("memory_model_recall_enabled", errors) {
+            nextMemoryModelRecallEnabled = it
+        }
+        body.readString("memory_recall_model_url", errors) {
+            nextMemoryRecallModelUrl = it.trim()
+        }
+        body.readString("memory_recall_model_model", errors) {
+            nextMemoryRecallModelModel = it.trim()
+        }
+        body.readInt("memory_model_recall_failure_threshold", errors) {
+            if (it in 1..20) {
+                nextMemoryModelRecallFailureThreshold = it
+            } else {
+                errors.add("memory_model_recall_failure_threshold must be an integer 1-20")
+            }
+        }
+        body.readInt("memory_model_recall_cooldown_seconds", errors) {
+            if (it in 0..86400) {
+                nextMemoryModelRecallCooldownSeconds = it
+            } else {
+                errors.add("memory_model_recall_cooldown_seconds must be an integer 0-86400")
+            }
+        }
+        body.readInt("memory_model_recall_trace_retention", errors) {
+            if (it in 1..5000) {
+                nextMemoryModelRecallTraceRetention = it
+            } else {
+                errors.add("memory_model_recall_trace_retention must be an integer 1-5000")
+            }
+        }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
         }
         body.readBoolean("clear_memory_summary_key", errors) {
             clearSummaryKey = it
+        }
+        body.readString("memory_recall_model_key", errors) {
+            replaceRecallModelKey = it
+        }
+        body.readBoolean("clear_memory_recall_model_key", errors) {
+            clearRecallModelKey = it
         }
 
         if (nextPreset == "custom" && nextUpstream.isBlank()) {
@@ -435,6 +487,9 @@ object ConfigApi {
 
         if (nextMemorySummaryUrl.isNotBlank()) {
             Security.validateOutboundBaseUrl(nextMemorySummaryUrl, "memory_summary_url")?.let { errors.add(it) }
+        }
+        if (nextMemoryRecallModelUrl.isNotBlank()) {
+            Security.validateOutboundBaseUrl(nextMemoryRecallModelUrl, "memory_recall_model_url")?.let { errors.add(it) }
         }
 
         if (nextPreset != "anthropic" && nextCacheMode == "automatic") {
@@ -456,6 +511,9 @@ object ConfigApi {
         if (clearSummaryKey && !replaceSummaryKey.isNullOrBlank()) {
             errors.add("memory_summary_key cannot be replaced and cleared in the same request")
         }
+        if (clearRecallModelKey && !replaceRecallModelKey.isNullOrBlank()) {
+            errors.add("memory_recall_model_key cannot be replaced and cleared in the same request")
+        }
 
         if (errors.isNotEmpty()) {
             return UpdateResult(errors = errors)
@@ -465,6 +523,11 @@ object ConfigApi {
             nextMemorySummaryKey = ""
         } else if (!replaceSummaryKey.isNullOrBlank()) {
             nextMemorySummaryKey = replaceSummaryKey!!.trim()
+        }
+        if (clearRecallModelKey) {
+            nextMemoryRecallModelKey = ""
+        } else if (!replaceRecallModelKey.isNullOrBlank()) {
+            nextMemoryRecallModelKey = replaceRecallModelKey!!.trim()
         }
 
         val nextSnapshot = Config.Snapshot(
@@ -515,7 +578,14 @@ object ConfigApi {
             memorySelfEnabled = nextMemorySelfEnabled,
             memorySelfDirectUpdateEnabled = nextMemorySelfDirectUpdateEnabled,
             memorySelfRecallMaxNodes = nextMemorySelfRecallMaxNodes,
-            memorySelfPromoteRepeatThreshold = nextMemorySelfPromoteRepeatThreshold
+            memorySelfPromoteRepeatThreshold = nextMemorySelfPromoteRepeatThreshold,
+            memoryModelRecallEnabled = nextMemoryModelRecallEnabled,
+            memoryRecallModelUrl = nextMemoryRecallModelUrl,
+            memoryRecallModelKey = nextMemoryRecallModelKey,
+            memoryRecallModelModel = nextMemoryRecallModelModel,
+            memoryModelRecallFailureThreshold = nextMemoryModelRecallFailureThreshold,
+            memoryModelRecallCooldownSeconds = nextMemoryModelRecallCooldownSeconds,
+            memoryModelRecallTraceRetention = nextMemoryModelRecallTraceRetention
         )
 
         try {

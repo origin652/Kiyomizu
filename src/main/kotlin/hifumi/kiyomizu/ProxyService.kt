@@ -103,7 +103,7 @@ object ProxyService {
         ignoreUnknownKeys = true
     }
 
-    fun logRequest(method: String, pathname: String, originalBody: JsonObject, patchedBody: JsonObject) {
+    fun logRequest(method: String, pathname: String, originalBody: JsonObject, patchedBody: JsonObject): Int? {
         val originalSummary = summarizeBody(originalBody)
         val patchedSummary = summarizeBody(patchedBody)
         val changed = originalSummary != patchedSummary
@@ -113,6 +113,9 @@ object ProxyService {
         val originalThinking = MessagePatcher.countStrippedThinkingBlocks(originalMessages)
         val patchedThinking = MessagePatcher.countStrippedThinkingBlocks(patchedMessages)
         val removedThinking = if (originalThinking != null && patchedThinking != null) originalThinking - patchedThinking else 0
+        val model = originalBody["model"]?.jsonPrimitive?.contentOrNull
+        val patchEligible = Config.preset == "anthropic" && MessagePatcher.shouldPatchModel(model)
+        val breakpointIndexes = MessagePatcher.findLoggedCacheBreakpointIndexes(patchedMessages) ?: emptyList()
 
         val atStr = Instant.now().toString()
         val logObj = buildJsonObject {
@@ -128,19 +131,25 @@ object ProxyService {
 
         println(json.encodeToString(JsonObject.serializer(), logObj))
 
-        try {
+        return try {
             DatabaseService.insertRequestLog(
                 at = atStr,
                 method = method,
                 pathname = pathname,
                 patched = changed,
                 removedThinkingBlocks = removedThinking,
-                model = originalBody["model"]?.jsonPrimitive?.contentOrNull,
+                model = model,
                 messageCount = patchedMessages?.size,
-                explicitCacheBlocks = MessagePatcher.countExplicitCacheBlocks(patchedMessages)
+                explicitCacheBlocks = MessagePatcher.countExplicitCacheBlocks(patchedMessages),
+                cacheMode = Config.cacheMode,
+                cacheStrategy = Config.cacheStrategy,
+                cacheBreakpoints = Config.cacheBreakpoints,
+                cacheBreakpointIndexes = breakpointIndexes,
+                patchEligible = patchEligible
             )
         } catch (e: Exception) {
             System.err.println("Failed to persist request log: ${e.message}")
+            null
         }
     }
 
@@ -171,5 +180,70 @@ object ProxyService {
                 }
             }
         }
+    }
+
+    fun extractUsageDiagnostics(responseText: String, isSse: Boolean): DatabaseService.RequestUsageDraft? {
+        if (responseText.isBlank()) return null
+        return if (isSse) {
+            responseText.lineSequence()
+                .map { it.trim() }
+                .filter { it.startsWith("data:") }
+                .map { it.substring(5).trim() }
+                .filter { it.isNotBlank() && it != "[DONE]" }
+                .mapNotNull { data ->
+                    runCatching { Json.parseToJsonElement(data) as? JsonObject }.getOrNull()
+                        ?.let { usageFromJson(it) }
+                }
+                .fold(null as DatabaseService.RequestUsageDraft?) { acc, usage -> mergeUsage(acc, usage) }
+        } else {
+            runCatching { Json.parseToJsonElement(responseText) as? JsonObject }.getOrNull()
+                ?.let { usageFromJson(it) }
+        }
+    }
+
+    private fun usageFromJson(json: JsonObject): DatabaseService.RequestUsageDraft? {
+        val usage = json["usage"]?.jsonObject
+        val usageMetadata = json["usageMetadata"]?.jsonObject
+        val source = usage ?: usageMetadata ?: return null
+
+        fun JsonObject.intField(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
+        val promptDetails = usage?.get("prompt_tokens_details")?.jsonObject
+        val inputTokens = usage?.intField("input_tokens")
+            ?: usage?.intField("prompt_tokens")
+            ?: usageMetadata?.intField("promptTokenCount")
+        val outputTokens = usage?.intField("output_tokens")
+            ?: usage?.intField("completion_tokens")
+            ?: usageMetadata?.intField("candidatesTokenCount")
+        val cacheRead = usage?.intField("cache_read_input_tokens")
+        val cacheCreation = usage?.intField("cache_creation_input_tokens")
+        val cachedPrompt = promptDetails?.intField("cached_tokens")
+            ?: usageMetadata?.intField("cachedContentTokenCount")
+
+        if (inputTokens == null && outputTokens == null && cacheRead == null && cacheCreation == null && cachedPrompt == null) {
+            return null
+        }
+        return DatabaseService.RequestUsageDraft(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            cacheReadInputTokens = cacheRead,
+            cacheCreationInputTokens = cacheCreation,
+            cachedPromptTokens = cachedPrompt,
+            usageJson = source.toString()
+        )
+    }
+
+    private fun mergeUsage(
+        current: DatabaseService.RequestUsageDraft?,
+        next: DatabaseService.RequestUsageDraft
+    ): DatabaseService.RequestUsageDraft {
+        if (current == null) return next
+        return DatabaseService.RequestUsageDraft(
+            inputTokens = next.inputTokens ?: current.inputTokens,
+            outputTokens = next.outputTokens ?: current.outputTokens,
+            cacheReadInputTokens = next.cacheReadInputTokens ?: current.cacheReadInputTokens,
+            cacheCreationInputTokens = next.cacheCreationInputTokens ?: current.cacheCreationInputTokens,
+            cachedPromptTokens = next.cachedPromptTokens ?: current.cachedPromptTokens,
+            usageJson = next.usageJson ?: current.usageJson
+        )
     }
 }

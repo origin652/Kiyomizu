@@ -318,6 +318,34 @@ object DatabaseService {
                     )
                 """.trimIndent())
 
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_index_segments (
+                        segment_key TEXT PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        version INTEGER NOT NULL DEFAULT 1,
+                        dirty INTEGER NOT NULL DEFAULT 0,
+                        error TEXT,
+                        char_count INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL
+                    )
+                """.trimIndent())
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_model_recall_traces (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at INTEGER NOT NULL,
+                        query TEXT NOT NULL,
+                        index_version TEXT NOT NULL,
+                        plan_json TEXT,
+                        candidate_count INTEGER NOT NULL DEFAULT 0,
+                        injected_count INTEGER NOT NULL DEFAULT 0,
+                        filtered_summary TEXT,
+                        fallback_reason TEXT,
+                        error TEXT,
+                        duration_ms INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_kind ON memory_nodes(kind)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_person_uri ON memory_nodes(person_uri)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_nodes_project_uri ON memory_nodes(project_uri)")
@@ -339,6 +367,7 @@ object DatabaseService {
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_recycle_bin_purge_after ON memory_recycle_bin(purge_after)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_created ON self_memory_events(created_at DESC)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_node ON self_memory_events(node_id)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_model_recall_traces_created ON memory_model_recall_traces(created_at DESC)")
 
                 try {
                     stmt.execute("""
@@ -398,6 +427,7 @@ object DatabaseService {
                         created_at INTEGER NOT NULL
                     )
                 """.trimIndent())
+                ensureRequestLogsSchema(conn)
 
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS app_config (
@@ -636,6 +666,37 @@ object DatabaseService {
         if ("status" !in columns) {
             conn.createStatement().use { stmt ->
                 stmt.execute("ALTER TABLE memory_nodes ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            }
+        }
+    }
+
+    private fun ensureRequestLogsSchema(conn: Connection) {
+        val columns = mutableSetOf<String>()
+        conn.prepareStatement("PRAGMA table_info(request_logs)").use { pstmt ->
+            val rs = pstmt.executeQuery()
+            while (rs.next()) {
+                columns.add(rs.getString("name"))
+            }
+        }
+
+        val additions = listOf(
+            "cache_mode" to "TEXT",
+            "cache_strategy" to "TEXT",
+            "cache_breakpoints" to "INTEGER",
+            "cache_breakpoint_indexes" to "TEXT",
+            "patch_eligible" to "INTEGER",
+            "input_tokens" to "INTEGER",
+            "output_tokens" to "INTEGER",
+            "cache_read_input_tokens" to "INTEGER",
+            "cache_creation_input_tokens" to "INTEGER",
+            "cached_prompt_tokens" to "INTEGER",
+            "usage_json" to "TEXT"
+        )
+        conn.createStatement().use { stmt ->
+            additions.forEach { (name, type) ->
+                if (name !in columns) {
+                    stmt.execute("ALTER TABLE request_logs ADD COLUMN $name $type")
+                }
             }
         }
     }
@@ -1097,6 +1158,30 @@ object DatabaseService {
         val term: String,
         val kind: String,
         val weight: Double = 1.0
+    )
+
+    data class MemoryIndexSegmentRecord(
+        val segmentKey: String,
+        val content: String,
+        val version: Int,
+        val dirty: Boolean,
+        val error: String?,
+        val charCount: Int,
+        val updatedAt: Long
+    )
+
+    data class ModelRecallTraceRecord(
+        val id: Int,
+        val createdAt: Long,
+        val query: String,
+        val indexVersion: String,
+        val planJson: String?,
+        val candidateCount: Int,
+        val injectedCount: Int,
+        val filteredSummary: String?,
+        val fallbackReason: String?,
+        val error: String?,
+        val durationMs: Int
     )
 
     data class MemoryObservationRecord(
@@ -2724,6 +2809,167 @@ object DatabaseService {
         }
     }
 
+    // --- Materialized memory index and model recall traces ---
+    private fun readMemoryIndexSegment(rs: java.sql.ResultSet): MemoryIndexSegmentRecord {
+        return MemoryIndexSegmentRecord(
+            segmentKey = rs.getString("segment_key"),
+            content = rs.getString("content"),
+            version = rs.getInt("version"),
+            dirty = rs.getInt("dirty") != 0,
+            error = rs.getString("error"),
+            charCount = rs.getInt("char_count"),
+            updatedAt = rs.getLong("updated_at")
+        )
+    }
+
+    fun upsertMemoryIndexSegment(segmentKey: String, content: String, error: String? = null, dirty: Boolean = false) {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            val existing = conn.prepareStatement("""
+                SELECT *
+                FROM memory_index_segments
+                WHERE segment_key = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, segmentKey)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) readMemoryIndexSegment(rs) else null
+            }
+            val version = if (existing == null) {
+                1
+            } else if (existing.content != content || existing.dirty != dirty || existing.error != error) {
+                existing.version + 1
+            } else {
+                existing.version
+            }
+            conn.prepareStatement("""
+                INSERT INTO memory_index_segments (segment_key, content, version, dirty, error, char_count, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(segment_key) DO UPDATE SET
+                    content = excluded.content,
+                    version = excluded.version,
+                    dirty = excluded.dirty,
+                    error = excluded.error,
+                    char_count = excluded.char_count,
+                    updated_at = excluded.updated_at
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, segmentKey)
+                pstmt.setString(2, content)
+                pstmt.setInt(3, version)
+                pstmt.setInt(4, if (dirty) 1 else 0)
+                pstmt.setNullableString(5, error)
+                pstmt.setInt(6, content.length)
+                pstmt.setLong(7, now)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun markMemoryIndexSegmentsDirty(error: String) {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_index_segments
+                SET dirty = 1, error = ?, updated_at = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, error)
+                pstmt.setLong(2, Instant.now().epochSecond)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    fun listMemoryIndexSegments(): List<MemoryIndexSegmentRecord> {
+        val list = mutableListOf<MemoryIndexSegmentRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_index_segments
+                ORDER BY segment_key ASC
+            """.trimIndent()).use { pstmt ->
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryIndexSegment(rs))
+            }
+        }
+        return list
+    }
+
+    private fun readModelRecallTrace(rs: java.sql.ResultSet): ModelRecallTraceRecord {
+        return ModelRecallTraceRecord(
+            id = rs.getInt("id"),
+            createdAt = rs.getLong("created_at"),
+            query = rs.getString("query"),
+            indexVersion = rs.getString("index_version"),
+            planJson = rs.getString("plan_json"),
+            candidateCount = rs.getInt("candidate_count"),
+            injectedCount = rs.getInt("injected_count"),
+            filteredSummary = rs.getString("filtered_summary"),
+            fallbackReason = rs.getString("fallback_reason"),
+            error = rs.getString("error"),
+            durationMs = rs.getInt("duration_ms")
+        )
+    }
+
+    fun insertModelRecallTrace(
+        query: String,
+        indexVersion: String,
+        planJson: String?,
+        candidateCount: Int,
+        injectedCount: Int,
+        filteredSummary: String?,
+        fallbackReason: String?,
+        error: String?,
+        durationMs: Int
+    ): Int {
+        val now = Instant.now().epochSecond
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO memory_model_recall_traces (
+                    created_at, query, index_version, plan_json, candidate_count, injected_count,
+                    filtered_summary, fallback_reason, error, duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, now)
+                pstmt.setString(2, query)
+                pstmt.setString(3, indexVersion)
+                pstmt.setNullableString(4, planJson)
+                pstmt.setInt(5, candidateCount)
+                pstmt.setInt(6, injectedCount)
+                pstmt.setNullableString(7, filteredSummary)
+                pstmt.setNullableString(8, fallbackReason)
+                pstmt.setNullableString(9, error)
+                pstmt.setInt(10, durationMs)
+                pstmt.executeUpdate()
+            }
+            conn.createStatement().use { stmt ->
+                stmt.execute(
+                    "DELETE FROM memory_model_recall_traces WHERE id NOT IN " +
+                        "(SELECT id FROM memory_model_recall_traces ORDER BY id DESC LIMIT ${Config.memoryModelRecallTraceRetention.coerceAtLeast(1)})"
+                )
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return -1
+    }
+
+    fun getRecentModelRecallTraces(limit: Int): List<ModelRecallTraceRecord> {
+        val list = mutableListOf<ModelRecallTraceRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_model_recall_traces
+                ORDER BY id DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit.coerceAtLeast(1))
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readModelRecallTrace(rs))
+            }
+        }
+        return list
+    }
+
     // --- Reflections CRUD ---
     fun insertReflection(diaryEntry: String) {
         val now = Instant.now().epochSecond
@@ -2798,7 +3044,27 @@ object DatabaseService {
         val removedThinkingBlocks: Int,
         val model: String?,
         val messageCount: Int?,
-        val explicitCacheBlocks: Int?
+        val explicitCacheBlocks: Int?,
+        val cacheMode: String?,
+        val cacheStrategy: String?,
+        val cacheBreakpoints: Int?,
+        val cacheBreakpointIndexes: List<Int>,
+        val patchEligible: Boolean?,
+        val inputTokens: Int?,
+        val outputTokens: Int?,
+        val cacheReadInputTokens: Int?,
+        val cacheCreationInputTokens: Int?,
+        val cachedPromptTokens: Int?,
+        val usageJson: String?
+    )
+
+    data class RequestUsageDraft(
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+        val cacheReadInputTokens: Int? = null,
+        val cacheCreationInputTokens: Int? = null,
+        val cachedPromptTokens: Int? = null,
+        val usageJson: String? = null
     )
 
     fun insertRequestLog(
@@ -2809,13 +3075,21 @@ object DatabaseService {
         removedThinkingBlocks: Int,
         model: String?,
         messageCount: Int?,
-        explicitCacheBlocks: Int?
-    ) {
+        explicitCacheBlocks: Int?,
+        cacheMode: String? = null,
+        cacheStrategy: String? = null,
+        cacheBreakpoints: Int? = null,
+        cacheBreakpointIndexes: List<Int> = emptyList(),
+        patchEligible: Boolean? = null
+    ): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
             conn.prepareStatement("""
-                INSERT INTO request_logs (at, method, pathname, patched, removed_thinking_blocks, model, message_count, explicit_cache_blocks, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO request_logs (
+                    at, method, pathname, patched, removed_thinking_blocks, model, message_count,
+                    explicit_cache_blocks, cache_mode, cache_strategy, cache_breakpoints,
+                    cache_breakpoint_indexes, patch_eligible, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, at)
                 pstmt.setString(2, method)
@@ -2825,12 +3099,47 @@ object DatabaseService {
                 if (model != null) pstmt.setString(6, model) else pstmt.setNull(6, java.sql.Types.VARCHAR)
                 if (messageCount != null) pstmt.setInt(7, messageCount) else pstmt.setNull(7, java.sql.Types.INTEGER)
                 if (explicitCacheBlocks != null) pstmt.setInt(8, explicitCacheBlocks) else pstmt.setNull(8, java.sql.Types.INTEGER)
-                pstmt.setLong(9, now)
+                pstmt.setNullableString(9, cacheMode)
+                pstmt.setNullableString(10, cacheStrategy)
+                if (cacheBreakpoints != null) pstmt.setInt(11, cacheBreakpoints) else pstmt.setNull(11, java.sql.Types.INTEGER)
+                pstmt.setString(12, buildJsonArray { cacheBreakpointIndexes.forEach { add(JsonPrimitive(it)) } }.toString())
+                if (patchEligible != null) pstmt.setInt(13, if (patchEligible) 1 else 0) else pstmt.setNull(13, java.sql.Types.INTEGER)
+                pstmt.setLong(14, now)
                 pstmt.executeUpdate()
             }
             // Keep only the newest 1000 entries
             conn.createStatement().use { stmt ->
                 stmt.execute("DELETE FROM request_logs WHERE id NOT IN (SELECT id FROM request_logs ORDER BY id DESC LIMIT 1000)")
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return rs.getInt(1)
+            }
+        }
+        return -1
+    }
+
+    fun updateRequestLogUsage(logId: Int, usage: RequestUsageDraft) {
+        if (logId <= 0) return
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE request_logs
+                SET input_tokens = ?,
+                    output_tokens = ?,
+                    cache_read_input_tokens = ?,
+                    cache_creation_input_tokens = ?,
+                    cached_prompt_tokens = ?,
+                    usage_json = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                if (usage.inputTokens != null) pstmt.setInt(1, usage.inputTokens) else pstmt.setNull(1, java.sql.Types.INTEGER)
+                if (usage.outputTokens != null) pstmt.setInt(2, usage.outputTokens) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                if (usage.cacheReadInputTokens != null) pstmt.setInt(3, usage.cacheReadInputTokens) else pstmt.setNull(3, java.sql.Types.INTEGER)
+                if (usage.cacheCreationInputTokens != null) pstmt.setInt(4, usage.cacheCreationInputTokens) else pstmt.setNull(4, java.sql.Types.INTEGER)
+                if (usage.cachedPromptTokens != null) pstmt.setInt(5, usage.cachedPromptTokens) else pstmt.setNull(5, java.sql.Types.INTEGER)
+                pstmt.setNullableString(6, usage.usageJson)
+                pstmt.setInt(7, logId)
+                pstmt.executeUpdate()
             }
         }
     }
@@ -2839,12 +3148,17 @@ object DatabaseService {
         val list = mutableListOf<RequestLogRecord>()
         getConnection().use { conn ->
             conn.prepareStatement("""
-                SELECT id, at, method, pathname, patched, removed_thinking_blocks, model, message_count, explicit_cache_blocks
+                SELECT *
                 FROM request_logs ORDER BY id DESC LIMIT ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setInt(1, limit)
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
+                    fun nullableInt(column: String): Int? {
+                        val value = rs.getInt(column)
+                        return if (rs.wasNull()) null else value
+                    }
+                    val patchEligibleValue = nullableInt("patch_eligible")
                     list.add(RequestLogRecord(
                         id = rs.getInt("id"),
                         at = rs.getString("at"),
@@ -2853,8 +3167,19 @@ object DatabaseService {
                         patched = rs.getInt("patched") != 0,
                         removedThinkingBlocks = rs.getInt("removed_thinking_blocks"),
                         model = rs.getString("model"),
-                        messageCount = rs.getObject("message_count") as? Int,
-                        explicitCacheBlocks = rs.getObject("explicit_cache_blocks") as? Int
+                        messageCount = nullableInt("message_count"),
+                        explicitCacheBlocks = nullableInt("explicit_cache_blocks"),
+                        cacheMode = rs.getString("cache_mode"),
+                        cacheStrategy = rs.getString("cache_strategy"),
+                        cacheBreakpoints = nullableInt("cache_breakpoints"),
+                        cacheBreakpointIndexes = parseRelatedIds(rs.getString("cache_breakpoint_indexes")),
+                        patchEligible = patchEligibleValue?.let { it != 0 },
+                        inputTokens = nullableInt("input_tokens"),
+                        outputTokens = nullableInt("output_tokens"),
+                        cacheReadInputTokens = nullableInt("cache_read_input_tokens"),
+                        cacheCreationInputTokens = nullableInt("cache_creation_input_tokens"),
+                        cachedPromptTokens = nullableInt("cached_prompt_tokens"),
+                        usageJson = rs.getString("usage_json")
                     ))
                 }
             }

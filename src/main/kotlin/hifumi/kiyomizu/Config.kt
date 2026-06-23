@@ -152,6 +152,13 @@ object Config {
     private val memorySelfDirectUpdateEnabledRef = AtomicReference(System.getenv("MEMORY_SELF_DIRECT_UPDATE_ENABLED") != "0")
     private val memorySelfRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_SELF_RECALL_MAX_NODES")?.toIntOrNull() ?: 8)
     private val memorySelfPromoteRepeatThresholdRef = AtomicInteger(System.getenv("MEMORY_SELF_PROMOTE_REPEAT_THRESHOLD")?.toIntOrNull() ?: 3)
+    private val memoryModelRecallEnabledRef = AtomicReference(System.getenv("MEMORY_MODEL_RECALL_ENABLED") == "1")
+    private val memoryRecallModelUrlRef = AtomicReference(System.getenv("MEMORY_RECALL_MODEL_URL") ?: "")
+    private val memoryRecallModelKeyRef = AtomicReference(System.getenv("MEMORY_RECALL_MODEL_KEY") ?: "")
+    private val memoryRecallModelModelRef = AtomicReference(System.getenv("MEMORY_RECALL_MODEL_MODEL") ?: "")
+    private val memoryModelRecallFailureThresholdRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_FAILURE_THRESHOLD")?.toIntOrNull() ?: 3)
+    private val memoryModelRecallCooldownSecondsRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_COOLDOWN_SECONDS")?.toIntOrNull() ?: 300)
+    private val memoryModelRecallTraceRetentionRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_TRACE_RETENTION")?.toIntOrNull() ?: 200)
 
     var preset: String
         get() = presetRef.get()
@@ -356,6 +363,34 @@ object Config {
         get() = memorySelfPromoteRepeatThresholdRef.get()
         set(value) { memorySelfPromoteRepeatThresholdRef.set(value) }
 
+    var memoryModelRecallEnabled: Boolean
+        get() = memoryModelRecallEnabledRef.get()
+        set(value) { memoryModelRecallEnabledRef.set(value) }
+
+    var memoryRecallModelUrl: String
+        get() = memoryRecallModelUrlRef.get()
+        set(value) { memoryRecallModelUrlRef.set(value.trim()) }
+
+    var memoryRecallModelKey: String
+        get() = memoryRecallModelKeyRef.get()
+        set(value) { memoryRecallModelKeyRef.set(value) }
+
+    var memoryRecallModelModel: String
+        get() = memoryRecallModelModelRef.get()
+        set(value) { memoryRecallModelModelRef.set(value.trim()) }
+
+    var memoryModelRecallFailureThreshold: Int
+        get() = memoryModelRecallFailureThresholdRef.get()
+        set(value) { memoryModelRecallFailureThresholdRef.set(value) }
+
+    var memoryModelRecallCooldownSeconds: Int
+        get() = memoryModelRecallCooldownSecondsRef.get()
+        set(value) { memoryModelRecallCooldownSecondsRef.set(value) }
+
+    var memoryModelRecallTraceRetention: Int
+        get() = memoryModelRecallTraceRetentionRef.get()
+        set(value) { memoryModelRecallTraceRetentionRef.set(value) }
+
     data class Snapshot(
         val preset: String,
         val upstream: String,
@@ -404,7 +439,14 @@ object Config {
         val memorySelfEnabled: Boolean,
         val memorySelfDirectUpdateEnabled: Boolean,
         val memorySelfRecallMaxNodes: Int,
-        val memorySelfPromoteRepeatThreshold: Int
+        val memorySelfPromoteRepeatThreshold: Int,
+        val memoryModelRecallEnabled: Boolean,
+        val memoryRecallModelUrl: String,
+        val memoryRecallModelKey: String,
+        val memoryRecallModelModel: String,
+        val memoryModelRecallFailureThreshold: Int,
+        val memoryModelRecallCooldownSeconds: Int,
+        val memoryModelRecallTraceRetention: Int
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -456,6 +498,13 @@ object Config {
                 put("memory_self_direct_update_enabled", memorySelfDirectUpdateEnabled)
                 put("memory_self_recall_max_nodes", memorySelfRecallMaxNodes)
                 put("memory_self_promote_repeat_threshold", memorySelfPromoteRepeatThreshold)
+                put("memory_model_recall_enabled", memoryModelRecallEnabled)
+                put("memory_recall_model_url", memoryRecallModelUrl)
+                put("memory_recall_model_key", memoryRecallModelKey)
+                put("memory_recall_model_model", memoryRecallModelModel)
+                put("memory_model_recall_failure_threshold", memoryModelRecallFailureThreshold)
+                put("memory_model_recall_cooldown_seconds", memoryModelRecallCooldownSeconds)
+                put("memory_model_recall_trace_retention", memoryModelRecallTraceRetention)
             }
         }
     }
@@ -509,7 +558,14 @@ object Config {
             memorySelfEnabled = memorySelfEnabled,
             memorySelfDirectUpdateEnabled = memorySelfDirectUpdateEnabled,
             memorySelfRecallMaxNodes = memorySelfRecallMaxNodes,
-            memorySelfPromoteRepeatThreshold = memorySelfPromoteRepeatThreshold
+            memorySelfPromoteRepeatThreshold = memorySelfPromoteRepeatThreshold,
+            memoryModelRecallEnabled = memoryModelRecallEnabled,
+            memoryRecallModelUrl = memoryRecallModelUrl,
+            memoryRecallModelKey = memoryRecallModelKey,
+            memoryRecallModelModel = memoryRecallModelModel,
+            memoryModelRecallFailureThreshold = memoryModelRecallFailureThreshold,
+            memoryModelRecallCooldownSeconds = memoryModelRecallCooldownSeconds,
+            memoryModelRecallTraceRetention = memoryModelRecallTraceRetention
         )
     }
 
@@ -562,6 +618,13 @@ object Config {
         memorySelfDirectUpdateEnabled = snapshot.memorySelfDirectUpdateEnabled
         memorySelfRecallMaxNodes = snapshot.memorySelfRecallMaxNodes
         memorySelfPromoteRepeatThreshold = snapshot.memorySelfPromoteRepeatThreshold
+        memoryModelRecallEnabled = snapshot.memoryModelRecallEnabled
+        memoryRecallModelUrl = snapshot.memoryRecallModelUrl
+        memoryRecallModelKey = snapshot.memoryRecallModelKey
+        memoryRecallModelModel = snapshot.memoryRecallModelModel
+        memoryModelRecallFailureThreshold = snapshot.memoryModelRecallFailureThreshold
+        memoryModelRecallCooldownSeconds = snapshot.memoryModelRecallCooldownSeconds
+        memoryModelRecallTraceRetention = snapshot.memoryModelRecallTraceRetention
     }
 
     fun loadPersisted(jsonText: String?) {
@@ -630,7 +693,16 @@ object Config {
                     memorySelfEnabled = body.booleanValue("memory_self_enabled") ?: memorySelfEnabled,
                     memorySelfDirectUpdateEnabled = body.booleanValue("memory_self_direct_update_enabled") ?: memorySelfDirectUpdateEnabled,
                     memorySelfRecallMaxNodes = body.intValue("memory_self_recall_max_nodes") ?: memorySelfRecallMaxNodes,
-                    memorySelfPromoteRepeatThreshold = body.intValue("memory_self_promote_repeat_threshold") ?: memorySelfPromoteRepeatThreshold
+                    memorySelfPromoteRepeatThreshold = body.intValue("memory_self_promote_repeat_threshold") ?: memorySelfPromoteRepeatThreshold,
+                    memoryModelRecallEnabled = body.booleanValue("memory_model_recall_enabled") ?: memoryModelRecallEnabled,
+                    memoryRecallModelUrl = body.stringValue("memory_recall_model_url")
+                        ?.let { sanitizePersistedUrl(it, "memory_recall_model_url") }
+                        ?: memoryRecallModelUrl,
+                    memoryRecallModelKey = body.stringValue("memory_recall_model_key") ?: memoryRecallModelKey,
+                    memoryRecallModelModel = body.stringValue("memory_recall_model_model") ?: memoryRecallModelModel,
+                    memoryModelRecallFailureThreshold = body.intValue("memory_model_recall_failure_threshold") ?: memoryModelRecallFailureThreshold,
+                    memoryModelRecallCooldownSeconds = body.intValue("memory_model_recall_cooldown_seconds") ?: memoryModelRecallCooldownSeconds,
+                    memoryModelRecallTraceRetention = body.intValue("memory_model_recall_trace_retention") ?: memoryModelRecallTraceRetention
                 )
             )
         } catch (e: Exception) {

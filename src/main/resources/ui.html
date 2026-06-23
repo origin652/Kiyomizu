@@ -1246,6 +1246,94 @@ input[disabled], textarea[disabled], select[disabled] {
   font-size: var(--fs-xs);
 }
 .log-table-scroll { max-height: 320px; overflow-y: auto; }
+.diagnostic-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+.diagnostic-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  min-width: 0;
+}
+.diagnostic-label {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+}
+.diagnostic-value {
+  color: var(--text-primary);
+  font-size: var(--fs-md);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diagnostic-note {
+  margin: 0 0 var(--sp-5);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.diagnostic-cell {
+  max-width: 180px;
+  word-break: break-word;
+}
+.diagnostic-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.recall-debug-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+}
+.recall-debug-panel {
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+}
+.recall-debug-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.index-preview {
+  margin-top: var(--sp-2);
+  max-height: 130px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+}
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .diagnostic-summary-grid,
+  .recall-debug-grid { grid-template-columns: 1fr; }
+}
 .empty {
   text-align: center;
   padding: var(--sp-6);
@@ -1503,7 +1591,7 @@ input[disabled], textarea[disabled], select[disabled] {
       </button>
       <button type="button" class="nav-item" data-nav="cache">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        <span id="t-nav-cache">Cache Visualizer</span>
+        <span id="t-nav-cache">Cache Diagnostics</span>
       </button>
       <button type="button" class="nav-item" data-nav="companion">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
@@ -1554,74 +1642,57 @@ input[disabled], textarea[disabled], select[disabled] {
       </div>
       </section>
 
-      <!-- Pane: Cache Visualizer -->
+      <!-- Pane: Cache Diagnostics -->
       <section class="pane" data-pane="cache">
-      <!-- Card 2: Interactive SVG Traffic Proxy Flow -->
-      <div class="card">
-        <h3 class="visualizer-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
-          <span id="lbl-dashboard-title">Proxy Traffic Flow</span>
-        </h3>
-        <div class="diagram-frame">
-          <svg class="flow-svg" viewBox="0 0 400 135" xmlns="http://www.w3.org/2000/svg" >
-            <!-- Client Node -->
-            <rect x="15" y="25" width="75" height="40" rx="8" class="diagram-node"/>
-            <text id="flow-lbl-client" x="52" y="49" font-size="10" class="diagram-text" text-anchor="middle" font-weight="600">Client</text>
-
-            <!-- Proxy Node (Kiyomizu) -->
-            <rect id="node-proxy" x="150" y="15" width="100" height="60" rx="10" class="diagram-proxy"/>
-            <text x="200" y="45" font-size="11" class="diagram-proxy-text" text-anchor="middle" font-weight="bold">Kiyomizu</text>
-            <text id="flow-lbl-proxy" x="200" y="59" font-size="9" class="diagram-text" text-anchor="middle">Proxy Cache</text>
-
-            <!-- Upstream Node -->
-            <rect x="310" y="25" width="75" height="40" rx="8" class="diagram-node"/>
-            <text id="flow-lbl-upstream" x="347" y="49" font-size="9" class="diagram-text" text-anchor="middle" font-weight="600">Upstream</text>
-
-            <!-- Cache Cylinder -->
-            <g id="cache-cylinder" transform="translate(185, 96)" class="cache-cyl cache-off">
-              <ellipse cx="15" cy="5" rx="15" ry="5" class="cache-cyl-fill"/>
-              <path d="M0,5 V18 A15,5 0 0,0 30,18 V5" class="cache-cyl-fill"/>
-              <path d="M0,11 A15,5 0 0,0 30,11" fill="none" class="cache-cyl-line"/>
-              <text id="flow-lbl-cache" x="15" y="-3" font-size="8" class="cache-cyl-text" text-anchor="middle" font-weight="bold">CACHE</text>
-            </g>
-
-            <!-- Flow Lines -->
-            <path d="M90,45 L150,45" fill="none" class="flow-edge flow-line" />
-            <polygon points="150,45 144,41 144,49" class="flow-arrow" />
-
-            <path id="line-proxy-upstream" d="M250,45 L310,45" fill="none" class="flow-edge flow-line" />
-            <polygon points="310,45 304,41 304,49" class="flow-arrow" />
-
-            <path id="line-proxy-cache" d="M200,75 L200,96" fill="none" stroke-dasharray="3 3" class="flow-edge-dashed flow-idle" />
-          </svg>
-        </div>
-      </div>
-
-      <!-- Card 3: Cache Breakpoint Visualizer -->
-      <div class="card" id="visualizer-container">
-        <div class="visualizer-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
-          <span id="lbl-visualizer-title">Cache Breakpoints Visualizer</span>
-        </div>
-
-        <div class="card-inset">
-          <div class="timeline-track" id="timeline-track">
-            <div class="timeline-msg stable"><span class="msg-num">1</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">2</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">3</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">4</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">5</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">6</span></div>
-            <div class="timeline-msg stable"><span class="msg-num">7</span></div>
-            <div class="timeline-msg tail"><span class="msg-num">8</span></div>
+        <div class="card">
+          <div class="panel-title-row">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+              <span id="t-cache-diagnostics-title">Cache Diagnostics</span>
+            </div>
+            <button class="btn btn-ghost" onclick="loadCacheDiagnostics()" id="t-cache-diagnostics-refresh">Refresh</button>
           </div>
-
-          <div class="timeline-labels">
-            <span id="lbl-visualizer-stable" class="tl-stable">Stable Prefix (Cached)</span>
-            <span id="lbl-visualizer-tail" class="tl-tail">Dynamic Tail (Uncached)</span>
+          <p class="diagnostic-note" id="t-cache-diagnostics-note">
+            Shows request-side cache patching plus upstream usage fields when providers expose them. Unknown means the response did not include parseable usage.
+          </p>
+          <div class="diagnostic-summary-grid">
+            <div class="diagnostic-stat">
+              <div class="diagnostic-label" id="t-cache-stat-requests">Requests</div>
+              <div class="diagnostic-value" id="cache-diag-requests">—</div>
+            </div>
+            <div class="diagnostic-stat">
+              <div class="diagnostic-label" id="t-cache-stat-input">Input Tokens</div>
+              <div class="diagnostic-value" id="cache-diag-input">—</div>
+            </div>
+            <div class="diagnostic-stat">
+              <div class="diagnostic-label" id="t-cache-stat-read">Cache Read</div>
+              <div class="diagnostic-value" id="cache-diag-read">unknown</div>
+            </div>
+            <div class="diagnostic-stat">
+              <div class="diagnostic-label" id="t-cache-stat-create">Cache Create</div>
+              <div class="diagnostic-value" id="cache-diag-create">unknown</div>
+            </div>
+          </div>
+          <div class="log-table-wrap">
+            <div class="log-table-scroll">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th id="t-cache-th-time">Time</th>
+                    <th id="t-cache-th-model">Model</th>
+                    <th id="t-cache-th-patch">Patch</th>
+                    <th id="t-cache-th-breakpoints">Breakpoints</th>
+                    <th id="t-cache-th-usage">Usage</th>
+                    <th id="t-cache-th-cache">Cache Tokens</th>
+                  </tr>
+                </thead>
+                <tbody id="cache-diagnostics-tbody">
+                  <tr><td colspan="6" class="empty" id="t-no-cache-diagnostics">No request diagnostics yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
       </section>
 
       <!-- Pane: Companion -->
@@ -1670,6 +1741,33 @@ input[disabled], textarea[disabled], select[disabled] {
               <span id="t-dream-label">Last dream: </span><span id="companion-dream">—</span>
             </div>
             <div class="dream-run-result" id="dream-dry-run-result" aria-live="polite"></div>
+            <div class="panel-title-row">
+              <div class="eyebrow" id="t-model-recall-label">Model Recall Debug</div>
+              <div class="button-row">
+                <button class="btn btn-ghost" onclick="loadModelRecallDebug()" id="t-model-recall-refresh">Refresh recall</button>
+                <button class="btn btn-ghost" onclick="rebuildMemoryIndex()" id="t-memory-index-rebuild">Rebuild index</button>
+              </div>
+            </div>
+            <div class="recall-debug-grid">
+              <div class="recall-debug-panel">
+                <div class="eyebrow" id="t-model-recall-status-label">Recall Status</div>
+                <div class="memory-queue-list" id="model-recall-status-list">
+                  <div class="empty" id="t-no-model-recall-status">No recall diagnostics loaded.</div>
+                </div>
+              </div>
+              <div class="recall-debug-panel">
+                <div class="eyebrow" id="t-model-recall-traces-label">Recent Recall Traces</div>
+                <div class="recall-debug-list" id="model-recall-traces-list">
+                  <div class="empty" id="t-no-model-recall-traces">No recall traces yet.</div>
+                </div>
+              </div>
+            </div>
+            <div class="recall-debug-panel">
+              <div class="eyebrow" id="t-memory-index-label">Memory Index Segments</div>
+              <div class="recall-debug-list" id="memory-index-list">
+                <div class="empty" id="t-no-memory-index">No memory index loaded.</div>
+              </div>
+            </div>
             <div class="panel-title-row">
               <div class="eyebrow" id="t-self-memory-label">Self Memory</div>
               <button class="btn btn-ghost" onclick="loadSelfMemory()" id="t-self-memory-refresh">Refresh self</button>
@@ -1938,6 +2036,61 @@ input[disabled], textarea[disabled], select[disabled] {
                   <label id="t-comp-summary-model-label">
                     Summarization Model
                     <input type="text" name="memory_summary_model" placeholder="gemini-2.5-flash..." class="input-mono-sm">
+                  </label>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label class="label-inline" id="t-comp-model-recall-toggle-label">
+                      <span>Enable Model Recall</span>
+                      <input type="checkbox" name="memory_model_recall_enabled" class="cb-accent">
+                    </label>
+                    <label id="t-comp-recall-model-model-label">
+                      Recall Model
+                      <input type="text" name="memory_recall_model_model" placeholder="leave blank to inherit summary model" class="input-mono-sm">
+                    </label>
+                  </div>
+
+                  <label id="t-comp-recall-model-url-label">
+                    Recall Model Endpoint
+                    <input type="text" name="memory_recall_model_url" placeholder="leave blank to inherit summary endpoint" class="input-mono-sm">
+                    <div id="t-comp-recall-model-url-hint" class="field-hint">
+                      Leave blank to inherit the summarization endpoint. The recall model receives the materialized memory index and returns a JSON retrieval plan.
+                    </div>
+                  </label>
+
+                  <label id="t-comp-recall-model-key-label">
+                    Recall Model API Key
+                    <div class="secret-field">
+                      <div class="password-shell">
+                        <input type="text" data-masked="true" name="memory_recall_model_key" placeholder="leave blank to inherit summary key" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                        <button class="password-toggle" type="button" data-toggle-password-name="memory_recall_model_key">
+                          <svg class="icon-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                          <svg class="icon-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M10.6 10.6A3 3 0 0 0 12 15a3 3 0 0 0 2.4-4.8"></path><path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.3"></path><path d="M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.7 10.7 0 0 0 4.3-.9"></path></svg>
+                        </button>
+                      </div>
+                      <div class="secret-meta">
+                        <span class="secret-status" id="t-comp-recall-model-key-status">No recall key stored</span>
+                        <label id="t-comp-recall-model-clear-label" class="secret-clear">
+                        Clear stored recall key
+                          <input type="checkbox" name="clear_memory_recall_model_key">
+                        </label>
+                      </div>
+                    </div>
+                  </label>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-model-recall-failure-label">
+                      Recall Failure Threshold (1-20)
+                      <input type="number" name="memory_model_recall_failure_threshold" min="1" max="20" step="1">
+                    </label>
+                    <label id="t-comp-model-recall-cooldown-label">
+                      Recall Cooldown Seconds (0-86400)
+                      <input type="number" name="memory_model_recall_cooldown_seconds" min="0" max="86400" step="1">
+                    </label>
+                  </div>
+
+                  <label id="t-comp-model-recall-retention-label">
+                    Recall Trace Retention (1-5000)
+                    <input type="number" name="memory_model_recall_trace_retention" min="1" max="5000" step="1">
                   </label>
 
                   <div class="companion-num-grid field-pair-grid">
@@ -2234,6 +2387,20 @@ const STRINGS = {
     strategyLast: 'last（仅最后一条）',
     bpLabel: '断点数量（0-4）',
     cacheNote: '⚠ automatic 模式仅在 Anthropic 直連时生效',
+    cacheDiagnosticsTitle: '缓存诊断',
+    cacheDiagnosticsRefresh: '刷新',
+    cacheDiagnosticsNote: '显示请求侧缓存 patch 信息，以及上游返回里能解析到的 usage 字段。unknown 表示响应里没有可解析的 usage。',
+    cacheStatRequests: '请求数',
+    cacheStatInput: '输入 Token',
+    cacheStatRead: '缓存命中',
+    cacheStatCreate: '缓存创建',
+    cacheThTime: '时间',
+    cacheThModel: '模型',
+    cacheThPatch: 'Patch',
+    cacheThBreakpoints: '断点',
+    cacheThUsage: 'Usage',
+    cacheThCache: '缓存 Token',
+    noCacheDiagnostics: '暂无请求诊断。',
     save: '保存配置',
     saved: '已保存：',
     error: '错误：',
@@ -2261,6 +2428,15 @@ const STRINGS = {
     compSummaryKeyLabel: '摘要 API 密钥',
     compSummaryModelLabel: '摘要模型',
     compSummaryUrlHint: 'Gemini 建议填基础 URL，例如 https://generativelanguage.googleapis.com。OpenAI / OpenRouter 兼容接口只填基础 URL，系统会自动补上 /v1/chat/completions。',
+    compModelRecallToggleLabel: '启用模型参与召回',
+    compRecallModelModelLabel: '召回模型',
+    compRecallModelUrlLabel: '召回模型 API 端点',
+    compRecallModelUrlHint: '留空则继承摘要端点。召回模型会读取物化记忆索引，并返回 JSON 检索计划。',
+    compRecallModelKeyLabel: '召回模型 API 密钥',
+    compRecallClearKeyLabel: '清除已保存召回密钥',
+    compModelRecallFailureLabel: '召回失败熔断阈值 (1-20)',
+    compModelRecallCooldownLabel: '召回熔断冷却秒数 (0-86400)',
+    compModelRecallRetentionLabel: '召回 trace 保留条数 (1-5000)',
     compDecayHoursLabel: '遗忘（衰减）检查间隔 (小时)',
     compDecayRateLabel: '记忆衰减速度 (0-1)',
     compThresholdLabel: '遗忘阈值 (0-1)',
@@ -2305,6 +2481,10 @@ const STRINGS = {
     compClearKeyLabel: '清除已保存密钥',
     compKeyPlaceholderStored: '如需替换，请输入新密钥',
     compKeyPlaceholderEmpty: 'API Key...',
+    compRecallKeyStored: '召回密钥已保存；留空则保持不变',
+    compRecallKeyEmpty: '未保存召回密钥；留空继承摘要密钥',
+    compRecallKeyPlaceholderStored: '如需替换召回密钥，请输入新密钥',
+    compRecallKeyPlaceholderEmpty: '留空继承摘要密钥',
     authTitle: '配置已上锁',
     authBody: '请输入配置密码后再读取或修改设置。',
     authPlaceholder: '配置密码',
@@ -2345,6 +2525,15 @@ const STRINGS = {
     companionRefresh: '刷新',
     dreamRun: '立即做梦',
     dreamDryRun: '做梦 dry run',
+    modelRecallLabel: '模型召回调试',
+    modelRecallRefresh: '刷新召回',
+    memoryIndexRebuild: '重建索引',
+    modelRecallStatusLabel: '召回状态',
+    modelRecallTracesLabel: '最近召回 trace',
+    memoryIndexLabel: '记忆索引分段',
+    noModelRecallStatus: '尚未加载召回诊断。',
+    noModelRecallTraces: '暂无召回 trace。',
+    noMemoryIndex: '尚未加载记忆索引。',
     selfMemoryLabel: 'Self 记忆',
     selfMemoryRefresh: '刷新 self',
     selfMemoryCreate: '创建 self 记忆',
@@ -2388,7 +2577,7 @@ const STRINGS = {
     logThCache: '缓存♦',
     noLogs: '暂无请求记录。',
     navStatus: '系统状态',
-    navCache: '缓存可视化',
+    navCache: '缓存诊断',
     navCompanion: '伴侣',
     navLogs: '请求日志',
     navConfig: '配置',
@@ -2417,6 +2606,20 @@ const STRINGS = {
     strategyLast: 'last (last message only)',
     bpLabel: 'Breakpoints (0-4)',
     cacheNote: '⚠ automatic cache mode only works with Anthropic direct',
+    cacheDiagnosticsTitle: 'Cache Diagnostics',
+    cacheDiagnosticsRefresh: 'Refresh',
+    cacheDiagnosticsNote: 'Shows request-side cache patching plus upstream usage fields when providers expose them. Unknown means the response did not include parseable usage.',
+    cacheStatRequests: 'Requests',
+    cacheStatInput: 'Input Tokens',
+    cacheStatRead: 'Cache Read',
+    cacheStatCreate: 'Cache Create',
+    cacheThTime: 'Time',
+    cacheThModel: 'Model',
+    cacheThPatch: 'Patch',
+    cacheThBreakpoints: 'Breakpoints',
+    cacheThUsage: 'Usage',
+    cacheThCache: 'Cache Tokens',
+    noCacheDiagnostics: 'No request diagnostics yet.',
     save: 'Save Settings',
     saved: 'Saved: ',
     error: 'Error: ',
@@ -2443,6 +2646,15 @@ const STRINGS = {
     compSummaryUrlHint: 'For Gemini, use the base URL like https://generativelanguage.googleapis.com. OpenAI and OpenRouter style providers can use a base URL; /v1/chat/completions is appended automatically.',
     compSummaryKeyLabel: 'Summarization API Key',
     compSummaryModelLabel: 'Summarization Model',
+    compModelRecallToggleLabel: 'Enable Model Recall',
+    compRecallModelModelLabel: 'Recall Model',
+    compRecallModelUrlLabel: 'Recall Model Endpoint',
+    compRecallModelUrlHint: 'Leave blank to inherit the summarization endpoint. The recall model reads the materialized memory index and returns a JSON retrieval plan.',
+    compRecallModelKeyLabel: 'Recall Model API Key',
+    compRecallClearKeyLabel: 'Clear stored recall key',
+    compModelRecallFailureLabel: 'Recall Failure Threshold (1-20)',
+    compModelRecallCooldownLabel: 'Recall Cooldown Seconds (0-86400)',
+    compModelRecallRetentionLabel: 'Recall Trace Retention (1-5000)',
     compDecayHoursLabel: 'Decay Interval (Hours)',
     compDecayRateLabel: 'Memory Decay Rate (0-1)',
     compThresholdLabel: 'Forget Threshold (0-1)',
@@ -2487,6 +2699,10 @@ const STRINGS = {
     compClearKeyLabel: 'Clear stored key',
     compKeyPlaceholderStored: 'Enter a new key to replace it',
     compKeyPlaceholderEmpty: 'API Key...',
+    compRecallKeyStored: 'Recall key stored; leave blank to keep it',
+    compRecallKeyEmpty: 'No recall key stored; blank inherits summary key',
+    compRecallKeyPlaceholderStored: 'Enter a new recall key to replace it',
+    compRecallKeyPlaceholderEmpty: 'Blank inherits summary key',
     authTitle: 'Configuration Locked',
     authBody: 'Enter the config password before reading or changing settings.',
     authPlaceholder: 'Config password',
@@ -2527,6 +2743,15 @@ const STRINGS = {
     companionRefresh: 'Refresh',
     dreamRun: 'Dream now',
     dreamDryRun: 'Dream dry run',
+    modelRecallLabel: 'Model Recall Debug',
+    modelRecallRefresh: 'Refresh recall',
+    memoryIndexRebuild: 'Rebuild index',
+    modelRecallStatusLabel: 'Recall Status',
+    modelRecallTracesLabel: 'Recent Recall Traces',
+    memoryIndexLabel: 'Memory Index Segments',
+    noModelRecallStatus: 'No recall diagnostics loaded.',
+    noModelRecallTraces: 'No recall traces yet.',
+    noMemoryIndex: 'No memory index loaded.',
     selfMemoryLabel: 'Self Memory',
     selfMemoryRefresh: 'Refresh self',
     selfMemoryCreate: 'Create self memory',
@@ -2570,7 +2795,7 @@ const STRINGS = {
     logThCache: 'Cache♦',
     noLogs: 'No requests logged yet.',
     navStatus: 'System Status',
-    navCache: 'Cache Visualizer',
+    navCache: 'Cache Diagnostics',
     navCompanion: 'Companion',
     navLogs: 'Request Logs',
     navConfig: 'Configuration',
@@ -2599,6 +2824,20 @@ const STRINGS = {
     strategyLast: 'last（最後のメッセージのみ）',
     bpLabel: 'ブレークポイント数（0-4）',
     cacheNote: '⚠ automatic モードは Anthropic 直接接続時のみ有効',
+    cacheDiagnosticsTitle: 'キャッシュ診断',
+    cacheDiagnosticsRefresh: '更新',
+    cacheDiagnosticsNote: 'リクエスト側の cache patch 情報と、上流レスポンスから解析できた usage を表示します。unknown は解析可能な usage が無かったことを示します。',
+    cacheStatRequests: 'リクエスト数',
+    cacheStatInput: '入力 Token',
+    cacheStatRead: 'キャッシュ読込',
+    cacheStatCreate: 'キャッシュ作成',
+    cacheThTime: '日時',
+    cacheThModel: 'モデル',
+    cacheThPatch: 'Patch',
+    cacheThBreakpoints: 'ブレークポイント',
+    cacheThUsage: 'Usage',
+    cacheThCache: 'キャッシュ Token',
+    noCacheDiagnostics: 'リクエスト診断はまだありません。',
     save: '設定を保存',
     saved: '保存しました：',
     error: 'エラー：',
@@ -2625,6 +2864,15 @@ const STRINGS = {
     compSummaryUrlHint: 'Gemini は https://generativelanguage.googleapis.com のようなベースURLを入れます。OpenAI / OpenRouter 互換はベースURLだけでよく、/v1/chat/completions は自動で足されます。',
     compSummaryKeyLabel: '要約用 APIキー',
     compSummaryModelLabel: '要約用 モデル名',
+    compModelRecallToggleLabel: 'モデル参加の想起を有効化',
+    compRecallModelModelLabel: '想起モデル',
+    compRecallModelUrlLabel: '想起モデル API エンドポイント',
+    compRecallModelUrlHint: '空欄の場合は要約エンドポイントを継承します。想起モデルは物化メモリ索引を読み、JSON の検索計画を返します。',
+    compRecallModelKeyLabel: '想起モデル APIキー',
+    compRecallClearKeyLabel: '保存済み想起キーを削除',
+    compModelRecallFailureLabel: '想起失敗しきい値 (1-20)',
+    compModelRecallCooldownLabel: '想起クールダウン秒数 (0-86400)',
+    compModelRecallRetentionLabel: '想起 trace 保持数 (1-5000)',
     compDecayHoursLabel: '忘却（減衰）チェック間隔 (時間)',
     compDecayRateLabel: '記憶減衰スピード (0〜1)',
     compThresholdLabel: '忘却しきい値 (0〜1)',
@@ -2669,6 +2917,10 @@ const STRINGS = {
     compClearKeyLabel: '保存済みキーを削除',
     compKeyPlaceholderStored: '置き換える場合だけ新しいキーを入力',
     compKeyPlaceholderEmpty: 'API Key...',
+    compRecallKeyStored: '想起キー保存済み。空欄なら維持します',
+    compRecallKeyEmpty: '想起キーは未保存です。空欄なら要約キーを継承します',
+    compRecallKeyPlaceholderStored: '置き換える場合だけ新しい想起キーを入力',
+    compRecallKeyPlaceholderEmpty: '空欄なら要約キーを継承',
     authTitle: '設定はロックされています',
     authBody: '設定の参照や更新を行う前に、設定用パスワードを入力してください。',
     authPlaceholder: '設定パスワード',
@@ -2709,6 +2961,15 @@ const STRINGS = {
     companionRefresh: '更新',
     dreamRun: '今すぐ夢を見る',
     dreamDryRun: '夢 dry run',
+    modelRecallLabel: 'モデル想起デバッグ',
+    modelRecallRefresh: '想起を更新',
+    memoryIndexRebuild: '索引を再構築',
+    modelRecallStatusLabel: '想起ステータス',
+    modelRecallTracesLabel: '最近の想起 trace',
+    memoryIndexLabel: 'メモリ索引セグメント',
+    noModelRecallStatus: '想起診断はまだ読み込まれていません。',
+    noModelRecallTraces: '想起 trace はまだありません。',
+    noMemoryIndex: 'メモリ索引はまだ読み込まれていません。',
     selfMemoryLabel: 'Self 記憶',
     selfMemoryRefresh: 'self を更新',
     selfMemoryCreate: 'self 記憶を作成',
@@ -2752,7 +3013,7 @@ const STRINGS = {
     logThCache: 'キャッシュ♦',
     noLogs: 'まだリクエストがありません。',
     navStatus: 'システム状態',
-    navCache: 'キャッシュ可視化',
+    navCache: 'キャッシュ診断',
     navCompanion: 'コンパニオン',
     navLogs: 'リクエストログ',
     navConfig: '設定',
@@ -2781,6 +3042,7 @@ function detectLang() {
 
 let currentLang = detectLang();
 let summaryKeyConfigured = false;
+let recallModelKeyConfigured = false;
 let configPasswordChangeable = false;
 let configAuthRequired = false;
 let configAuthMode = 'unlock';
@@ -2868,9 +3130,23 @@ function refreshSecretFieldUi() {
   const f = document.getElementById('f');
   const s = STRINGS[currentLang];
   const summaryStatus = document.getElementById('t-comp-summary-key-status');
-  summaryStatus.textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
-  summaryStatus.classList.toggle('configured', summaryKeyConfigured);
-  f.memory_summary_key.placeholder = summaryKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
+  if (summaryStatus) {
+    summaryStatus.textContent = summaryKeyConfigured ? s.compKeyStored : s.compKeyEmpty;
+    summaryStatus.classList.toggle('configured', summaryKeyConfigured);
+  }
+  if (f.memory_summary_key) {
+    f.memory_summary_key.placeholder = summaryKeyConfigured ? s.compKeyPlaceholderStored : s.compKeyPlaceholderEmpty;
+  }
+  const recallStatus = document.getElementById('t-comp-recall-model-key-status');
+  if (recallStatus) {
+    recallStatus.textContent = recallModelKeyConfigured ? (s.compRecallKeyStored || 'Recall key stored; leave blank to keep it') : (s.compRecallKeyEmpty || 'No recall key stored; blank inherits summary key');
+    recallStatus.classList.toggle('configured', recallModelKeyConfigured);
+  }
+  if (f.memory_recall_model_key) {
+    f.memory_recall_model_key.placeholder = recallModelKeyConfigured
+      ? (s.compRecallKeyPlaceholderStored || 'Enter a new recall key to replace it')
+      : (s.compRecallKeyPlaceholderEmpty || 'Blank inherits summary key');
+  }
 }
 
 function refreshPasswordChangeUi() {
@@ -2958,6 +3234,14 @@ function applyConfigData(d) {
   f.memory_summary_key.value = '';
   f.clear_memory_summary_key.checked = false;
   f.memory_summary_model.value = d.memory_summary_model || '';
+  f.memory_model_recall_enabled.checked = d.memory_model_recall_enabled || false;
+  f.memory_recall_model_url.value = d.memory_recall_model_url || '';
+  f.memory_recall_model_key.value = '';
+  f.clear_memory_recall_model_key.checked = false;
+  f.memory_recall_model_model.value = d.memory_recall_model_model || '';
+  f.memory_model_recall_failure_threshold.value = d.memory_model_recall_failure_threshold !== undefined ? d.memory_model_recall_failure_threshold : 3;
+  f.memory_model_recall_cooldown_seconds.value = d.memory_model_recall_cooldown_seconds !== undefined ? d.memory_model_recall_cooldown_seconds : 300;
+  f.memory_model_recall_trace_retention.value = d.memory_model_recall_trace_retention !== undefined ? d.memory_model_recall_trace_retention : 200;
   f.memory_summary_prompt.value = d.memory_summary_prompt || '';
   f.memory_decay_interval_hours.value = d.memory_decay_interval_hours !== undefined ? d.memory_decay_interval_hours : 24;
   f.memory_decay_rate.value = d.memory_decay_rate !== undefined ? d.memory_decay_rate : 0.1;
@@ -2997,6 +3281,7 @@ function applyConfigData(d) {
   f.memory_recycle_retention_days.value = d.memory_recycle_retention_days !== undefined ? d.memory_recycle_retention_days : 30;
 
   summaryKeyConfigured = d.memory_summary_key_configured || false;
+  recallModelKeyConfigured = d.memory_recall_model_key_configured || false;
   configPasswordChangeable = d.config_password_changeable || false;
   lastAutoSavePayload = JSON.stringify(buildConfigPayload(false));
 
@@ -3027,16 +3312,45 @@ function applyLang(lang) {
   document.getElementById('lbl-status-thinking-label').textContent = s.statusThinking;
   document.getElementById('lbl-status-thinking-label').nextElementSibling.textContent = s.statusThinkingActive;
   
-  // Diagram texts
-  document.getElementById('lbl-dashboard-title').textContent = s.dashboardTitle;
-  document.getElementById('flow-lbl-client').textContent = s.diagramClient;
-  document.getElementById('flow-lbl-proxy').textContent = s.diagramProxy;
-  document.getElementById('flow-lbl-cache').textContent = s.diagramCache;
-  
-  // Visualizer texts
-  document.getElementById('lbl-visualizer-title').textContent = s.visualizerTitle;
-  document.getElementById('lbl-visualizer-stable').textContent = s.visualizerStable;
-  document.getElementById('lbl-visualizer-tail').textContent = s.visualizerTail;
+  // Legacy diagram texts are optional because the cache pane is now diagnostics.
+  const dashboardTitle = document.getElementById('lbl-dashboard-title');
+  if (dashboardTitle) dashboardTitle.textContent = s.dashboardTitle;
+  const flowClient = document.getElementById('flow-lbl-client');
+  if (flowClient) flowClient.textContent = s.diagramClient;
+  const flowProxy = document.getElementById('flow-lbl-proxy');
+  if (flowProxy) flowProxy.textContent = s.diagramProxy;
+  const flowCache = document.getElementById('flow-lbl-cache');
+  if (flowCache) flowCache.textContent = s.diagramCache;
+  const visualizerTitle = document.getElementById('lbl-visualizer-title');
+  if (visualizerTitle) visualizerTitle.textContent = s.visualizerTitle;
+  const visualizerStable = document.getElementById('lbl-visualizer-stable');
+  if (visualizerStable) visualizerStable.textContent = s.visualizerStable;
+  const visualizerTail = document.getElementById('lbl-visualizer-tail');
+  if (visualizerTail) visualizerTail.textContent = s.visualizerTail;
+
+  const cacheDiagnosticsTitle = document.getElementById('t-cache-diagnostics-title');
+  if (cacheDiagnosticsTitle) cacheDiagnosticsTitle.textContent = s.cacheDiagnosticsTitle || 'Cache Diagnostics';
+  const cacheDiagnosticsRefresh = document.getElementById('t-cache-diagnostics-refresh');
+  if (cacheDiagnosticsRefresh) cacheDiagnosticsRefresh.textContent = s.cacheDiagnosticsRefresh || 'Refresh';
+  const cacheDiagnosticsNote = document.getElementById('t-cache-diagnostics-note');
+  if (cacheDiagnosticsNote) cacheDiagnosticsNote.textContent = s.cacheDiagnosticsNote || 'Shows request-side cache patching plus upstream usage fields when providers expose them. Unknown means the response did not include parseable usage.';
+  const cacheLabelMap = {
+    't-cache-stat-requests': s.cacheStatRequests || 'Requests',
+    't-cache-stat-input': s.cacheStatInput || 'Input Tokens',
+    't-cache-stat-read': s.cacheStatRead || 'Cache Read',
+    't-cache-stat-create': s.cacheStatCreate || 'Cache Create',
+    't-cache-th-time': s.cacheThTime || 'Time',
+    't-cache-th-model': s.cacheThModel || 'Model',
+    't-cache-th-patch': s.cacheThPatch || 'Patch',
+    't-cache-th-breakpoints': s.cacheThBreakpoints || 'Breakpoints',
+    't-cache-th-usage': s.cacheThUsage || 'Usage',
+    't-cache-th-cache': s.cacheThCache || 'Cache Tokens',
+    't-no-cache-diagnostics': s.noCacheDiagnostics || 'No request diagnostics yet.'
+  };
+  Object.entries(cacheLabelMap).forEach(([id, text]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  });
   
   setText('t-preset-label', s.presetLabel, 'preset');
   document.getElementById('t-preset-anthropic').textContent = s.presetAnthropic;
@@ -3069,6 +3383,17 @@ function applyLang(lang) {
   setText('t-comp-summary-key-label', s.compSummaryKeyLabel || 'Summarization API Key', 'memory_summary_key');
   setText('t-comp-summary-clear-label', s.compClearKeyLabel || 'Clear stored key', 'clear_memory_summary_key');
   setText('t-comp-summary-model-label', s.compSummaryModelLabel || 'Summarization Model', 'memory_summary_model');
+  const modelRecallToggleLabel = document.querySelector('#t-comp-model-recall-toggle-label span');
+  if (modelRecallToggleLabel) modelRecallToggleLabel.textContent = s.compModelRecallToggleLabel || 'Enable Model Recall';
+  setText('t-comp-recall-model-model-label', s.compRecallModelModelLabel || 'Recall Model', 'memory_recall_model_model');
+  setText('t-comp-recall-model-url-label', s.compRecallModelUrlLabel || 'Recall Model Endpoint', 'memory_recall_model_url');
+  const recallUrlHint = document.getElementById('t-comp-recall-model-url-hint');
+  if (recallUrlHint) recallUrlHint.textContent = s.compRecallModelUrlHint || 'Leave blank to inherit the summarization endpoint. The recall model receives the materialized memory index and returns a JSON retrieval plan.';
+  setText('t-comp-recall-model-key-label', s.compRecallModelKeyLabel || 'Recall Model API Key', 'memory_recall_model_key');
+  setText('t-comp-recall-model-clear-label', s.compRecallClearKeyLabel || 'Clear stored recall key', 'clear_memory_recall_model_key');
+  setText('t-comp-model-recall-failure-label', s.compModelRecallFailureLabel || 'Recall Failure Threshold (1-20)', 'memory_model_recall_failure_threshold');
+  setText('t-comp-model-recall-cooldown-label', s.compModelRecallCooldownLabel || 'Recall Cooldown Seconds (0-86400)', 'memory_model_recall_cooldown_seconds');
+  setText('t-comp-model-recall-retention-label', s.compModelRecallRetentionLabel || 'Recall Trace Retention (1-5000)', 'memory_model_recall_trace_retention');
   setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
   setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
   setText('t-comp-threshold-label', s.compThresholdLabel || 'Forget Threshold (0-1)', 'memory_threshold');
@@ -3197,6 +3522,24 @@ function applyLang(lang) {
   if (consLbl) consLbl.textContent = s.consolidationLabel || 'Last deep recall: ';
   const dreamLbl = document.getElementById('t-dream-label');
   if (dreamLbl) dreamLbl.textContent = s.dreamLabel || 'Last dream: ';
+  const modelRecallLabel = document.getElementById('t-model-recall-label');
+  if (modelRecallLabel) modelRecallLabel.textContent = s.modelRecallLabel || 'Model Recall Debug';
+  const modelRecallRefresh = document.getElementById('t-model-recall-refresh');
+  if (modelRecallRefresh) modelRecallRefresh.textContent = s.modelRecallRefresh || 'Refresh recall';
+  const memoryIndexRebuild = document.getElementById('t-memory-index-rebuild');
+  if (memoryIndexRebuild) memoryIndexRebuild.textContent = s.memoryIndexRebuild || 'Rebuild index';
+  const modelRecallStatusLabel = document.getElementById('t-model-recall-status-label');
+  if (modelRecallStatusLabel) modelRecallStatusLabel.textContent = s.modelRecallStatusLabel || 'Recall Status';
+  const modelRecallTracesLabel = document.getElementById('t-model-recall-traces-label');
+  if (modelRecallTracesLabel) modelRecallTracesLabel.textContent = s.modelRecallTracesLabel || 'Recent Recall Traces';
+  const memoryIndexLabel = document.getElementById('t-memory-index-label');
+  if (memoryIndexLabel) memoryIndexLabel.textContent = s.memoryIndexLabel || 'Memory Index Segments';
+  const noModelRecallStatus = document.getElementById('t-no-model-recall-status');
+  if (noModelRecallStatus) noModelRecallStatus.textContent = s.noModelRecallStatus || 'No recall diagnostics loaded.';
+  const noModelRecallTraces = document.getElementById('t-no-model-recall-traces');
+  if (noModelRecallTraces) noModelRecallTraces.textContent = s.noModelRecallTraces || 'No recall traces yet.';
+  const noMemoryIndex = document.getElementById('t-no-memory-index');
+  if (noMemoryIndex) noMemoryIndex.textContent = s.noMemoryIndex || 'No memory index loaded.';
   const reflectionsLbl = document.getElementById('t-reflections-label');
   if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
   const noReflEl = document.getElementById('t-no-reflections');
@@ -3269,7 +3612,8 @@ function updateCacheNote() {
 
 function setText(labelId, text, inputName) {
   const label = document.getElementById(labelId);
-  const input = label.querySelector('[name=' + inputName + ']');
+  if (!label) return;
+  const input = inputName ? label.querySelector('[name=' + inputName + ']') : null;
   while (label.firstChild && label.firstChild.nodeType === 3) {
     label.removeChild(label.firstChild);
   }
@@ -3294,6 +3638,11 @@ function renderPane(name) {
     pane.classList.toggle('is-active', pane.dataset.pane === name);
   });
   try { localStorage.setItem('kiyomizu-nav', name); } catch (e) {}
+  if (!configAuthRequired) {
+    if (name === 'cache') loadCacheDiagnostics();
+    else if (name === 'logs') loadLogs();
+    else if (name === 'companion') loadCompanionState();
+  }
 }
 
 function setSectionCollapsed(section, collapsed) {
@@ -3371,6 +3720,7 @@ function updateVisualizer() {
   
   const container = document.getElementById('visualizer-container');
   const timeline = document.getElementById('timeline-track');
+  if (!container || !timeline) return;
   
   // Clear existing pins
   timeline.querySelectorAll('.cache-pin').forEach(pin => pin.remove());
@@ -3427,6 +3777,7 @@ function updateFlowDiagram() {
   const lineProxyCache = document.getElementById('line-proxy-cache');
   const upstreamText = document.getElementById('flow-lbl-upstream');
   const lineProxyUpstream = document.getElementById('line-proxy-upstream');
+  if (!proxyNode || !cacheCylinder || !lineProxyCache || !upstreamText || !lineProxyUpstream) return;
   
   // Update Upstream text label in diagram
   let presetText = f.preset.options[f.preset.selectedIndex].text;
@@ -3493,6 +3844,12 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_enabled: f.memory_enabled.checked,
     memory_summary_url: f.memory_summary_url.value,
     memory_summary_model: f.memory_summary_model.value,
+    memory_model_recall_enabled: f.memory_model_recall_enabled.checked,
+    memory_recall_model_url: f.memory_recall_model_url.value,
+    memory_recall_model_model: f.memory_recall_model_model.value,
+    memory_model_recall_failure_threshold: Number(f.memory_model_recall_failure_threshold.value),
+    memory_model_recall_cooldown_seconds: Number(f.memory_model_recall_cooldown_seconds.value),
+    memory_model_recall_trace_retention: Number(f.memory_model_recall_trace_retention.value),
     memory_summary_prompt: f.memory_summary_prompt.value,
     memory_decay_interval_hours: Number(f.memory_decay_interval_hours.value),
     memory_decay_rate: Number(f.memory_decay_rate.value),
@@ -3535,6 +3892,8 @@ function buildConfigPayload(includeManualOnlyFields = true) {
   if (includeManualOnlyFields) {
     payload.clear_memory_summary_key = f.clear_memory_summary_key.checked;
     if (f.memory_summary_key.value.trim()) payload.memory_summary_key = f.memory_summary_key.value.trim();
+    payload.clear_memory_recall_model_key = f.clear_memory_recall_model_key.checked;
+    if (f.memory_recall_model_key.value.trim()) payload.memory_recall_model_key = f.memory_recall_model_key.value.trim();
   }
 
   return payload;
@@ -3545,6 +3904,8 @@ function hasPendingManualOnlyChanges() {
   return Boolean(
     f.memory_summary_key.value.trim() ||
     f.clear_memory_summary_key.checked ||
+    f.memory_recall_model_key.value.trim() ||
+    f.clear_memory_recall_model_key.checked ||
     f.config_password_current.value.trim() ||
     f.config_password_new.value.trim() ||
     f.config_password_confirm.value.trim()
@@ -3623,6 +3984,8 @@ function shouldAutoSaveEvent(event) {
   const manualOnlyNames = new Set([
     'memory_summary_key',
     'clear_memory_summary_key',
+    'memory_recall_model_key',
+    'clear_memory_recall_model_key',
     'config_password_current',
     'config_password_new',
     'config_password_confirm'
@@ -3984,6 +4347,7 @@ async function loadCompanionState() {
       list.appendChild(item);
     });
   }
+  await loadModelRecallDebug(d.model_recall_diagnostics);
   await loadMemoryQueues();
   await loadSelfMemory();
 }
@@ -4122,11 +4486,234 @@ async function runDreamDryRun() {
   }
 }
 
+function formatUnknown(value) {
+  return value === null || value === undefined || value === '' ? 'unknown' : String(value);
+}
+
+function formatTokenTotal(logs, field) {
+  const known = logs
+    .map(l => l[field])
+    .filter(v => typeof v === 'number' && Number.isFinite(v));
+  if (known.length === 0) return 'unknown';
+  const total = known.reduce((acc, v) => acc + v, 0);
+  const unknownCount = logs.length - known.length;
+  return unknownCount > 0 ? `${total} (${unknownCount} unknown)` : String(total);
+}
+
+function renderCacheDiagnostics(logs) {
+  const tbody = document.getElementById('cache-diagnostics-tbody');
+  if (!tbody) return;
+  const safeLogs = Array.isArray(logs) ? logs : [];
+  const cacheRead = formatTokenTotal(safeLogs, 'cache_read_input_tokens');
+  const cachedPrompt = formatTokenTotal(safeLogs, 'cached_prompt_tokens');
+
+  document.getElementById('cache-diag-requests').textContent = String(safeLogs.length);
+  document.getElementById('cache-diag-input').textContent = formatTokenTotal(safeLogs, 'input_tokens');
+  document.getElementById('cache-diag-read').textContent =
+    cachedPrompt === 'unknown' ? cacheRead : `${cacheRead} / cached ${cachedPrompt}`;
+  document.getElementById('cache-diag-create').textContent = formatTokenTotal(safeLogs, 'cache_creation_input_tokens');
+
+  tbody.textContent = '';
+  if (safeLogs.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.className = 'empty';
+    td.textContent = STRINGS[currentLang].noCacheDiagnostics || 'No request diagnostics yet.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  safeLogs.forEach(l => {
+    const tr = document.createElement('tr');
+
+    const tdTime = document.createElement('td');
+    tdTime.textContent = l.at ? new Date(l.at).toLocaleTimeString() : 'unknown';
+    tdTime.title = l.at || '';
+
+    const tdModel = document.createElement('td');
+    tdModel.className = 'model-cell';
+    tdModel.textContent = l.model ? l.model.split('/').pop() : 'unknown';
+    tdModel.title = l.model || '';
+
+    const tdPatch = document.createElement('td');
+    tdPatch.className = 'diagnostic-cell';
+    const eligible = l.patch_eligible === undefined ? 'unknown' : (l.patch_eligible ? 'eligible' : 'not eligible');
+    tdPatch.textContent = `${l.patched ? 'patched' : 'unchanged'} · ${eligible} · ${l.cache_mode || 'unknown'}/${l.cache_strategy || 'unknown'}`;
+
+    const tdBreakpoints = document.createElement('td');
+    tdBreakpoints.className = 'diagnostic-mono diagnostic-cell';
+    const indexes = Array.isArray(l.cache_breakpoint_indexes) && l.cache_breakpoint_indexes.length > 0
+      ? l.cache_breakpoint_indexes.join(',')
+      : 'none';
+    tdBreakpoints.textContent = `configured=${formatUnknown(l.cache_breakpoints)} explicit=${formatUnknown(l.explicit_cache_blocks)} indexes=${indexes}`;
+
+    const tdUsage = document.createElement('td');
+    tdUsage.className = 'diagnostic-mono';
+    tdUsage.textContent = `in=${formatUnknown(l.input_tokens)} out=${formatUnknown(l.output_tokens)}`;
+
+    const tdCache = document.createElement('td');
+    tdCache.className = 'diagnostic-mono diagnostic-cell';
+    tdCache.textContent =
+      `read=${formatUnknown(l.cache_read_input_tokens)} create=${formatUnknown(l.cache_creation_input_tokens)} cached_prompt=${formatUnknown(l.cached_prompt_tokens)}`;
+
+    tr.appendChild(tdTime);
+    tr.appendChild(tdModel);
+    tr.appendChild(tdPatch);
+    tr.appendChild(tdBreakpoints);
+    tr.appendChild(tdUsage);
+    tr.appendChild(tdCache);
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadCacheDiagnostics() {
+  const r = await fetchConfig('/api/logs?limit=50');
+  if (!r.ok) return;
+  const d = await r.json();
+  renderCacheDiagnostics(d.logs || []);
+}
+
+function renderModelRecallDiagnostics(diag) {
+  const list = document.getElementById('model-recall-status-list');
+  if (!list) return;
+  const safe = diag || {};
+  list.textContent = '';
+  const cooldown = Number(safe.cooldown_until || 0);
+  const cooldownText = cooldown > Date.now() ? new Date(cooldown).toLocaleString() : 'inactive';
+  const rows = [
+    ['enabled', safe.enabled === true ? 'true' : 'false'],
+    ['index_version', safe.index_version || 'unknown'],
+    ['dirty', safe.index_dirty ? 'true' : 'false'],
+    ['error', safe.index_error || 'none'],
+    ['consecutive_failures', formatUnknown(safe.consecutive_failures)],
+    ['cooldown', cooldownText]
+  ];
+  const last = safe.last_trace;
+  if (last) {
+    rows.push(['last_trace', `#${last.id} candidates=${last.candidate_count} injected=${last.injected_count} fallback=${last.fallback_reason || 'none'} error=${last.error || 'none'}`]);
+  }
+  rows.forEach(([label, value]) => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const body = document.createElement('div');
+    body.textContent = `${label}: ${value}`;
+    item.appendChild(body);
+    list.appendChild(item);
+  });
+}
+
+function renderMemoryIndex(indexJson) {
+  const list = document.getElementById('memory-index-list');
+  if (!list) return;
+  const segments = indexJson && Array.isArray(indexJson.segments) ? indexJson.segments : [];
+  list.textContent = '';
+  if (segments.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = STRINGS[currentLang].noMemoryIndex || 'No memory index loaded.';
+    list.appendChild(empty);
+    return;
+  }
+  segments.forEach(segment => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const summary = document.createElement('div');
+    summary.textContent =
+      `${segment.segment_key} v${segment.version || 0} · chars=${segment.char_count || 0} · dirty=${segment.dirty ? 'true' : 'false'}${segment.error ? ' · error=' + segment.error : ''}`;
+    item.appendChild(summary);
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    meta.textContent = segment.updated_at ? new Date(segment.updated_at * 1000).toLocaleString() : 'not built';
+    item.appendChild(meta);
+    if (segment.preview) {
+      const preview = document.createElement('pre');
+      preview.className = 'index-preview';
+      preview.textContent = segment.preview;
+      item.appendChild(preview);
+    }
+    list.appendChild(item);
+  });
+}
+
+function renderRecallTraces(tracesJson) {
+  const list = document.getElementById('model-recall-traces-list');
+  if (!list) return;
+  const traces = tracesJson && Array.isArray(tracesJson.traces) ? tracesJson.traces : [];
+  list.textContent = '';
+  if (traces.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = STRINGS[currentLang].noModelRecallTraces || 'No recall traces yet.';
+    list.appendChild(empty);
+    return;
+  }
+  traces.forEach(trace => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const line = document.createElement('div');
+    line.textContent =
+      `#${trace.id} ${trace.query || ''} · candidates=${trace.candidate_count || 0} injected=${trace.injected_count || 0} duration=${trace.duration_ms || 0}ms`;
+    item.appendChild(line);
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    meta.textContent =
+      `${trace.created_at ? new Date(trace.created_at * 1000).toLocaleString() : 'unknown'} · fallback=${trace.fallback_reason || 'none'} · error=${trace.error || 'none'}`;
+    item.appendChild(meta);
+    if (trace.plan_json) {
+      const plan = document.createElement('pre');
+      plan.className = 'index-preview';
+      plan.textContent = trace.plan_json;
+      item.appendChild(plan);
+    }
+    list.appendChild(item);
+  });
+}
+
+async function loadModelRecallDebug(existingDiagnostics) {
+  let diagnostics = existingDiagnostics;
+  if (!diagnostics) {
+    const stateResponse = await fetchConfig('/api/companion/state');
+    if (stateResponse.ok) {
+      const stateJson = await stateResponse.json();
+      diagnostics = stateJson.model_recall_diagnostics;
+    }
+  }
+  renderModelRecallDiagnostics(diagnostics || {});
+
+  const [indexResponse, tracesResponse] = await Promise.all([
+    fetchConfig('/api/companion/memory-index'),
+    fetchConfig('/api/companion/recall-traces?limit=20')
+  ]);
+  if (indexResponse.ok) renderMemoryIndex(await indexResponse.json());
+  if (tracesResponse.ok) renderRecallTraces(await tracesResponse.json());
+}
+
+async function rebuildMemoryIndex() {
+  const btn = document.getElementById('t-memory-index-rebuild');
+  try {
+    if (btn) btn.disabled = true;
+    const r = await fetchConfig('/api/companion/memory-index/rebuild', { method: 'POST' });
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus((STRINGS[currentLang].error || 'Error: ') + (d.error || 'Failed to rebuild memory index'), 'err');
+      return;
+    }
+    renderMemoryIndex(d);
+    setStatus('Memory index rebuilt.', 'success', 4000);
+    await loadModelRecallDebug();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function loadLogs() {
   const r = await fetchConfig('/api/logs?limit=50');
   if (!r.ok) return;
   const d = await r.json();
   const logs = d.logs || [];
+  renderCacheDiagnostics(logs);
   const tbody = document.getElementById('logs-tbody');
   tbody.textContent = '';
 

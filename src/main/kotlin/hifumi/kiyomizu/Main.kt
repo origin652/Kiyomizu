@@ -341,6 +341,7 @@ fun main() {
                 val dream = MemoryService.lastConsolidationSummary()
                 val maintenanceDiagnostics = MemoryService.autoMaintenanceDiagnostics()
                 val longIdlePaused = MemoryService.isLongIdleMaintenancePaused()
+                val modelRecallDiagnostics = MemoryService.modelRecallDiagnostics()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
                     put("trust", state.trust)
@@ -372,6 +373,7 @@ fun main() {
                     put("dream_next_allowed_at", dream["next_allowed_at"]?.jsonPrimitive?.longOrNull ?: 0L)
                     put("memory_long_idle_paused", longIdlePaused)
                     put("auto_maintenance_diagnostics", maintenanceDiagnostics)
+                    put("model_recall_diagnostics", modelRecallDiagnostics)
                     put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
@@ -383,6 +385,25 @@ fun main() {
                         }
                     })
                 }.toString(), ContentType.Application.Json)
+            }
+
+            get("/api/companion/memory-index") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                call.respondText(MemoryService.memoryIndexJson().toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/memory-index/rebuild") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                call.respondText(MemoryService.rebuildMemoryIndex().toString(), ContentType.Application.Json)
+            }
+
+            get("/api/companion/recall-traces") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 500) ?: 50
+                call.respondText(MemoryService.recentModelRecallTracesJson(limit).toString(), ContentType.Application.Json)
             }
 
             get("/api/companion/memories") {
@@ -672,6 +693,17 @@ fun main() {
                                 if (l.model != null) put("model", l.model)
                                 if (l.messageCount != null) put("message_count", l.messageCount)
                                 if (l.explicitCacheBlocks != null) put("explicit_cache_blocks", l.explicitCacheBlocks)
+                                if (l.cacheMode != null) put("cache_mode", l.cacheMode)
+                                if (l.cacheStrategy != null) put("cache_strategy", l.cacheStrategy)
+                                if (l.cacheBreakpoints != null) put("cache_breakpoints", l.cacheBreakpoints)
+                                put("cache_breakpoint_indexes", buildJsonArray { l.cacheBreakpointIndexes.forEach { add(it) } })
+                                if (l.patchEligible != null) put("patch_eligible", l.patchEligible)
+                                if (l.inputTokens != null) put("input_tokens", l.inputTokens)
+                                if (l.outputTokens != null) put("output_tokens", l.outputTokens)
+                                if (l.cacheReadInputTokens != null) put("cache_read_input_tokens", l.cacheReadInputTokens)
+                                if (l.cacheCreationInputTokens != null) put("cache_creation_input_tokens", l.cacheCreationInputTokens)
+                                if (l.cachedPromptTokens != null) put("cached_prompt_tokens", l.cachedPromptTokens)
+                                if (l.usageJson != null) put("usage_json", l.usageJson)
                             })
                         }
                     })
@@ -905,6 +937,7 @@ private fun Route.fallbackProxyRoute() {
             var finalBodyBytes = requestBodyText.toByteArray(Charsets.UTF_8)
             var hasBetaHeader = false
             var originalJson: JsonObject? = null
+            var requestLogId: Int? = null
 
             val isJson = call.request.contentType().match(ContentType.Application.Json)
             if (requestBodyText.isNotEmpty() && isJson) {
@@ -918,7 +951,7 @@ private fun Route.fallbackProxyRoute() {
                         if (Config.preset == "anthropic" && MessagePatcher.isAnthropicMessagesRequest(path, parsed)) {
                             hasBetaHeader = true
                         }
-                        ProxyService.logRequest(call.request.httpMethod.value, path, parsed, patchedJson)
+                        requestLogId = ProxyService.logRequest(call.request.httpMethod.value, path, parsed, patchedJson)
                     }
                 } catch (e: Exception) {
                     System.err.println("Failed to parse request JSON: ${e.message}")
@@ -962,8 +995,14 @@ private fun Route.fallbackProxyRoute() {
                     contentType = responseContentType ?: ContentType.Application.OctetStream
                 ) {
                     val captured = channel.copyToAndCapture(this, isTextResponse)
+                    val isSse = responseContentType?.match(ContentType.Text.EventStream) == true
+                    if (requestLogId != null && isTextResponse) {
+                        ProxyService.extractUsageDiagnostics(captured, isSse)?.let { usage ->
+                            DatabaseService.updateRequestLogUsage(requestLogId!!, usage)
+                        }
+                    }
                     if (originalJson != null && isTextResponse && Config.memoryEnabled) {
-                        val compiledText = compileResponseText(captured, responseContentType!!.match(ContentType.Text.EventStream))
+                        val compiledText = compileResponseText(captured, isSse)
                         if (compiledText.isNotEmpty()) {
                             MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
                         }

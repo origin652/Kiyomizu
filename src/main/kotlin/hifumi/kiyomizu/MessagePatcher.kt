@@ -418,7 +418,16 @@ object MessagePatcher {
                 append("Relevant memories:\n")
                 recalled.forEach { rm ->
                     val tag = if (rm.associated) " (associated recall)" else ""
-                    append("  - ${rm.memory.content} (kind: ${rm.memory.kind}, emotion: ${affectLabel(rm.memory)})$tag\n")
+                    val weakEvidence = rm.memory.status != "active" ||
+                        rm.memory.disclosure == "sensitive" ||
+                        rm.channel.contains("weak") ||
+                        rm.channel.contains("dream")
+                    val evidenceLabel = if (weakEvidence) {
+                        " weak evidence; status=${rm.memory.status}; disclosure=${rm.memory.disclosure}; source=${rm.memory.source}; use uncertainty and label the source if relied on"
+                    } else {
+                        "kind: ${rm.memory.kind}, emotion: ${affectLabel(rm.memory)}"
+                    }
+                    append("  - ${rm.memory.content} ($evidenceLabel)$tag\n")
                 }
             }
             if (personContext.isNotEmpty()) {

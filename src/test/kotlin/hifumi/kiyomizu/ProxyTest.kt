@@ -9,6 +9,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProxyTest {
@@ -274,6 +275,41 @@ class ProxyTest {
         assertNotNull(cacheControlObj)
         assertEquals("ephemeral", cacheControlObj["type"]?.jsonPrimitive?.content)
         assertTrue("ttl" !in cacheControlObj, "ttl key omitted when cacheTtl is none")
+    }
+
+    @Test
+    fun parsesAnthropicCacheUsageDiagnostics() {
+        val usage = ProxyService.extractUsageDiagnostics(
+            """{"usage":{"input_tokens":120,"output_tokens":30,"cache_read_input_tokens":80,"cache_creation_input_tokens":20}}""",
+            isSse = false
+        )
+
+        assertNotNull(usage)
+        assertEquals(120, usage.inputTokens)
+        assertEquals(30, usage.outputTokens)
+        assertEquals(80, usage.cacheReadInputTokens)
+        assertEquals(20, usage.cacheCreationInputTokens)
+        assertNull(usage.cachedPromptTokens)
+    }
+
+    @Test
+    fun parsesOpenAiCompatibleCachedPromptTokens() {
+        val usage = ProxyService.extractUsageDiagnostics(
+            """{"usage":{"prompt_tokens":100,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":64}}}""",
+            isSse = false
+        )
+
+        assertNotNull(usage)
+        assertEquals(100, usage.inputTokens)
+        assertEquals(12, usage.outputTokens)
+        assertEquals(64, usage.cachedPromptTokens)
+        assertNull(usage.cacheReadInputTokens)
+        assertNull(usage.cacheCreationInputTokens)
+    }
+
+    @Test
+    fun missingUsageDiagnosticsStayUnknown() {
+        assertNull(ProxyService.extractUsageDiagnostics("""{"choices":[]}""", isSse = false))
     }
 
     @Test

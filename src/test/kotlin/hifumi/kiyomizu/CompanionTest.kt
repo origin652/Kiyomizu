@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -81,6 +82,13 @@ class CompanionTest {
         Config.memorySelfDirectUpdateEnabled = true
         Config.memorySelfRecallMaxNodes = 8
         Config.memorySelfPromoteRepeatThreshold = 3
+        Config.memoryModelRecallEnabled = false
+        Config.memoryRecallModelUrl = ""
+        Config.memoryRecallModelKey = ""
+        Config.memoryRecallModelModel = ""
+        Config.memoryModelRecallFailureThreshold = 3
+        Config.memoryModelRecallCooldownSeconds = 300
+        Config.memoryModelRecallTraceRetention = 200
         Config.memorySummaryKey = ""
     }
 
@@ -211,6 +219,47 @@ class CompanionTest {
         val context = MemoryService.buildCompanionMemoryContext("你梦到了什么？")
         assertEquals(1, context.dreamTraces.size)
         assertEquals("dream", context.dreamTraces.first().memory.status)
+    }
+
+    @Test
+    fun memoryIndexBuildsFixedSegmentsAndHidesSensitiveText() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        insertNode(
+            uri = "preference://drink/tea",
+            kind = "preference",
+            content = "The user prefers oolong tea in the afternoon.",
+            keywords = listOf("tea", "oolong"),
+            topics = listOf("drink"),
+            personUri = "person://user/primary",
+            disclosure = "private",
+            priority = 0.8,
+            confidence = 0.9
+        )
+        insertNode(
+            uri = "secret://vault/launch-code",
+            kind = "private_fact",
+            content = "The secret launch code is alpha seven.",
+            keywords = listOf("launch", "code"),
+            topics = listOf("secret"),
+            disclosure = "sensitive",
+            priority = 0.9,
+            confidence = 0.9
+        )
+
+        val index = MemoryService.rebuildMemoryIndex()
+        val segments = index["segments"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
+
+        assertEquals(
+            listOf("global", "self", "people", "projects", "topics", "recent", "dreams"),
+            segments.map { it["segment_key"]?.jsonPrimitive?.content }
+        )
+        val previewText = segments.joinToString("\n") { it["preview"]?.jsonPrimitive?.content.orEmpty() }
+        assertTrue(previewText.contains("The user prefers oolong tea"))
+        assertTrue(previewText.contains("sensitive active count=1"))
+        assertFalse(previewText.contains("alpha seven"), "sensitive node text should not appear in normal materialized index previews")
     }
 
     @Test
