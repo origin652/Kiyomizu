@@ -1633,6 +1633,7 @@ input[disabled], textarea[disabled], select[disabled] {
               <span id="t-companion-panel-title">Companion State</span>
             </div>
             <button class="btn btn-ghost" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+            <button class="btn btn-ghost" onclick="runManualDream()" id="t-dream-run">Dream now</button>
             <button class="btn btn-ghost" onclick="runDreamDryRun()" id="t-dream-dry-run">Dream dry run</button>
           </div>
           <div id="companion-state-body">
@@ -2509,6 +2510,7 @@ const STRINGS = {
     importError: 'Import failed: ',
     companionPanelTitle: 'Companion State',
     companionRefresh: 'Refresh',
+    dreamRun: 'Dream now',
     dreamDryRun: 'Dream dry run',
     selfMemoryLabel: 'Self Memory',
     selfMemoryRefresh: 'Refresh self',
@@ -3112,6 +3114,8 @@ function applyLang(lang) {
   if (companionTitle) companionTitle.textContent = s.companionPanelTitle || 'Companion State';
   const companionRefresh = document.getElementById('t-companion-refresh');
   if (companionRefresh) companionRefresh.textContent = s.companionRefresh || 'Refresh';
+  const dreamRun = document.getElementById('t-dream-run');
+  if (dreamRun) dreamRun.textContent = s.dreamRun || 'Dream now';
   const dreamDryRun = document.getElementById('t-dream-dry-run');
   if (dreamDryRun) dreamDryRun.textContent = s.dreamDryRun || 'Dream dry run';
   const selfMemoryLabel = document.getElementById('t-self-memory-label');
@@ -3916,7 +3920,19 @@ async function loadCompanionState() {
     : '—';
   const dreamEl = document.getElementById('companion-dream');
   if (dreamEl) {
-    dreamEl.textContent = d.memory_long_idle_paused ? `${dreamText} · idle paused` : dreamText;
+    const diag = d.auto_maintenance_diagnostics || {};
+    const autoDream = diag.auto_dream || {};
+    const autoMaintenance = diag.auto_maintenance || {};
+    const dreamBits = [];
+    if (d.last_dream_error) dreamBits.push(`error: ${d.last_dream_error}`);
+    if (Array.isArray(autoDream.blockers) && autoDream.blockers.length > 0) {
+      dreamBits.push(`auto dream blocked: ${autoDream.blockers.join(', ')}`);
+    }
+    if (Array.isArray(autoMaintenance.blockers) && autoMaintenance.blockers.length > 0) {
+      dreamBits.push(`auto maintenance blocked: ${autoMaintenance.blockers.join(', ')}`);
+    }
+    if (d.memory_long_idle_paused) dreamBits.push('idle paused');
+    dreamEl.textContent = dreamBits.length > 0 ? `${dreamText} | ${dreamBits.join(' | ')}` : dreamText;
   }
 
   const list = document.getElementById('reflections-list');
@@ -4008,9 +4024,32 @@ function renderDreamDryRunResult(d) {
   box.appendChild(wrap);
 }
 
+async function runManualDream() {
+  const str = STRINGS[currentLang];
+  const btn = document.getElementById('t-dream-run');
+  try {
+    if (btn) btn.disabled = true;
+    const r = await fetchConfig('/api/companion/dream/run', { method: 'POST' });
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus(str.error + (d.error || 'Dream run failed'), 'err');
+      return;
+    }
+    renderDreamDryRunResult(d);
+    setStatus(`Dream run: ${d.status}. ${d.dream_summary || d.dream_journal || ''}`, 'success', 6000);
+    await loadCompanionState();
+  } catch (e) {
+    setStatus(str.error + (e && e.message ? e.message : 'Dream run failed'), 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function runDreamDryRun() {
   const str = STRINGS[currentLang];
+  const btn = document.getElementById('t-dream-dry-run');
   try {
+    if (btn) btn.disabled = true;
     const r = await fetchConfig('/api/companion/dream/dry-run', { method: 'POST' });
     const d = await readJsonResponse(r);
     if (!r.ok || d.error) {
@@ -4022,6 +4061,8 @@ async function runDreamDryRun() {
     await loadCompanionState();
   } catch (e) {
     setStatus(str.error + (e && e.message ? e.message : 'Dream dry run failed'), 'err');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

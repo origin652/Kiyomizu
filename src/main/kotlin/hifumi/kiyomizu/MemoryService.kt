@@ -270,9 +270,72 @@ object MemoryService {
         put("created_dream", latest?.createdDreamCount ?: 0)
         put("created_consolidated", latest?.createdConsolidatedCount ?: 0)
         put("skipped", latest?.skippedCount ?: 0)
+        put("error", latest?.error ?: "")
         put("dream_summary", latest?.dreamSummary ?: "")
         put("dream_journal", latest?.dreamJournal ?: "")
         put("next_allowed_at", latest?.nextAllowedAt ?: 0L)
+    }
+
+    fun autoMaintenanceDiagnostics(nowEpochSecond: Long = Instant.now().epochSecond): JsonObject {
+        val idleSeconds = (nowEpochSecond - (lastRequestAtMs.get() / 1000L)).coerceAtLeast(0L)
+        val requiredIdleSeconds = Config.memoryDreamIdleHours * 3600L
+        val longIdleLimitSeconds = Config.memoryLongIdlePauseDays * 86400L
+        val materialCount = DatabaseService.getGraphNodeCount("active") + DatabaseService.getBufferedObservationCount()
+        val todayStart = todayStartEpochSecond()
+        val autoRunsToday = DatabaseService.countDreamRunsSince("auto", todayStart)
+        val maintenanceRunsToday = DatabaseService.countDreamRunsSince("maintenance", todayStart)
+        val latestAuto = DatabaseService.getLatestDreamRun("auto")
+        val latestMaintenance = DatabaseService.getLatestDreamRun("maintenance")
+
+        fun dreamBlockers(): List<String> {
+            val blockers = mutableListOf<String>()
+            if (!Config.memoryEnabled) blockers.add("memory_disabled")
+            if (!Config.memoryDreamEnabled) blockers.add("dream_disabled")
+            if (Config.memoryDreamDailyLimit <= 0) blockers.add("dream_daily_limit_zero")
+            if (idleSeconds < requiredIdleSeconds) blockers.add("not_idle")
+            if (idleSeconds > longIdleLimitSeconds) blockers.add("long_idle_pause")
+            if (autoRunsToday >= Config.memoryDreamDailyLimit) blockers.add("dream_daily_limit_reached")
+            if (latestAuto?.nextAllowedAt != null && latestAuto.nextAllowedAt > nowEpochSecond) blockers.add("dream_next_allowed_at")
+            if (materialCount < 5) blockers.add("insufficient_material")
+            return blockers
+        }
+
+        fun maintenanceBlockers(): List<String> {
+            val blockers = mutableListOf<String>()
+            if (!Config.memoryEnabled) blockers.add("memory_disabled")
+            if (!Config.memoryAutoMaintenanceEnabled) blockers.add("auto_maintenance_disabled")
+            if (idleSeconds < requiredIdleSeconds) blockers.add("not_idle")
+            if (idleSeconds > longIdleLimitSeconds) blockers.add("long_idle_pause")
+            if (maintenanceRunsToday >= 1) blockers.add("maintenance_daily_limit_reached")
+            if (latestMaintenance?.nextAllowedAt != null && latestMaintenance.nextAllowedAt > nowEpochSecond) blockers.add("maintenance_next_allowed_at")
+            if (materialCount < 5) blockers.add("insufficient_material")
+            return blockers
+        }
+
+        fun eligibilityJson(
+            blockers: List<String>,
+            runsToday: Int,
+            dailyLimit: Int,
+            nextAllowedAt: Long?
+        ): JsonObject = buildJsonObject {
+            put("eligible", blockers.isEmpty())
+            put("blockers", buildJsonArray { blockers.forEach { add(JsonPrimitive(it)) } })
+            put("runs_today", runsToday)
+            put("daily_limit", dailyLimit)
+            put("next_allowed_at", nextAllowedAt ?: 0L)
+        }
+
+        val dreamBlockers = dreamBlockers()
+        val maintenanceBlockers = maintenanceBlockers()
+        return buildJsonObject {
+            put("idle_seconds", idleSeconds)
+            put("required_idle_seconds", requiredIdleSeconds)
+            put("long_idle_limit_seconds", longIdleLimitSeconds)
+            put("material_count", materialCount)
+            put("material_required", 5)
+            put("auto_dream", eligibilityJson(dreamBlockers, autoRunsToday, Config.memoryDreamDailyLimit, latestAuto?.nextAllowedAt))
+            put("auto_maintenance", eligibilityJson(maintenanceBlockers, maintenanceRunsToday, 1, latestMaintenance?.nextAllowedAt))
+        }
     }
 
     fun lastDeepRecallSummary(): JsonObject = buildJsonObject {
@@ -1250,6 +1313,10 @@ object MemoryService {
             allowDreamNodes = true,
             allowMaintenanceOps = true
         )
+    }
+
+    suspend fun runManualDream(): JsonObject {
+        return runDream(mode = "manual", dryRun = false)
     }
 
     private suspend fun runAutoMaintenance(): JsonObject {

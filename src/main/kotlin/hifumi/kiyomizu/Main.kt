@@ -339,6 +339,7 @@ fun main() {
                 val affect = DatabaseService.getGraphAffectDistribution()
                 val deepRecall = MemoryService.lastDeepRecallSummary()
                 val dream = MemoryService.lastConsolidationSummary()
+                val maintenanceDiagnostics = MemoryService.autoMaintenanceDiagnostics()
                 val longIdlePaused = MemoryService.isLongIdleMaintenancePaused()
                 call.respondText(buildJsonObject {
                     put("intimacy", state.intimacy)
@@ -365,10 +366,12 @@ fun main() {
                     put("last_dream_created_dream", dream["created_dream"]?.jsonPrimitive?.intOrNull ?: 0)
                     put("last_dream_created_consolidated", dream["created_consolidated"]?.jsonPrimitive?.intOrNull ?: 0)
                     put("last_dream_skipped", dream["skipped"]?.jsonPrimitive?.intOrNull ?: 0)
+                    put("last_dream_error", dream["error"]?.jsonPrimitive?.contentOrNull ?: "")
                     put("last_dream_summary", dream["dream_summary"]?.jsonPrimitive?.contentOrNull ?: "")
                     put("last_dream_journal", dream["dream_journal"]?.jsonPrimitive?.contentOrNull ?: "")
                     put("dream_next_allowed_at", dream["next_allowed_at"]?.jsonPrimitive?.longOrNull ?: 0L)
                     put("memory_long_idle_paused", longIdlePaused)
+                    put("auto_maintenance_diagnostics", maintenanceDiagnostics)
                     put("affect_distribution", affect)
                     put("reflections", buildJsonArray {
                         reflections.forEach { r ->
@@ -607,6 +610,19 @@ fun main() {
                     return@post
                 }
                 val result = MemoryService.runDreamDryRun()
+                call.respondText(result.toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/dream/run") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                if (!Config.memoryEnabled) {
+                    call.respondText(buildJsonObject {
+                        put("error", "memory is disabled")
+                    }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val result = MemoryService.runManualDream()
                 call.respondText(result.toString(), ContentType.Application.Json)
             }
 
