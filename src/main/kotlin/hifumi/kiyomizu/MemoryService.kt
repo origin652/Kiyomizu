@@ -182,7 +182,7 @@ object MemoryService {
         val reflectionNote: String?
     )
 
-    private data class DreamMaterial(
+    internal data class DreamMaterial(
         val sourceType: String,
         val uri: String,
         val kind: String,
@@ -198,6 +198,14 @@ object MemoryService {
         val reason: String,
         val node: DatabaseService.MemoryNodeRecord? = null,
         val observation: DatabaseService.MemoryObservationRecord? = null
+    )
+
+    internal data class MaintenanceSuggestion(
+        val type: String,
+        val sourceUri: String,
+        val targetUri: String? = null,
+        val reason: String,
+        val score: Double
     )
 
     private suspend fun HttpResponse.boundedBodyAsText(maxBytes: Int = maxUpstreamResponseBytes): String {
@@ -1075,9 +1083,27 @@ object MemoryService {
         )
     }
 
+    private fun isAggressiveMaintenance(): Boolean {
+        return Config.memoryMaintenanceAggressiveness == "aggressive"
+    }
+
+    private fun duplicateOverlapThreshold(kind: String, aggressive: Boolean): Double {
+        return when {
+            aggressive && kind == "episodic_event" -> 0.55
+            aggressive -> 0.32
+            kind == "episodic_event" -> 0.65
+            else -> 0.42
+        }
+    }
+
+    private fun duplicateScanLimit(limit: Int, aggressive: Boolean): Int {
+        return if (aggressive) max(limit * 12, 160) else max(limit * 8, 80)
+    }
+
     private fun likelyDuplicateNodes(limit: Int): List<DatabaseService.MemoryNodeRecord> {
         if (limit <= 0) return emptyList()
-        val recent = DatabaseService.getRecentGraphMemoryNodes(limit = max(limit * 8, 80))
+        val aggressive = isAggressiveMaintenance()
+        val recent = DatabaseService.getRecentGraphMemoryNodes(limit = duplicateScanLimit(limit, aggressive))
         val selected = linkedMapOf<Int, DatabaseService.MemoryNodeRecord>()
         val groups = recent.groupBy { node ->
             listOf(node.kind, node.personUri.orEmpty(), node.projectUri.orEmpty(), node.scopeHint.orEmpty()).joinToString("|")
@@ -1090,7 +1116,7 @@ object MemoryService {
                 for (right in sorted.drop(index + 1)) {
                     if (selected.size >= limit) return selected.values.toList()
                     val overlap = jaccardScore(leftTerms, collectNodeTerms(right))
-                    val threshold = if (left.kind == "episodic_event") 0.65 else 0.42
+                    val threshold = duplicateOverlapThreshold(left.kind, aggressive)
                     if (overlap >= threshold) {
                         selected[left.id] = left
                         selected[right.id] = right
@@ -1101,26 +1127,32 @@ object MemoryService {
         return selected.values.take(limit)
     }
 
-    private fun collectDreamMaterials(limit: Int): List<DreamMaterial> {
+    internal fun collectDreamMaterials(limit: Int): List<DreamMaterial> {
         val materialLimit = limit.coerceAtLeast(1)
-        val nodeBudget = max(materialLimit - minOf(materialLimit / 4, 10), 1)
+        val aggressive = isAggressiveMaintenance()
+        val nodeBudget = max(materialLimit - minOf(materialLimit / 4, if (aggressive) 8 else 10), 1)
         val observationBudget = materialLimit - nodeBudget
         val nodes = linkedMapOf<Int, DreamMaterial>()
 
-        DatabaseService.getRecentGraphMemoryNodes(limit = max(nodeBudget / 3, 4)).forEach {
+        val recentBudget = if (aggressive) max(nodeBudget / 5, 4) else max(nodeBudget / 3, 4)
+        val oldWeakBudget = if (aggressive) max(nodeBudget / 3, 6) else max(nodeBudget / 3, 4)
+        val salientBudget = if (aggressive) max(nodeBudget / 5, 3) else max(nodeBudget / 4, 3)
+        val duplicateBudget = if (aggressive) max(nodeBudget / 3, 8) else max(nodeBudget / 4, 3)
+
+        DatabaseService.getRecentGraphMemoryNodes(limit = recentBudget).forEach {
             nodes[it.id] = materialFromNode(it, "recent active memory")
         }
         DatabaseService.getOldWeakGraphMemoryNodes(
-            limit = max(nodeBudget / 3, 4),
-            olderThanSeconds = 14 * 86400L,
-            maxStrength = 0.45
+            limit = oldWeakBudget,
+            olderThanSeconds = if (aggressive) 7 * 86400L else 14 * 86400L,
+            maxStrength = if (aggressive) 0.60 else 0.45
         ).forEach {
             nodes.putIfAbsent(it.id, materialFromNode(it, "old low-strength memory"))
         }
-        DatabaseService.getEmotionallySalientGraphMemoryNodes(limit = max(nodeBudget / 4, 3)).forEach {
+        DatabaseService.getEmotionallySalientGraphMemoryNodes(limit = salientBudget).forEach {
             nodes.putIfAbsent(it.id, materialFromNode(it, "emotionally salient memory"))
         }
-        likelyDuplicateNodes(limit = max(nodeBudget / 4, 3)).forEach {
+        likelyDuplicateNodes(limit = duplicateBudget).forEach {
             nodes.putIfAbsent(it.id, materialFromNode(it, "possible duplicate cluster"))
         }
 
@@ -1129,17 +1161,83 @@ object MemoryService {
 
         return (nodes.values + observations)
             .sortedWith(
-                compareByDescending<DreamMaterial> { it.priority + it.confidence + emotionalSalience(it.emotionValence, it.emotionArousal) }
+                compareByDescending<DreamMaterial> {
+                    it.priority + it.confidence + emotionalSalience(it.emotionValence, it.emotionArousal) +
+                        if (aggressive && it.reason.contains("duplicate")) 0.8 else 0.0 +
+                        if (aggressive && it.reason.contains("old low-strength")) 0.5 else 0.0
+                }
                     .thenByDescending { it.updatedAt }
             )
             .take(materialLimit)
     }
 
-    private fun buildDreamPrompt(
+    private fun chooseMergeSourceTarget(
+        left: DatabaseService.MemoryNodeRecord,
+        right: DatabaseService.MemoryNodeRecord
+    ): Pair<DatabaseService.MemoryNodeRecord, DatabaseService.MemoryNodeRecord> {
+        val leftScore = left.priority + left.confidence + left.strength
+        val rightScore = right.priority + right.confidence + right.strength
+        return if (leftScore >= rightScore) right to left else left to right
+    }
+
+    internal fun buildMaintenanceSuggestions(materials: List<DreamMaterial>): List<MaintenanceSuggestion> {
+        if (!isAggressiveMaintenance()) return emptyList()
+        val suggestions = mutableListOf<MaintenanceSuggestion>()
+        val nodes = materials.mapNotNull { it.node }
+            .filter { it.status == "active" && it.disclosure != "sensitive" && !isSelfNode(it) }
+        val groups = nodes.groupBy { node ->
+            listOf(node.kind, node.personUri.orEmpty(), node.projectUri.orEmpty(), node.scopeHint.orEmpty()).joinToString("|")
+        }
+
+        for (group in groups.values.filter { it.size > 1 }) {
+            val sorted = group.sortedByDescending { it.updatedAt }
+            for (index in sorted.indices) {
+                val left = sorted[index]
+                val leftTerms = collectNodeTerms(left)
+                for (right in sorted.drop(index + 1)) {
+                    if (suggestions.count { it.type == "merge" } >= 12) break
+                    val overlap = jaccardScore(leftTerms, collectNodeTerms(right))
+                    if (overlap >= duplicateOverlapThreshold(left.kind, aggressive = true)) {
+                        val (source, target) = chooseMergeSourceTarget(left, right)
+                        suggestions += MaintenanceSuggestion(
+                            type = "merge",
+                            sourceUri = source.uri,
+                            targetUri = target.uri,
+                            reason = "same scope duplicate overlap ${"%.2f".format(overlap)}",
+                            score = overlap
+                        )
+                    }
+                }
+            }
+        }
+
+        val oldCutoff = Instant.now().epochSecond - 7 * 86400L
+        nodes.asSequence()
+            .filter { it.updatedAt <= oldCutoff }
+            .filter { it.strength <= 0.60 && it.priority <= 0.45 && it.confidence <= 0.60 }
+            .sortedWith(compareBy<DatabaseService.MemoryNodeRecord> { it.strength }.thenBy { it.updatedAt })
+            .take(12)
+            .forEach { node ->
+                suggestions += MaintenanceSuggestion(
+                    type = "archive",
+                    sourceUri = node.uri,
+                    reason = "old weak low-priority node strength=${"%.2f".format(node.strength)} confidence=${"%.2f".format(node.confidence)}",
+                    score = 1.0 - node.strength
+                )
+            }
+
+        return suggestions
+            .distinctBy { listOf(it.type, it.sourceUri, it.targetUri.orEmpty()).joinToString("|") }
+            .sortedByDescending { it.score }
+            .take(20)
+    }
+
+    internal fun buildDreamPrompt(
         materials: List<DreamMaterial>,
         allowDreamNarrative: Boolean,
         allowDreamNodes: Boolean,
-        allowMaintenanceOps: Boolean
+        allowMaintenanceOps: Boolean,
+        maintenanceSuggestions: List<MaintenanceSuggestion> = emptyList()
     ): String {
         val operationTypes = buildList {
             if (allowMaintenanceOps) add("merge")
@@ -1157,6 +1255,7 @@ object MemoryService {
                 ${if (allowDreamNarrative) "Use lightly fragmented dream imagery in dream_journal, but keep operations precise." else "Keep dream_journal empty or a concise audit note; this run is maintenance, not a dream."}
                 Do not invent new user facts. Sensitive or third-party details must be anonymized in dream_journal.
                 ${if (allowMaintenanceOps) "You may propose cleanup and consolidation operations." else "Do not propose merge, archive, tombstone, or consolidated fact operations; only dream traces and skips are allowed."}
+                ${if (allowMaintenanceOps && isAggressiveMaintenance()) "Aggressive maintenance is enabled. Prefer merge and archive over keeping redundant active nodes. Prioritize the maintenance suggestions below, use archive instead of tombstone unless a tombstone is clearly necessary, and keep self/sensitive/person-safety boundaries intact." else ""}
                 ${if (allowDreamNodes) "Dream nodes must use dream:// URIs and remain marked as dream-source traces." else "Do not create dream nodes in this maintenance run."}
                 Return this shape:
                 {
@@ -1168,7 +1267,7 @@ object MemoryService {
                     {
                       "type": "$operationTypes",
                       "source_uri": "uri for merge/archive/tombstone/skip",
-                      "target_uri": "uri for created nodes",
+                      "target_uri": "merge target uri or created node uri",
                       "kind": "project_fact",
                       "content": "clear node content",
                       "keywords": ["keyword"],
@@ -1194,6 +1293,16 @@ object MemoryService {
                         "keywords=${material.keywords.joinToString(",")} topics=${material.topics.joinToString(",")} " +
                         "content=${material.content}"
                 )
+            }
+            if (allowMaintenanceOps && maintenanceSuggestions.isNotEmpty()) {
+                append("\n\nMaintenance suggestions:")
+                maintenanceSuggestions.forEachIndexed { index, suggestion ->
+                    append(
+                        "\n${index + 1}. type=${suggestion.type} source_uri=${suggestion.sourceUri} " +
+                            "target_uri=${suggestion.targetUri ?: ""} score=${"%.2f".format(suggestion.score)} " +
+                            "reason=${suggestion.reason}"
+                    )
+                }
             }
         }
     }
@@ -1316,7 +1425,13 @@ object MemoryService {
     }
 
     suspend fun runManualDream(): JsonObject {
-        return runDream(mode = "manual", dryRun = false)
+        return runMemoryModelCycle(
+            mode = "manual",
+            dryRun = false,
+            allowDreamNarrative = true,
+            allowDreamNodes = true,
+            allowMaintenanceOps = true
+        )
     }
 
     private suspend fun runAutoMaintenance(): JsonObject {
@@ -1337,6 +1452,10 @@ object MemoryService {
             allowDreamNodes = true,
             allowMaintenanceOps = dryRun || Config.memoryAutoMaintenanceEnabled
         )
+    }
+
+    internal fun dreamOperationLimit(allowMaintenanceOps: Boolean): Int {
+        return if (allowMaintenanceOps && isAggressiveMaintenance()) 40 else 20
     }
 
     private suspend fun runMemoryModelCycle(
@@ -1369,12 +1488,14 @@ object MemoryService {
             return buildDreamRunJson(dreamRunId, draft)
         }
 
+        val maintenanceSuggestions = if (allowMaintenanceOps) buildMaintenanceSuggestions(materials) else emptyList()
         val raw = callSummaryModel(
             buildDreamPrompt(
                 materials = materials,
                 allowDreamNarrative = allowDreamNarrative,
                 allowDreamNodes = allowDreamNodes,
-                allowMaintenanceOps = allowMaintenanceOps
+                allowMaintenanceOps = allowMaintenanceOps,
+                maintenanceSuggestions = maintenanceSuggestions
             ),
             requireJson = true
         )
@@ -1415,7 +1536,7 @@ object MemoryService {
             material.observation?.let { material.uri to it }
         }.toMap()
 
-        operationLoop@ for (op in dream.operations.take(20)) {
+        operationLoop@ for (op in dream.operations.take(dreamOperationLimit(allowMaintenanceOps))) {
             when (op.type) {
                 "merge" -> {
                     if (!allowMaintenanceOps) {

@@ -2094,6 +2094,14 @@ input[disabled], textarea[disabled], select[disabled] {
                     </label>
                   </div>
 
+                  <label id="t-comp-maintenance-aggressiveness-label">
+                    Maintenance Aggressiveness
+                    <select name="memory_maintenance_aggressiveness">
+                      <option value="aggressive" id="t-comp-maintenance-aggressive-option">Aggressive</option>
+                      <option value="standard" id="t-comp-maintenance-standard-option">Standard</option>
+                    </select>
+                  </label>
+
                   <div class="companion-num-grid field-pair-grid">
                     <label id="t-comp-dream-idle-label">
                       Dream Idle Hours (1-720)
@@ -2281,6 +2289,9 @@ const STRINGS = {
     compPromotedCapLabel: '每日晋升节点上限 (0-500)',
     compDreamToggleLabel: '启用做梦',
     compMaintenanceToggleLabel: '启用自动整理',
+    compMaintenanceAggressivenessLabel: '整理激进度',
+    compMaintenanceAggressiveOption: '激进',
+    compMaintenanceStandardOption: '标准',
     compDreamIdleLabel: '做梦空闲小时 (1-720)',
     compDreamDailyLabel: '每日做梦次数 (0-24)',
     compLongIdleLabel: '长期空闲暂停天数 (1-365)',
@@ -2460,6 +2471,9 @@ const STRINGS = {
     compPromotedCapLabel: 'Promoted Nodes Per Day (0-500)',
     compDreamToggleLabel: 'Enable Dreaming',
     compMaintenanceToggleLabel: 'Enable Auto Maintenance',
+    compMaintenanceAggressivenessLabel: 'Maintenance Aggressiveness',
+    compMaintenanceAggressiveOption: 'Aggressive',
+    compMaintenanceStandardOption: 'Standard',
     compDreamIdleLabel: 'Dream Idle Hours (1-720)',
     compDreamDailyLabel: 'Dreams Per Day (0-24)',
     compLongIdleLabel: 'Pause After Idle Days (1-365)',
@@ -2639,6 +2653,9 @@ const STRINGS = {
     compPromotedCapLabel: '1日あたり昇格ノード上限 (0-500)',
     compDreamToggleLabel: '夢を見る機能を有効化',
     compMaintenanceToggleLabel: '自動整理を有効化',
+    compMaintenanceAggressivenessLabel: '整理の積極度',
+    compMaintenanceAggressiveOption: '積極的',
+    compMaintenanceStandardOption: '標準',
     compDreamIdleLabel: '夢を見る空き時間 (1-720)',
     compDreamDailyLabel: '1日あたり夢の回数 (0-24)',
     compLongIdleLabel: '長期未使用時の停止日数 (1-365)',
@@ -2970,6 +2987,7 @@ function applyConfigData(d) {
   f.memory_promoted_nodes_daily_cap.value = d.memory_promoted_nodes_daily_cap !== undefined ? d.memory_promoted_nodes_daily_cap : 20;
   f.memory_dream_enabled.checked = d.memory_dream_enabled || false;
   f.memory_auto_maintenance_enabled.checked = d.memory_auto_maintenance_enabled || false;
+  f.memory_maintenance_aggressiveness.value = d.memory_maintenance_aggressiveness || 'aggressive';
   f.memory_dream_idle_hours.value = d.memory_dream_idle_hours !== undefined ? d.memory_dream_idle_hours : 12;
   f.memory_dream_daily_limit.value = d.memory_dream_daily_limit !== undefined ? d.memory_dream_daily_limit : 1;
   f.memory_long_idle_pause_days.value = d.memory_long_idle_pause_days !== undefined ? d.memory_long_idle_pause_days : 7;
@@ -3085,6 +3103,9 @@ function applyLang(lang) {
   if (dreamToggleLabel) dreamToggleLabel.textContent = s.compDreamToggleLabel || 'Enable Dreaming';
   const maintenanceToggleLabel = document.querySelector('#t-comp-maintenance-toggle-label span');
   if (maintenanceToggleLabel) maintenanceToggleLabel.textContent = s.compMaintenanceToggleLabel || 'Enable Auto Maintenance';
+  setText('t-comp-maintenance-aggressiveness-label', s.compMaintenanceAggressivenessLabel || 'Maintenance Aggressiveness', 'memory_maintenance_aggressiveness');
+  setText('t-comp-maintenance-aggressive-option', s.compMaintenanceAggressiveOption || 'Aggressive');
+  setText('t-comp-maintenance-standard-option', s.compMaintenanceStandardOption || 'Standard');
   setText('t-comp-dream-idle-label', s.compDreamIdleLabel || 'Dream Idle Hours (1-720)', 'memory_dream_idle_hours');
   setText('t-comp-dream-daily-label', s.compDreamDailyLabel || 'Dreams Per Day (0-24)', 'memory_dream_daily_limit');
   setText('t-comp-long-idle-label', s.compLongIdleLabel || 'Pause After Idle Days (1-365)', 'memory_long_idle_pause_days');
@@ -3501,6 +3522,7 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_promoted_nodes_daily_cap: Number(f.memory_promoted_nodes_daily_cap.value),
     memory_dream_enabled: f.memory_dream_enabled.checked,
     memory_auto_maintenance_enabled: f.memory_auto_maintenance_enabled.checked,
+    memory_maintenance_aggressiveness: f.memory_maintenance_aggressiveness.value,
     memory_dream_idle_hours: Number(f.memory_dream_idle_hours.value),
     memory_dream_daily_limit: Number(f.memory_dream_daily_limit.value),
     memory_long_idle_pause_days: Number(f.memory_long_idle_pause_days.value),
@@ -4047,7 +4069,11 @@ async function runManualDream() {
     if (btn) btn.disabled = true;
     renderDreamRunMessage('Dream run started. Waiting for model response...');
     setStatus('Dream run started. Waiting for model response...', 'success');
-    const r = await fetchConfig('/api/companion/dream/run', { method: 'POST' });
+    const r = await fetchConfig('/api/companion/dream/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: '{}'
+    });
     const d = await readJsonResponse(r);
     if (!r.ok || d.error) {
       renderDreamRunMessage(d.error || 'Dream run failed', 'err');
@@ -4073,7 +4099,11 @@ async function runDreamDryRun() {
     if (btn) btn.disabled = true;
     renderDreamRunMessage('Dream dry run started. Waiting for model response...');
     setStatus('Dream dry run started. Waiting for model response...', 'success');
-    const r = await fetchConfig('/api/companion/dream/dry-run', { method: 'POST' });
+    const r = await fetchConfig('/api/companion/dream/dry-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: '{}'
+    });
     const d = await readJsonResponse(r);
     if (!r.ok || d.error) {
       renderDreamRunMessage(d.error || 'Dream dry run failed', 'err');

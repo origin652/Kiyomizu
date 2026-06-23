@@ -61,6 +61,7 @@ object ConfigApi {
             put("memory_long_idle_pause_days", Config.memoryLongIdlePauseDays)
             put("memory_recycle_retention_days", Config.memoryRecycleRetentionDays)
             put("memory_dream_recall_max_traces", Config.memoryDreamRecallMaxTraces)
+            put("memory_maintenance_aggressiveness", Config.memoryMaintenanceAggressiveness)
             put("memory_self_enabled", Config.memorySelfEnabled)
             put("memory_self_direct_update_enabled", Config.memorySelfDirectUpdateEnabled)
             put("memory_self_recall_max_nodes", Config.memorySelfRecallMaxNodes)
@@ -119,6 +120,7 @@ object ConfigApi {
         var nextMemoryLongIdlePauseDays = Config.memoryLongIdlePauseDays
         var nextMemoryRecycleRetentionDays = Config.memoryRecycleRetentionDays
         var nextMemoryDreamRecallMaxTraces = Config.memoryDreamRecallMaxTraces
+        var nextMemoryMaintenanceAggressiveness = Config.memoryMaintenanceAggressiveness
         var nextMemorySelfEnabled = Config.memorySelfEnabled
         var nextMemorySelfDirectUpdateEnabled = Config.memorySelfDirectUpdateEnabled
         var nextMemorySelfRecallMaxNodes = Config.memorySelfRecallMaxNodes
@@ -387,6 +389,14 @@ object ConfigApi {
                 errors.add("memory_dream_recall_max_traces must be an integer 0-10")
             }
         }
+        body.readString("memory_maintenance_aggressiveness", errors) {
+            val normalized = it.trim().lowercase()
+            if (normalized in setOf("standard", "aggressive")) {
+                nextMemoryMaintenanceAggressiveness = normalized
+            } else {
+                errors.add("memory_maintenance_aggressiveness must be one of: standard, aggressive")
+            }
+        }
         body.readBoolean("memory_self_enabled", errors) {
             nextMemorySelfEnabled = it
         }
@@ -501,6 +511,7 @@ object ConfigApi {
             memoryLongIdlePauseDays = nextMemoryLongIdlePauseDays,
             memoryRecycleRetentionDays = nextMemoryRecycleRetentionDays,
             memoryDreamRecallMaxTraces = nextMemoryDreamRecallMaxTraces,
+            memoryMaintenanceAggressiveness = nextMemoryMaintenanceAggressiveness,
             memorySelfEnabled = nextMemorySelfEnabled,
             memorySelfDirectUpdateEnabled = nextMemorySelfDirectUpdateEnabled,
             memorySelfRecallMaxNodes = nextMemorySelfRecallMaxNodes,

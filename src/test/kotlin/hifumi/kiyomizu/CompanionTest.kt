@@ -76,6 +76,7 @@ class CompanionTest {
         Config.memoryLongIdlePauseDays = 7
         Config.memoryRecycleRetentionDays = 30
         Config.memoryDreamRecallMaxTraces = 2
+        Config.memoryMaintenanceAggressiveness = "aggressive"
         Config.memorySelfEnabled = true
         Config.memorySelfDirectUpdateEnabled = true
         Config.memorySelfRecallMaxNodes = 8
@@ -125,6 +126,16 @@ class CompanionTest {
             *triggerPhrases.map { DatabaseService.MemorySearchTermDraft(it.lowercase(), "trigger") }.toTypedArray()
         ))
         return id
+    }
+
+    private fun setNodeUpdatedAt(nodeId: Int, updatedAt: Long) {
+        DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
+            conn.prepareStatement("UPDATE memory_nodes SET updated_at = ? WHERE id = ?").use { pstmt ->
+                pstmt.setLong(1, updatedAt)
+                pstmt.setInt(2, nodeId)
+                pstmt.executeUpdate()
+            }
+        }
     }
 
     @Test
@@ -436,6 +447,86 @@ class CompanionTest {
         assertEquals(1, items.size)
         assertEquals("archive", items.first().operation)
         assertEquals("dry_run", items.first().result)
+    }
+
+    @Test
+    fun aggressiveMaintenanceExpandsCandidatesAndSuggestions() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val duplicateLeft = insertNode(
+            uri = "memory://left",
+            kind = "preference",
+            content = "alpha beta gamma delta copper nickel",
+            strength = 0.8
+        )
+        val duplicateRight = insertNode(
+            uri = "memory://right",
+            kind = "preference",
+            content = "alpha beta gamma delta silver bronze",
+            strength = 0.7
+        )
+        val oldWeak = insertNode(
+            uri = "working://old/low-value-note",
+            kind = "working_memory",
+            content = "A stale low value working note.",
+            priority = 0.3,
+            confidence = 0.4,
+            strength = 0.55
+        )
+        val oldAt = Instant.now().epochSecond - 8 * 86400L
+        setNodeUpdatedAt(duplicateLeft, oldAt)
+        setNodeUpdatedAt(duplicateRight, oldAt)
+        setNodeUpdatedAt(oldWeak, oldAt)
+
+        repeat(8) { index ->
+            insertNode(
+                uri = "working://recent/filler-$index",
+                kind = "recent_filler_$index",
+                content = "Recent filler memory $index",
+                strength = 0.9
+            )
+        }
+
+        Config.memoryMaintenanceAggressiveness = "standard"
+        val standard = MemoryService.collectDreamMaterials(20)
+        assertFalse(standard.any { it.reason == "possible duplicate cluster" && it.uri.startsWith("memory://") })
+        assertFalse(standard.any { it.reason == "old low-strength memory" && it.uri == "working://old/low-value-note" })
+
+        Config.memoryMaintenanceAggressiveness = "aggressive"
+        val aggressive = MemoryService.collectDreamMaterials(20)
+        assertTrue(
+            aggressive.any { it.reason == "possible duplicate cluster" && it.uri.startsWith("memory://") },
+            aggressive.joinToString("\n") { "${it.uri} :: ${it.reason}" }
+        )
+        assertTrue(aggressive.any { it.reason == "old low-strength memory" && it.uri == "working://old/low-value-note" })
+
+        val suggestions = MemoryService.buildMaintenanceSuggestions(aggressive)
+        assertTrue(suggestions.any { it.type == "merge" && it.sourceUri.startsWith("memory://") && it.targetUri?.startsWith("memory://") == true })
+        assertTrue(suggestions.any { it.type == "archive" && it.sourceUri == "working://old/low-value-note" })
+
+        val prompt = MemoryService.buildDreamPrompt(
+            materials = aggressive,
+            allowDreamNarrative = true,
+            allowDreamNodes = true,
+            allowMaintenanceOps = true,
+            maintenanceSuggestions = suggestions
+        )
+        assertTrue(prompt.contains("Aggressive maintenance is enabled"))
+        assertTrue(prompt.contains("Maintenance suggestions"))
+    }
+
+    @Test
+    fun aggressiveMaintenanceRaisesOperationLimitOnlyWhenMaintenanceIsAllowed() {
+        resetConfig()
+
+        Config.memoryMaintenanceAggressiveness = "standard"
+        assertEquals(20, MemoryService.dreamOperationLimit(allowMaintenanceOps = true))
+
+        Config.memoryMaintenanceAggressiveness = "aggressive"
+        assertEquals(40, MemoryService.dreamOperationLimit(allowMaintenanceOps = true))
+        assertEquals(20, MemoryService.dreamOperationLimit(allowMaintenanceOps = false))
     }
 
     @Test

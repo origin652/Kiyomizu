@@ -56,6 +56,7 @@ class ConfigApiTest {
         Config.memoryLongIdlePauseDays = 7
         Config.memoryRecycleRetentionDays = 30
         Config.memoryDreamRecallMaxTraces = 2
+        Config.memoryMaintenanceAggressiveness = "aggressive"
         Config.memorySelfEnabled = true
         Config.memorySelfDirectUpdateEnabled = true
         Config.memorySelfRecallMaxNodes = 8
@@ -87,6 +88,7 @@ class ConfigApiTest {
             assertTrue("memory_embedding_url" !in publicJson)
             assertTrue("memory_embedding_model" !in publicJson)
             assertTrue("memory_embedding_key_configured" !in publicJson)
+            assertEquals("aggressive", publicJson["memory_maintenance_aggressiveness"]?.jsonPrimitive?.content)
             assertTrue("config_password_changeable" in publicJson)
 
             val keepResult = ConfigApi.applyUpdate(buildJsonObject {
@@ -114,15 +116,18 @@ class ConfigApiTest {
                 put("memory_recall_max_nodes", -1)
                 put("memory_deep_recall_max_candidates", 2)
                 put("memory_deep_recall_max_clues", 5)
+                put("memory_maintenance_aggressiveness", "reckless")
             })
 
             assertTrue(result.errors.contains("memory_decay_rate must be between 0.0 and 1.0"))
             assertTrue(result.errors.contains("memory_recall_max_nodes must be an integer 0-20"))
             assertTrue(result.errors.contains("memory_deep_recall_max_clues must be less than or equal to memory_deep_recall_max_candidates"))
+            assertTrue(result.errors.contains("memory_maintenance_aggressiveness must be one of: standard, aggressive"))
             assertEquals(0.1, Config.memoryDecayRate)
             assertEquals(6, Config.memoryRecallMaxNodes)
             assertEquals(40, Config.memoryDeepRecallMaxCandidates)
             assertEquals(10, Config.memoryDeepRecallMaxClues)
+            assertEquals("aggressive", Config.memoryMaintenanceAggressiveness)
         }
     }
 
@@ -189,6 +194,7 @@ class ConfigApiTest {
                 put("memory_dream_idle_hours", 18)
                 put("memory_long_idle_pause_days", 14)
                 put("memory_dream_recall_max_traces", 1)
+                put("memory_maintenance_aggressiveness", "standard")
                 put("memory_self_enabled", false)
                 put("memory_self_direct_update_enabled", false)
                 put("memory_self_recall_max_nodes", 4)
@@ -220,6 +226,7 @@ class ConfigApiTest {
             assertEquals(18, Config.memoryDreamIdleHours)
             assertEquals(14, Config.memoryLongIdlePauseDays)
             assertEquals(1, Config.memoryDreamRecallMaxTraces)
+            assertEquals("standard", Config.memoryMaintenanceAggressiveness)
             assertFalse(Config.memorySelfEnabled)
             assertFalse(Config.memorySelfDirectUpdateEnabled)
             assertEquals(4, Config.memorySelfRecallMaxNodes)

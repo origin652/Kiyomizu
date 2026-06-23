@@ -141,6 +141,13 @@ object Config {
     private val memoryLongIdlePauseDaysRef = AtomicInteger(System.getenv("MEMORY_LONG_IDLE_PAUSE_DAYS")?.toIntOrNull() ?: 7)
     private val memoryRecycleRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_RECYCLE_RETENTION_DAYS")?.toIntOrNull() ?: 30)
     private val memoryDreamRecallMaxTracesRef = AtomicInteger(System.getenv("MEMORY_DREAM_RECALL_MAX_TRACES")?.toIntOrNull() ?: 2)
+    private val memoryMaintenanceAggressivenessRef = AtomicReference(
+        System.getenv("MEMORY_MAINTENANCE_AGGRESSIVENESS")
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it in setOf("standard", "aggressive") }
+            ?: "aggressive"
+    )
     private val memorySelfEnabledRef = AtomicReference(System.getenv("MEMORY_SELF_ENABLED") != "0")
     private val memorySelfDirectUpdateEnabledRef = AtomicReference(System.getenv("MEMORY_SELF_DIRECT_UPDATE_ENABLED") != "0")
     private val memorySelfRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_SELF_RECALL_MAX_NODES")?.toIntOrNull() ?: 8)
@@ -325,6 +332,14 @@ object Config {
         get() = memoryDreamRecallMaxTracesRef.get()
         set(value) { memoryDreamRecallMaxTracesRef.set(value) }
 
+    var memoryMaintenanceAggressiveness: String
+        get() = memoryMaintenanceAggressivenessRef.get()
+        set(value) {
+            memoryMaintenanceAggressivenessRef.set(
+                value.trim().lowercase().takeIf { it in setOf("standard", "aggressive") } ?: "aggressive"
+            )
+        }
+
     var memorySelfEnabled: Boolean
         get() = memorySelfEnabledRef.get()
         set(value) { memorySelfEnabledRef.set(value) }
@@ -385,6 +400,7 @@ object Config {
         val memoryLongIdlePauseDays: Int,
         val memoryRecycleRetentionDays: Int,
         val memoryDreamRecallMaxTraces: Int,
+        val memoryMaintenanceAggressiveness: String,
         val memorySelfEnabled: Boolean,
         val memorySelfDirectUpdateEnabled: Boolean,
         val memorySelfRecallMaxNodes: Int,
@@ -435,6 +451,7 @@ object Config {
                 put("memory_long_idle_pause_days", memoryLongIdlePauseDays)
                 put("memory_recycle_retention_days", memoryRecycleRetentionDays)
                 put("memory_dream_recall_max_traces", memoryDreamRecallMaxTraces)
+                put("memory_maintenance_aggressiveness", memoryMaintenanceAggressiveness)
                 put("memory_self_enabled", memorySelfEnabled)
                 put("memory_self_direct_update_enabled", memorySelfDirectUpdateEnabled)
                 put("memory_self_recall_max_nodes", memorySelfRecallMaxNodes)
@@ -488,6 +505,7 @@ object Config {
             memoryLongIdlePauseDays = memoryLongIdlePauseDays,
             memoryRecycleRetentionDays = memoryRecycleRetentionDays,
             memoryDreamRecallMaxTraces = memoryDreamRecallMaxTraces,
+            memoryMaintenanceAggressiveness = memoryMaintenanceAggressiveness,
             memorySelfEnabled = memorySelfEnabled,
             memorySelfDirectUpdateEnabled = memorySelfDirectUpdateEnabled,
             memorySelfRecallMaxNodes = memorySelfRecallMaxNodes,
@@ -539,6 +557,7 @@ object Config {
         memoryLongIdlePauseDays = snapshot.memoryLongIdlePauseDays
         memoryRecycleRetentionDays = snapshot.memoryRecycleRetentionDays
         memoryDreamRecallMaxTraces = snapshot.memoryDreamRecallMaxTraces
+        memoryMaintenanceAggressiveness = snapshot.memoryMaintenanceAggressiveness
         memorySelfEnabled = snapshot.memorySelfEnabled
         memorySelfDirectUpdateEnabled = snapshot.memorySelfDirectUpdateEnabled
         memorySelfRecallMaxNodes = snapshot.memorySelfRecallMaxNodes
@@ -603,6 +622,11 @@ object Config {
                     memoryLongIdlePauseDays = body.intValue("memory_long_idle_pause_days") ?: memoryLongIdlePauseDays,
                     memoryRecycleRetentionDays = body.intValue("memory_recycle_retention_days") ?: memoryRecycleRetentionDays,
                     memoryDreamRecallMaxTraces = body.intValue("memory_dream_recall_max_traces") ?: memoryDreamRecallMaxTraces,
+                    memoryMaintenanceAggressiveness = body.stringValue("memory_maintenance_aggressiveness")
+                        ?.trim()
+                        ?.lowercase()
+                        ?.takeIf { it in setOf("standard", "aggressive") }
+                        ?: memoryMaintenanceAggressiveness,
                     memorySelfEnabled = body.booleanValue("memory_self_enabled") ?: memorySelfEnabled,
                     memorySelfDirectUpdateEnabled = body.booleanValue("memory_self_direct_update_enabled") ?: memorySelfDirectUpdateEnabled,
                     memorySelfRecallMaxNodes = body.intValue("memory_self_recall_max_nodes") ?: memorySelfRecallMaxNodes,
