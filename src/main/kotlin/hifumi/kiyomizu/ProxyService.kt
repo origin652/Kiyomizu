@@ -191,23 +191,25 @@ object ProxyService {
                 .map { it.substring(5).trim() }
                 .filter { it.isNotBlank() && it != "[DONE]" }
                 .mapNotNull { data ->
-                    runCatching { Json.parseToJsonElement(data) as? JsonObject }.getOrNull()
-                        ?.let { usageFromJson(it) }
+                    runCatching {
+                        (Json.parseToJsonElement(data) as? JsonObject)?.let { usageFromJson(it) }
+                    }.getOrNull()
                 }
                 .fold(null as DatabaseService.RequestUsageDraft?) { acc, usage -> mergeUsage(acc, usage) }
         } else {
-            runCatching { Json.parseToJsonElement(responseText) as? JsonObject }.getOrNull()
-                ?.let { usageFromJson(it) }
+            runCatching {
+                (Json.parseToJsonElement(responseText) as? JsonObject)?.let { usageFromJson(it) }
+            }.getOrNull()
         }
     }
 
     private fun usageFromJson(json: JsonObject): DatabaseService.RequestUsageDraft? {
-        val usage = json["usage"]?.jsonObject
-        val usageMetadata = json["usageMetadata"]?.jsonObject
+        val usage = json["usage"] as? JsonObject
+        val usageMetadata = json["usageMetadata"] as? JsonObject
         val source = usage ?: usageMetadata ?: return null
 
         fun JsonObject.intField(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
-        val promptDetails = usage?.get("prompt_tokens_details")?.jsonObject
+        val promptDetails = usage?.get("prompt_tokens_details") as? JsonObject
         val inputTokens = usage?.intField("input_tokens")
             ?: usage?.intField("prompt_tokens")
             ?: usageMetadata?.intField("promptTokenCount")

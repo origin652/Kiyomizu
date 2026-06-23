@@ -997,14 +997,22 @@ private fun Route.fallbackProxyRoute() {
                     val captured = channel.copyToAndCapture(this, isTextResponse)
                     val isSse = responseContentType?.match(ContentType.Text.EventStream) == true
                     if (requestLogId != null && isTextResponse) {
-                        ProxyService.extractUsageDiagnostics(captured, isSse)?.let { usage ->
-                            DatabaseService.updateRequestLogUsage(requestLogId!!, usage)
+                        runCatching {
+                            ProxyService.extractUsageDiagnostics(captured, isSse)?.let { usage ->
+                                DatabaseService.updateRequestLogUsage(requestLogId!!, usage)
+                            }
+                        }.onFailure { e ->
+                            System.err.println("Failed to record usage diagnostics: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")
                         }
                     }
                     if (originalJson != null && isTextResponse && Config.memoryEnabled) {
-                        val compiledText = compileResponseText(captured, isSse)
-                        if (compiledText.isNotEmpty()) {
-                            MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
+                        runCatching {
+                            val compiledText = compileResponseText(captured, isSse)
+                            if (compiledText.isNotEmpty()) {
+                                MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
+                            }
+                        }.onFailure { e ->
+                            System.err.println("Failed to schedule memory extraction: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")
                         }
                     }
                 }

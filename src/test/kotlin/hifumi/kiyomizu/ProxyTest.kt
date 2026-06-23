@@ -313,6 +313,27 @@ class ProxyTest {
     }
 
     @Test
+    fun nullUsageDiagnosticsAreIgnored() {
+        assertNull(ProxyService.extractUsageDiagnostics("""{"usage":null}""", isSse = false))
+    }
+
+    @Test
+    fun nullUsageDiagnosticsInSseAreIgnored() {
+        val usage = ProxyService.extractUsageDiagnostics(
+            """
+            data: {"type":"message_delta","usage":null}
+            data: {"usage":{"input_tokens":10,"output_tokens":4}}
+            data: [DONE]
+            """.trimIndent(),
+            isSse = true
+        )
+
+        assertNotNull(usage)
+        assertEquals(10, usage.inputTokens)
+        assertEquals(4, usage.outputTokens)
+    }
+
+    @Test
     fun customChatCompletionsStillGetsCompanionInjection() {
         resetConfig()
         resetDbFiles()
