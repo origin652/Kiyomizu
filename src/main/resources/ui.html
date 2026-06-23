@@ -2332,6 +2332,7 @@ const STRINGS = {
     importError: '导入失败：',
     companionPanelTitle: '伴侣状态',
     companionRefresh: '刷新',
+    dreamRun: '立即做梦',
     dreamDryRun: '做梦 dry run',
     selfMemoryLabel: 'Self 记忆',
     selfMemoryRefresh: '刷新 self',
@@ -2689,6 +2690,7 @@ const STRINGS = {
     importError: 'インポート失敗：',
     companionPanelTitle: 'コンパニオン状態',
     companionRefresh: '更新',
+    dreamRun: '今すぐ夢を見る',
     dreamDryRun: '夢 dry run',
     selfMemoryLabel: 'Self 記憶',
     selfMemoryRefresh: 'self を更新',
@@ -3964,6 +3966,20 @@ async function loadCompanionState() {
   await loadSelfMemory();
 }
 
+function renderDreamRunMessage(message, kind = 'info') {
+  const box = document.getElementById('dream-dry-run-result');
+  if (!box) return;
+  box.textContent = '';
+  box.classList.add('is-visible');
+  const summary = document.createElement('div');
+  summary.className = 'dream-run-summary';
+  summary.textContent = message;
+  if (kind === 'err') {
+    summary.style.color = 'var(--danger)';
+  }
+  box.appendChild(summary);
+}
+
 function renderDreamDryRunResult(d) {
   const box = document.getElementById('dream-dry-run-result');
   if (!box) return;
@@ -4029,9 +4045,12 @@ async function runManualDream() {
   const btn = document.getElementById('t-dream-run');
   try {
     if (btn) btn.disabled = true;
+    renderDreamRunMessage('Dream run started. Waiting for model response...');
+    setStatus('Dream run started. Waiting for model response...', 'success');
     const r = await fetchConfig('/api/companion/dream/run', { method: 'POST' });
     const d = await readJsonResponse(r);
     if (!r.ok || d.error) {
+      renderDreamRunMessage(d.error || 'Dream run failed', 'err');
       setStatus(str.error + (d.error || 'Dream run failed'), 'err');
       return;
     }
@@ -4039,7 +4058,9 @@ async function runManualDream() {
     setStatus(`Dream run: ${d.status}. ${d.dream_summary || d.dream_journal || ''}`, 'success', 6000);
     await loadCompanionState();
   } catch (e) {
-    setStatus(str.error + (e && e.message ? e.message : 'Dream run failed'), 'err');
+    const message = e && e.message ? e.message : 'Dream run failed';
+    renderDreamRunMessage(message, 'err');
+    setStatus(str.error + message, 'err');
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -4050,9 +4071,12 @@ async function runDreamDryRun() {
   const btn = document.getElementById('t-dream-dry-run');
   try {
     if (btn) btn.disabled = true;
+    renderDreamRunMessage('Dream dry run started. Waiting for model response...');
+    setStatus('Dream dry run started. Waiting for model response...', 'success');
     const r = await fetchConfig('/api/companion/dream/dry-run', { method: 'POST' });
     const d = await readJsonResponse(r);
     if (!r.ok || d.error) {
+      renderDreamRunMessage(d.error || 'Dream dry run failed', 'err');
       setStatus(str.error + (d.error || 'Dream dry run failed'), 'err');
       return;
     }
@@ -4060,7 +4084,9 @@ async function runDreamDryRun() {
     setStatus(`Dream dry run: ${d.status}. ${d.dream_summary || d.dream_journal || ''}`, 'success', 6000);
     await loadCompanionState();
   } catch (e) {
-    setStatus(str.error + (e && e.message ? e.message : 'Dream dry run failed'), 'err');
+    const message = e && e.message ? e.message : 'Dream dry run failed';
+    renderDreamRunMessage(message, 'err');
+    setStatus(str.error + message, 'err');
   } finally {
     if (btn) btn.disabled = false;
   }
