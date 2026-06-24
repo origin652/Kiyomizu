@@ -288,6 +288,7 @@ object MemoryService {
                 delay(intervalMs.coerceAtLeast(60000L))
                 if (!Config.memoryEnabled) continue
                 try {
+                    regressStability()
                     applyLazyStrengthDecay()
                     DatabaseService.decayGraphMemoryNodes(Config.memoryThreshold)
                     DatabaseService.decayAllMemories(Config.memoryDecayRate, Config.memoryThreshold)
@@ -670,7 +671,10 @@ object MemoryService {
     private fun effectiveTauHours(memory: DatabaseService.MemoryNodeRecord): Double {
         val base = Config.memoryDecayTauHours.coerceAtLeast(1.0)
         val salience = emotionalSalience(memory.emotionValence, memory.emotionArousal)
-        return base * (1.0 + Config.memorySalienceK * salience)
+        // stability multiplies tau after salience: a well-recalled node (high stability) decays slower,
+        // compounding with high emotional salience. Default stability=1.0 reproduces the prior curve exactly.
+        val stability = memory.stability.coerceIn(Config.memoryStabilityMin, Config.memoryStabilityMax)
+        return base * (1.0 + Config.memorySalienceK * salience) * stability
     }
 
     fun lazyStrength(memory: DatabaseService.MemoryNodeRecord, nowEpochSecond: Long = Instant.now().epochSecond): Double {
@@ -693,6 +697,27 @@ object MemoryService {
             val decayed = lazyStrength(node, now).coerceIn(0.0, Config.memoryMaxStrength)
             if (decayed >= node.strength) continue // not decayed (e.g. just accessed); skip
             DatabaseService.updateMemoryNodeStrength(node.id, decayed, now)
+        }
+    }
+
+    /**
+     * Use-it-or-lose-it: walk every active node that was NOT accessed this decay cycle back toward
+     * memoryStabilityMin by memoryStabilityRegressRate. Nodes recalled in this cycle keep their stability
+     * (they earned it). Must run BEFORE applyLazyStrengthDecay so the (possibly-shrunk) tau is used when
+     * realizing decay — a node being forgotten speeds up within the same cycle, instead of lagging one cycle.
+     */
+    fun regressStability(now: Long = Instant.now().epochSecond) {
+        val rate = Config.memoryStabilityRegressRate
+        val min = Config.memoryStabilityMin
+        if (rate <= 0.0) return
+        val cycleStart = now - (Config.memoryDecayIntervalHours * 3600L)
+        val nodes = DatabaseService.getActiveGraphMemoryNodesForDecay()
+        for (node in nodes) {
+            if (node.lastAccessedAt >= cycleStart) continue // recalled this cycle — keep stability
+            val regressed = (node.stability * (1.0 - rate)).coerceAtLeast(min)
+            if (regressed < node.stability) {
+                DatabaseService.updateMemoryNodeStability(node.id, regressed)
+            }
         }
     }
 
@@ -4138,6 +4163,14 @@ object MemoryService {
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
         val duration = (System.currentTimeMillis() - started).toInt()
+        // Decision: model-recall success now reinforces the ordinary/dream nodes it injected (strength +
+        // access_count + stability growth), aligning with the local normalRecall path (factor 0.35). This is a
+        // behavior change vs. the prior "#2 model recall does not boost" decision, motivated by stability needing
+        // a recall-success signal. Only strength/access/stability/timing change — no fusion boost, no model hint
+        // flows to local recall. selfMemories are NOT boosted here: they are boosted uniformly at
+        // buildCompanionMemoryContext (factor 0.25), so boosting here too would double-count.
+        recalled.forEach { DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength) }
+        dreamTraces.forEach { DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength) }
         val successDebug = JsonObject(
             candidateResult.debugJson + mapOf(
                 "injected_uris" to buildJsonArray { recalled.forEach { add(JsonPrimitive(it.memory.uri)) } },

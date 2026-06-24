@@ -14,6 +14,7 @@ import java.io.File
 import java.nio.file.Files
 import java.sql.DriverManager
 import java.time.Instant
+import kotlin.math.exp
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -115,6 +116,11 @@ class CompanionTest {
         Config.memoryNonDeepEpisodicPenalty = 0.45
         Config.memoryWorkingMemoryStaleDays = 14.0
         Config.memoryWorkingMemoryStalePenalty = 0.7
+        // per-node stability (FSRS-inspired, env-only) — reset to defaults.
+        Config.memoryStabilityGrowthK = 0.6
+        Config.memoryStabilityMin = 1.0
+        Config.memoryStabilityMax = 8.0
+        Config.memoryStabilityRegressRate = 0.05
     }
 
     private fun insertNode(
@@ -1020,5 +1026,138 @@ class CompanionTest {
             injected!!.any { it.jsonPrimitive.content == "preference://food/drink/tea" },
             "injected URIs should include the recalled tea node: $injected"
         )
+    }
+
+    @Test
+    fun defaultStabilityReproducesPriorLazyStrength() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        // Neutral emotion so the salience term is exactly computable: arousal=0.3, valence=0.5.
+        val nodeId = insertNode(
+            uri = "preference://food/drink/oolong",
+            kind = "preference",
+            content = "The user likes oolong tea.",
+            keywords = listOf("oolong"),
+            strength = 1.0,
+            emotionValence = 0.5,
+            emotionArousal = 0.3
+        )
+        val now = Instant.now().epochSecond
+        val thirtyDaysAgo = now - 30L * 24 * 3600
+        DatabaseService.updateMemoryNodeStrength(nodeId, 1.0, thirtyDaysAgo)
+
+        val node = DatabaseService.getMemoryNodeById(nodeId)
+        assertNotNull(node)
+        assertEquals(1.0, node.stability, 1e-9, "fresh node default stability must be 1.0")
+        // Prior formula: strength * exp(-elapsed / (base * (1 + salienceK * salience))). With stability=1.0
+        // the new formula multiplies by 1.0 and must reproduce it bit-for-bit.
+        val salience = MemoryService.emotionalSalience(0.5, 0.3)
+        val tauHours = 360.0 * (1.0 + 1.0 * salience)
+        val elapsedHours = (now - thirtyDaysAgo) / 3600.0
+        val expected = 1.0 * exp(-elapsedHours / tauHours)
+        assertEquals(expected, MemoryService.lazyStrength(node, now), 1e-9,
+            "default stability=1.0 must reproduce the pre-stability lazyStrength curve")
+    }
+
+    @Test
+    fun stabilityGrowsOnRecallAndSlowsDecay() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        val aId = insertNode(
+            uri = "identity://user/name",
+            kind = "identity",
+            content = "The user's name is Aya.",
+            keywords = listOf("name"),
+            strength = 1.0
+        )
+        val bId = insertNode(
+            uri = "preference://food/drink/water",
+            kind = "preference",
+            content = "The user drinks water.",
+            keywords = listOf("water"),
+            strength = 1.0
+        )
+        // Backdate both so lazyStrength has room to decay, and so they are "untouched by now".
+        val now = Instant.now().epochSecond
+        val thirtyDaysAgo = now - 30L * 24 * 3600
+        DatabaseService.updateMemoryNodeStrength(aId, 1.0, thirtyDaysAgo)
+        DatabaseService.updateMemoryNodeStrength(bId, 1.0, thirtyDaysAgo)
+
+        // Reinforce A several times via the recall-boost hook (factor 0.35 -> normalizedFactor 0.35).
+        // growthK=0.6 => each call: stability *= (1 + 0.6*0.35) ≈ 1.21; clamp to max 8.
+        repeat(5) {
+            DatabaseService.updateMemoryNodeAccess(aId, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
+        }
+
+        val a = DatabaseService.getMemoryNodeById(aId)!!
+        val b = DatabaseService.getMemoryNodeById(bId)!!
+        assertTrue(a.stability > 1.0, "recalled node stability should grow above 1.0, got ${a.stability}")
+        assertEquals(1.0, b.stability, 1e-9, "untouched node stability should stay at 1.0")
+        // A decays slower: at a fixed future horizon, lazyStrength(A) > lazyStrength(B) even though both
+        // started at strength 1.0 — A's larger tau keeps it higher. (A's lastAccessedAt is now, so use a
+        // horizon measured from now for a fair comparison via a synthetic future.)
+        val future = now + 30L * 24 * 3600
+        val aFuture = a.copy(lastAccessedAt = now)
+        val bFuture = b.copy(lastAccessedAt = now)
+        assertTrue(
+            MemoryService.lazyStrength(aFuture, future) > MemoryService.lazyStrength(bFuture, future),
+            "higher stability should yield slower decay (higher lazyStrength at a future horizon); " +
+                "A=${MemoryService.lazyStrength(aFuture, future)}, B=${MemoryService.lazyStrength(bFuture, future)}"
+        )
+    }
+
+    @Test
+    fun regressStabilityPullsUntouchedTowardMin() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        Config.memoryStabilityRegressRate = 0.05
+        val staleId = insertNode(
+            uri = "episodic://event/old",
+            kind = "episodic_event",
+            content = "An old event.",
+            keywords = listOf("old"),
+            strength = 0.8
+        )
+        val freshId = insertNode(
+            uri = "preference://food/drink/matcha",
+            kind = "preference",
+            content = "The user likes matcha.",
+            keywords = listOf("matcha"),
+            strength = 0.8
+        )
+        val now = Instant.now().epochSecond
+        // Stale node: last accessed well before the decay cycle window.
+        val cycleStart = now - (Config.memoryDecayIntervalHours * 3600L)
+        val longAgo = cycleStart - 24 * 3600L
+        DatabaseService.updateMemoryNodeStrength(staleId, 0.8, longAgo)
+        DatabaseService.updateMemoryNodeStrength(freshId, 0.8, now)
+        // Pump both stabilities high, then regress.
+        DatabaseService.updateMemoryNodeStability(staleId, 4.0)
+        DatabaseService.updateMemoryNodeStability(freshId, 4.0)
+
+        MemoryService.regressStability(now)
+
+        val staleAfter = DatabaseService.getMemoryNodeById(staleId)!!
+        val freshAfter = DatabaseService.getMemoryNodeById(freshId)!!
+        assertTrue(staleAfter.stability < 4.0, "untouched node stability should regress, got ${staleAfter.stability}")
+        assertTrue(
+            staleAfter.stability >= Config.memoryStabilityMin - 1e-9,
+            "regressed stability should not drop below min, got ${staleAfter.stability}"
+        )
+        assertEquals(4.0, freshAfter.stability, 1e-9,
+            "node accessed this cycle should keep its stability, got ${freshAfter.stability}")
     }
 }

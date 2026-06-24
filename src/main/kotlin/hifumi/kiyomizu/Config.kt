@@ -142,6 +142,13 @@ object Config {
     private val memoryWorkingMemoryStaleDaysRef = AtomicReference(System.getenv("MEMORY_WORKING_MEMORY_STALE_DAYS")?.toDoubleOrNull() ?: 14.0)
     private val memoryWorkingMemoryStalePenaltyRef = AtomicReference(System.getenv("MEMORY_WORKING_MEMORY_STALE_PENALTY")?.toDoubleOrNull() ?: 0.7)
 
+    // per-node stability (FSRS-inspired, env-only) — tunables for self-adapting decay speed.
+    // stability multiplies effectiveTauHours; grows on recall boost, regresses toward min when untouched.
+    private val memoryStabilityGrowthKRef = AtomicReference(System.getenv("MEMORY_STABILITY_GROWTH_K")?.toDoubleOrNull() ?: 0.6)
+    private val memoryStabilityMinRef = AtomicReference(System.getenv("MEMORY_STABILITY_MIN")?.toDoubleOrNull() ?: 1.0)
+    private val memoryStabilityMaxRef = AtomicReference(System.getenv("MEMORY_STABILITY_MAX")?.toDoubleOrNull() ?: 8.0)
+    private val memoryStabilityRegressRateRef = AtomicReference(System.getenv("MEMORY_STABILITY_REGRESS_RATE")?.toDoubleOrNull() ?: 0.05)
+
     private val memoryRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_RECALL_MAX_NODES")?.toIntOrNull() ?: 6)
     private val memoryDeepRecallEnabledRef = AtomicReference(System.getenv("MEMORY_DEEP_RECALL_ENABLED") != "0")
     private val memoryDeepRecallMaxCandidatesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CANDIDATES")?.toIntOrNull() ?: 40)
@@ -331,6 +338,19 @@ object Config {
     var memoryWorkingMemoryStalePenalty: Double
         get() = memoryWorkingMemoryStalePenaltyRef.get()
         set(value) { memoryWorkingMemoryStalePenaltyRef.set(value) }
+    // per-node stability tunables — see refs above.
+    var memoryStabilityGrowthK: Double
+        get() = memoryStabilityGrowthKRef.get()
+        set(value) { memoryStabilityGrowthKRef.set(value) }
+    var memoryStabilityMin: Double
+        get() = memoryStabilityMinRef.get()
+        set(value) { memoryStabilityMinRef.set(value) }
+    var memoryStabilityMax: Double
+        get() = memoryStabilityMaxRef.get()
+        set(value) { memoryStabilityMaxRef.set(value) }
+    var memoryStabilityRegressRate: Double
+        get() = memoryStabilityRegressRateRef.get()
+        set(value) { memoryStabilityRegressRateRef.set(value) }
 
     var memoryRecallMaxNodes: Int
         get() = memoryRecallMaxNodesRef.get()

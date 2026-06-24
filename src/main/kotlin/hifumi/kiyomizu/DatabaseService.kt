@@ -683,6 +683,12 @@ object DatabaseService {
                 stmt.execute("ALTER TABLE memory_nodes ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
             }
         }
+
+        if ("stability" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_nodes ADD COLUMN stability REAL NOT NULL DEFAULT 1.0")
+            }
+        }
     }
 
     private fun ensureModelRecallTracesSchema(conn: Connection) {
@@ -1139,7 +1145,8 @@ object DatabaseService {
         val accessCount: Int,
         val status: String,
         val source: String,
-        val rawEvidence: String?
+        val rawEvidence: String?,
+        val stability: Double = 1.0
     )
 
     data class MemoryNodeDraft(
@@ -1164,7 +1171,8 @@ object DatabaseService {
         val projectUri: String? = null,
         val status: String = "active",
         val source: String = "conversation",
-        val rawEvidence: String? = null
+        val rawEvidence: String? = null,
+        val stability: Double = 1.0
     )
 
     data class MemoryEdgeRecord(
@@ -1434,7 +1442,8 @@ object DatabaseService {
             accessCount = rs.getInt("access_count"),
             status = rs.getString("status") ?: "active",
             source = rs.getString("source"),
-            rawEvidence = rs.getString("raw_evidence")
+            rawEvidence = rs.getString("raw_evidence"),
+            stability = rs.getDouble("stability").takeIf { rs.getObject("stability") != null } ?: 1.0
         )
     }
 
@@ -1576,8 +1585,8 @@ object DatabaseService {
                     uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
                     trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
                     scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
-                    status, source, raw_evidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                    status, source, raw_evidence, stability
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
                 pstmt.setString(2, draft.kind)
@@ -1604,6 +1613,7 @@ object DatabaseService {
                 pstmt.setString(23, draft.status)
                 pstmt.setString(24, draft.source)
                 pstmt.setNullableString(25, draft.rawEvidence)
+                pstmt.setDouble(26, draft.stability)
                 pstmt.executeUpdate()
             }
             conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
@@ -1627,7 +1637,8 @@ object DatabaseService {
                 SET uri = ?, kind = ?, content = ?, normalized_text = ?, searchable_text = ?, keywords = ?,
                     aliases = ?, entities = ?, topics = ?, trigger_phrases = ?, disclosure = ?, priority = ?,
                     confidence = ?, strength = ?, emotion_valence = ?, emotion_arousal = ?, scope_hint = ?,
-                    person_uri = ?, project_uri = ?, updated_at = ?, status = ?, source = ?, raw_evidence = ?
+                    person_uri = ?, project_uri = ?, updated_at = ?, status = ?, source = ?, raw_evidence = ?,
+                    stability = ?
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
@@ -1653,7 +1664,8 @@ object DatabaseService {
                 pstmt.setString(21, draft.status)
                 pstmt.setString(22, draft.source)
                 pstmt.setNullableString(23, draft.rawEvidence)
-                pstmt.setInt(24, nodeId)
+                pstmt.setDouble(24, draft.stability)
+                pstmt.setInt(25, nodeId)
                 pstmt.executeUpdate()
             }
         }
@@ -2969,18 +2981,32 @@ object DatabaseService {
 
     fun updateMemoryNodeAccess(nodeId: Int, strengthDelta: Double, maxStrength: Double) {
         val now = Instant.now().epochSecond
+        val growthK = Config.memoryStabilityGrowthK
+        val maxStability = Config.memoryStabilityMax
+        // The recall path encodes its reinforcement weight into strengthDelta (e.g. 0.35*recoveryAmount for
+        // normalRecall, 0.5*recoveryAmount for deepRecall). Normalizing strengthDelta/memoryRecoveryAmount
+        // recovers that path factor so stability grows in step with how strongly the recall reinforced the
+        // node, without every caller having to pass an explicit factor. recoveryAmount<=0 => 1.0 (defensive);
+        // coerceIn guards against pathological inputs.
+        val recoveryAmount = Config.memoryRecoveryAmount
+        val normalizedFactor = if (recoveryAmount <= 0.0) 1.0 else (strengthDelta / recoveryAmount)
+        val effectiveFactor = normalizedFactor.coerceIn(0.0, 4.0)
         getConnection().use { conn ->
             conn.prepareStatement("""
                 UPDATE memory_nodes
                 SET strength = MIN(strength + ?, ?),
                     last_accessed_at = ?,
-                    access_count = access_count + 1
+                    access_count = access_count + 1,
+                    stability = MIN(stability * (1.0 + ? * ?), ?)
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, strengthDelta)
                 pstmt.setDouble(2, maxStrength)
                 pstmt.setLong(3, now)
-                pstmt.setInt(4, nodeId)
+                pstmt.setDouble(4, growthK)
+                pstmt.setDouble(5, effectiveFactor)
+                pstmt.setDouble(6, maxStability)
+                pstmt.setInt(7, nodeId)
                 pstmt.executeUpdate()
             }
         }
@@ -3002,6 +3028,25 @@ object DatabaseService {
                 pstmt.setDouble(1, strength)
                 pstmt.setLong(2, lastAccessedAt)
                 pstmt.setInt(3, nodeId)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    /**
+     * Persist an updated stability value for a node, leaving strength/last_accessed_at untouched.
+     * Used by MemoryService.regressStability to walk untouched nodes back toward memoryStabilityMin
+     * (use-it-or-lose-it) each decay cycle.
+     */
+    fun updateMemoryNodeStability(nodeId: Int, stability: Double) {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_nodes
+                SET stability = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setDouble(1, stability)
+                pstmt.setInt(2, nodeId)
                 pstmt.executeUpdate()
             }
         }
