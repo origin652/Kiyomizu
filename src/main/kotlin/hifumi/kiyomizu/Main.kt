@@ -427,8 +427,12 @@ fun main() {
                 val disclosure = call.request.queryParameters["disclosure"]
                 val status = call.request.queryParameters["status"]
                 val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 100
-                val memories = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, status, limit)
+                val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                val total = call.request.queryParameters["total"]?.toIntOrNull()?.let { if (it == 1) true else false } ?: false
+                val memories = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, status, limit, offset)
+                val aggregate = if (total) DatabaseService.countMemoryNodes(q, uriPrefix, kind, disclosure, status) else null
                 call.respondText(buildJsonObject {
+                    if (aggregate != null) put("total", aggregate)
                     put("memories", buildJsonArray {
                         memories.forEach { m ->
                             add(buildJsonObject {
@@ -455,10 +459,184 @@ fun main() {
                                 put("created_at", m.createdAt)
                                 put("updated_at", m.updatedAt)
                                 put("last_accessed_at", m.lastAccessedAt)
+                                put("stability", m.stability)
                             })
                         }
                     })
                 }.toString(), ContentType.Application.Json)
+            }
+
+            // ---- Memory graph: edit / delete / neighbors / export / import ----
+            // Literal sub-paths must be declared before {id} wildcard.
+
+            get("/api/companion/memories/export") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val q = call.request.queryParameters["q"]
+                val uriPrefix = call.request.queryParameters["uri_prefix"]
+                val kind = call.request.queryParameters["kind"]
+                val disclosure = call.request.queryParameters["disclosure"]
+                val status = call.request.queryParameters["status"]
+                val bundle = MemoryService.exportMemoryBundle(q, uriPrefix, kind, disclosure, status)
+                val ts = java.time.Instant.now().epochSecond
+                call.response.header("Content-Disposition", "attachment; filename=\"memories-$ts.json\"")
+                call.respondText(bundle.toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/memories/import/preview") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(buildJsonObject { put("error", "body must be a JSON object") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                call.respondText(MemoryService.previewImportBundle(body).toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/memories/import") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(buildJsonObject { put("error", "body must be a JSON object") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                call.respondText(MemoryService.importMemoryBundle(body).toString(), ContentType.Application.Json)
+            }
+
+            get("/api/companion/memories/edges/{edgeId}") {
+                // (Reserved) edge detail not required; kept out for now.
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                call.respondText(buildJsonObject { put("error", "not implemented") }.toString(), ContentType.Application.Json, HttpStatusCode.NotImplemented)
+            }
+
+            get("/api/companion/memories/{id}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@get
+                }
+                val node = DatabaseService.getMemoryNodeById(id)
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "memory not found") }.toString(), ContentType.Application.Json, HttpStatusCode.NotFound)
+                } else {
+                    call.respondText(buildJsonObject { put("memory", MemoryService.memoryNodeBundleJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            get("/api/companion/memories/{id}/neighbors") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@get
+                }
+                val neighbors = MemoryService.getMemoryNodeNeighbors(id, 500)
+                if (neighbors == null) {
+                    call.respondText(buildJsonObject { put("error", "memory not found") }.toString(), ContentType.Application.Json, HttpStatusCode.NotFound)
+                } else {
+                    val idToUri = listOf(neighbors.node) + neighbors.neighbors
+                    val uriById = idToUri.associate { it.id to it.uri }
+                    call.respondText(buildJsonObject {
+                        put("node", MemoryService.memoryNodeBundleJson(neighbors.node))
+                        put("neighbors", buildJsonArray {
+                            neighbors.neighbors.forEach { add(MemoryService.memoryNodeBundleJson(it)) }
+                        })
+                        put("edges", buildJsonArray {
+                            neighbors.edges.forEach { e ->
+                                add(buildJsonObject {
+                                    put("id", e.id)
+                                    put("from_id", e.fromNodeId)
+                                    put("to_id", e.toNodeId)
+                                    put("from_uri", uriById[e.fromNodeId] ?: "")
+                                    put("to_uri", uriById[e.toNodeId] ?: "")
+                                    put("relation", e.relation)
+                                    put("weight", e.weight)
+                                })
+                            }
+                        })
+                    }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            patch("/api/companion/memories/{id}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@patch }
+                if (!requireConfigAuth(call)) return@patch
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@patch
+                }
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@patch
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(buildJsonObject { put("error", "body must be a JSON object") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@patch
+                }
+                val node = MemoryService.editMemoryNode(id, body)
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "memory not found or patch disallowed") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                } else {
+                    call.respondText(buildJsonObject { put("memory", MemoryService.memoryNodeBundleJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
+
+            delete("/api/companion/memories/{id}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@delete }
+                if (!requireConfigAuth(call)) return@delete
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@delete
+                }
+                val bodyText = runCatching { call.receiveText() }.getOrNull()
+                val reason = try { bodyText?.let { (Json.parseToJsonElement(it) as? JsonObject)?.get("reason")?.jsonPrimitive?.contentOrNull } } catch (_: Exception) { null }
+                    ?: "manual memory delete"
+                val ok = MemoryService.softDeleteMemoryNode(id, reason)
+                call.respondText(buildJsonObject { put("ok", ok) }.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound)
+            }
+
+            post("/api/companion/memories/{id}/purge") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val ok = MemoryService.purgeMemoryNode(id)
+                call.respondText(buildJsonObject { put("ok", ok) }.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound)
+            }
+
+            post("/api/companion/memories/{id}/restore") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val ok = MemoryService.restoreMemoryNode(id)
+                call.respondText(buildJsonObject { put("ok", ok) }.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound)
+            }
+
+            delete("/api/companion/memories/edges/{edgeId}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@delete }
+                if (!requireConfigAuth(call)) return@delete
+                val edgeId = call.parameters["edgeId"]?.toIntOrNull()
+                if (edgeId == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid edge id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@delete
+                }
+                val ok = MemoryService.deleteMemoryEdge(edgeId)
+                call.respondText(buildJsonObject { put("ok", ok) }.toString(), ContentType.Application.Json, if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound)
             }
 
             get("/api/companion/observations") {

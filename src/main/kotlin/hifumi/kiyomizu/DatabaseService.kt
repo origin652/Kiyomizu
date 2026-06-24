@@ -2435,6 +2435,273 @@ object DatabaseService {
         return null
     }
 
+    data class MemoryNodeNeighbors(
+        val node: MemoryNodeRecord,
+        val neighbors: List<MemoryNodeRecord>,
+        val edges: List<MemoryEdgeRecord>
+    )
+
+    fun getMemoryNodeNeighbors(node: MemoryNodeRecord, limit: Int = 500): MemoryNodeNeighbors {
+        val edges = getEdgesForNodeIds(listOf(node.id), emptySet(), limit.coerceIn(1, 2000))
+        val neighborIds = edges.flatMap { listOf(it.fromNodeId, it.toNodeId) }
+            .filter { it != node.id }
+            .distinct()
+        val neighbors = getMemoryNodesByIds(neighborIds).filter { it.status != "tombstone" }
+        return MemoryNodeNeighbors(node = node, neighbors = neighbors, edges = edges)
+    }
+
+    fun deleteMemoryEdge(edgeId: Int): Boolean {
+        getConnection().use { conn ->
+            conn.prepareStatement("DELETE FROM memory_edges WHERE id = ?").use { pstmt ->
+                pstmt.setInt(1, edgeId)
+                return pstmt.executeUpdate() > 0
+            }
+        }
+    }
+
+    fun purgeMemoryNode(nodeId: Int): Boolean {
+        getConnection().use { conn ->
+            // foreign_keys is connection-scoped and must be set outside a transaction.
+            conn.createStatement().use { it.execute("PRAGMA foreign_keys=ON") }
+            conn.autoCommit = false
+            try {
+                conn.prepareStatement("DELETE FROM memory_recycle_bin WHERE node_id = ?").use { pstmt ->
+                    pstmt.setInt(1, nodeId)
+                    pstmt.executeUpdate()
+                }
+                val deleted = conn.prepareStatement("DELETE FROM memory_nodes WHERE id = ?").use { pstmt ->
+                    pstmt.setInt(1, nodeId)
+                    pstmt.executeUpdate()
+                }
+                conn.commit()
+                return deleted > 0
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
+    fun restoreMemoryNode(nodeId: Int): Boolean {
+        setMemoryNodeStatus(nodeId, "active")
+        return getMemoryNodeById(nodeId)?.status == "active"
+    }
+
+    fun listAllMemoryEdges(limit: Int = 100000): List<MemoryEdgeRecord> {
+        val list = mutableListOf<MemoryEdgeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT * FROM memory_edges ORDER BY id ASC LIMIT ?").use { pstmt ->
+                pstmt.setInt(1, limit.coerceIn(1, 1000000))
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryEdge(rs))
+            }
+        }
+        return list
+    }
+
+    /**
+     * Inserts a node preserving runtime state (strength, stability, access_count, timestamps).
+     * Used by memory-graph import to reproduce the source library exactly. The normal
+     * [insertMemoryNode] resets access_count to 0 and re-stamps timestamps, which would
+     * discard the imported decay curve.
+     */
+    fun insertMemoryNodeWithState(record: MemoryNodeRecord): Int {
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                INSERT INTO memory_nodes (
+                    uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
+                    trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
+                    scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
+                    status, source, raw_evidence, stability
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()).use { pstmt ->
+                pstmt.setString(1, record.uri)
+                pstmt.setString(2, record.kind)
+                pstmt.setString(3, record.content)
+                pstmt.setString(4, record.normalizedText)
+                pstmt.setString(5, record.searchableText)
+                pstmt.setString(6, encodeStringList(record.keywords))
+                pstmt.setString(7, encodeStringList(record.aliases))
+                pstmt.setString(8, encodeStringList(record.entities))
+                pstmt.setString(9, encodeStringList(record.topics))
+                pstmt.setString(10, encodeStringList(record.triggerPhrases))
+                pstmt.setString(11, record.disclosure)
+                pstmt.setDouble(12, record.priority)
+                pstmt.setDouble(13, record.confidence)
+                pstmt.setDouble(14, record.strength)
+                pstmt.setDouble(15, record.emotionValence)
+                pstmt.setDouble(16, record.emotionArousal)
+                pstmt.setNullableString(17, record.scopeHint)
+                pstmt.setNullableString(18, record.personUri)
+                pstmt.setNullableString(19, record.projectUri)
+                pstmt.setLong(20, record.createdAt)
+                pstmt.setLong(21, record.updatedAt)
+                pstmt.setLong(22, record.lastAccessedAt)
+                pstmt.setInt(23, record.accessCount)
+                pstmt.setString(24, record.status)
+                pstmt.setString(25, record.source)
+                pstmt.setNullableString(26, record.rawEvidence)
+                pstmt.setDouble(27, record.stability)
+                pstmt.executeUpdate()
+            }
+            conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) {
+                    val nodeId = rs.getInt(1)
+                    upsertMemoryNodeFts(nodeId, nodeDraftFromRuntimeRecord(record))
+                    return nodeId
+                }
+            }
+        }
+        return -1
+    }
+
+    private fun nodeDraftFromRuntimeRecord(record: MemoryNodeRecord): MemoryNodeDraft {
+        return MemoryNodeDraft(
+            uri = record.uri,
+            kind = record.kind,
+            content = record.content,
+            normalizedText = record.normalizedText,
+            searchableText = record.searchableText,
+            keywords = record.keywords,
+            aliases = record.aliases,
+            entities = record.entities,
+            topics = record.topics,
+            triggerPhrases = record.triggerPhrases,
+            disclosure = record.disclosure,
+            priority = record.priority,
+            confidence = record.confidence,
+            strength = record.strength,
+            emotionValence = record.emotionValence,
+            emotionArousal = record.emotionArousal,
+            scopeHint = record.scopeHint,
+            personUri = record.personUri,
+            projectUri = record.projectUri,
+            status = record.status,
+            source = record.source,
+            rawEvidence = record.rawEvidence,
+            stability = record.stability
+        )
+    }
+
+    /** Result of a memory-graph replace (import) operation. */
+    data class MemoryImportResult(
+        val insertedNodes: Int,
+        val insertedEdges: Int,
+        val skippedEdges: Int
+    )
+
+    /**
+     * Replaces the entire memory graph: clears memory_edges then memory_nodes (in that order
+     * to satisfy FK ordering) and re-inserts from the given records, rebuilding edges by
+     * remapping source URIs to new node ids. Edges whose endpoints are missing from the
+     * bundle are skipped and counted.
+     */
+    fun replaceMemoryGraph(
+        nodes: List<MemoryNodeRecord>,
+        edges: List<Triple<String, String, Pair<String, Double>>>
+    ): MemoryImportResult {
+        getConnection().use { conn ->
+            conn.autoCommit = false
+            try {
+                conn.prepareStatement("DELETE FROM memory_edges").use { it.executeUpdate() }
+                conn.prepareStatement("DELETE FROM memory_search_terms").use { it.executeUpdate() }
+                conn.prepareStatement("DELETE FROM memory_nodes").use { it.executeUpdate() }
+                conn.prepareStatement("DELETE FROM memory_nodes_fts").use { it.executeUpdate() }
+
+                val uriToId = HashMap<String, Int>()
+                for (record in nodes) {
+                    val insertNode = conn.prepareStatement("""
+                        INSERT INTO memory_nodes (
+                            uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
+                            trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
+                            scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
+                            status, source, raw_evidence, stability
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent())
+                    insertNode.use { pstmt ->
+                        pstmt.setString(1, record.uri)
+                        pstmt.setString(2, record.kind)
+                        pstmt.setString(3, record.content)
+                        pstmt.setString(4, record.normalizedText)
+                        pstmt.setString(5, record.searchableText)
+                        pstmt.setString(6, encodeStringList(record.keywords))
+                        pstmt.setString(7, encodeStringList(record.aliases))
+                        pstmt.setString(8, encodeStringList(record.entities))
+                        pstmt.setString(9, encodeStringList(record.topics))
+                        pstmt.setString(10, encodeStringList(record.triggerPhrases))
+                        pstmt.setString(11, record.disclosure)
+                        pstmt.setDouble(12, record.priority)
+                        pstmt.setDouble(13, record.confidence)
+                        pstmt.setDouble(14, record.strength)
+                        pstmt.setDouble(15, record.emotionValence)
+                        pstmt.setDouble(16, record.emotionArousal)
+                        pstmt.setNullableString(17, record.scopeHint)
+                        pstmt.setNullableString(18, record.personUri)
+                        pstmt.setNullableString(19, record.projectUri)
+                        pstmt.setLong(20, record.createdAt)
+                        pstmt.setLong(21, record.updatedAt)
+                        pstmt.setLong(22, record.lastAccessedAt)
+                        pstmt.setInt(23, record.accessCount)
+                        pstmt.setString(24, record.status)
+                        pstmt.setString(25, record.source)
+                        pstmt.setNullableString(26, record.rawEvidence)
+                        pstmt.setDouble(27, record.stability)
+                        pstmt.executeUpdate()
+                    }
+                    conn.prepareStatement("SELECT last_insert_rowid()").use { idStmt ->
+                        val rs = idStmt.executeQuery()
+                        if (rs.next()) uriToId[record.uri] = rs.getInt(1)
+                    }
+                }
+
+                var insertedEdges = 0
+                var skippedEdges = 0
+                val now = Instant.now().epochSecond
+                val upsertEdge = conn.prepareStatement("""
+                    INSERT INTO memory_edges (from_node_id, to_node_id, relation, weight, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(from_node_id, to_node_id, relation) DO UPDATE SET
+                        weight = excluded.weight,
+                        updated_at = excluded.updated_at
+                """.trimIndent())
+                upsertEdge.use { pstmt ->
+                    for ((fromUri, toUri, relPair) in edges) {
+                        val fromId = uriToId[fromUri]
+                        val toId = uriToId[toUri]
+                        if (fromId == null || toId == null) {
+                            skippedEdges++
+                            continue
+                        }
+                        val (relation, weight) = relPair
+                        pstmt.setInt(1, fromId)
+                        pstmt.setInt(2, toId)
+                        pstmt.setString(3, relation)
+                        pstmt.setDouble(4, weight)
+                        pstmt.setLong(5, now)
+                        pstmt.setLong(6, now)
+                        pstmt.executeUpdate()
+                        insertedEdges++
+                    }
+                }
+
+                conn.commit()
+                return MemoryImportResult(
+                    insertedNodes = uriToId.size,
+                    insertedEdges = insertedEdges,
+                    skippedEdges = skippedEdges
+                )
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
     fun getAllMemoryNodes(): List<MemoryNodeRecord> {
         val list = mutableListOf<MemoryNodeRecord>()
         getConnection().use { conn ->
@@ -2935,6 +3202,36 @@ object DatabaseService {
         return list
     }
 
+    fun countMemoryNodes(
+        q: String?,
+        uriPrefix: String?,
+        kind: String?,
+        disclosure: String?,
+        status: String?
+    ): Int {
+        val clauses = mutableListOf<String>()
+        val params = mutableListOf<String>()
+        if (!uriPrefix.isNullOrBlank()) { clauses.add("uri LIKE ?"); params.add("${uriPrefix.trim()}%") }
+        if (!kind.isNullOrBlank()) { clauses.add("kind = ?"); params.add(kind.trim()) }
+        if (!disclosure.isNullOrBlank()) { clauses.add("disclosure = ?"); params.add(disclosure.trim()) }
+        if (!status.isNullOrBlank()) { clauses.add("status = ?"); params.add(status.trim()) }
+        if (!q.isNullOrBlank()) {
+            clauses.add("(LOWER(content) LIKE ? OR LOWER(searchable_text) LIKE ? OR LOWER(uri) LIKE ?)")
+            repeat(3) { params.add("%${q.trim().lowercase()}%") }
+        }
+        val sql = buildString {
+            append("SELECT COUNT(*) FROM memory_nodes")
+            if (clauses.isNotEmpty()) { append(" WHERE "); append(clauses.joinToString(" AND ")) }
+        }
+        getConnection().use { conn ->
+            conn.prepareStatement(sql).use { pstmt ->
+                params.forEachIndexed { index, value -> pstmt.setString(index + 1, value) }
+                val rs = pstmt.executeQuery()
+                return if (rs.next()) rs.getInt(1) else 0
+            }
+        }
+    }
+
     fun getActiveWorkingMemoryNodes(projectUri: String?, limit: Int): List<MemoryNodeRecord> {
         if (limit <= 0) return emptyList()
         val list = mutableListOf<MemoryNodeRecord>()
@@ -3133,8 +3430,10 @@ object DatabaseService {
         kind: String?,
         disclosure: String?,
         status: String?,
-        limit: Int
+        limit: Int,
+        offset: Int = 0
     ): List<MemoryNodeRecord> {
+        val safeOffset = offset.coerceAtLeast(0)
         val clauses = mutableListOf<String>()
         val params = mutableListOf<String>()
 
@@ -3166,6 +3465,7 @@ object DatabaseService {
                 append(clauses.joinToString(" AND "))
             }
             append(" ORDER BY updated_at DESC, strength DESC LIMIT ?")
+            if (safeOffset > 0) append(" OFFSET ?")
         }
 
         val list = mutableListOf<MemoryNodeRecord>()
@@ -3173,6 +3473,7 @@ object DatabaseService {
             conn.prepareStatement(sql).use { pstmt ->
                 params.forEachIndexed { index, value -> pstmt.setString(index + 1, value) }
                 pstmt.setInt(params.size + 1, limit)
+                if (safeOffset > 0) pstmt.setInt(params.size + 2, safeOffset)
                 val rs = pstmt.executeQuery()
                 while (rs.next()) {
                     list.add(readMemoryNode(rs))

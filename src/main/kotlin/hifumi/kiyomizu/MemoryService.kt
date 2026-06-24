@@ -1918,7 +1918,8 @@ object MemoryService {
             projectUri = node.projectUri,
             status = node.status,
             source = node.source,
-            rawEvidence = node.rawEvidence
+            rawEvidence = node.rawEvidence,
+            stability = node.stability
         )
     }
 
@@ -2807,6 +2808,274 @@ object MemoryService {
         )
         refreshMemoryIndexAfterMutation("self_edit")
         return DatabaseService.getMemoryNodeById(existing.id)
+    }
+
+    // ---- Generic graph memory management (import / export / edit / delete) ----
+
+    /** Bundle version. Bump together with [parseMemoryBundle] / [memoryNodeToBundleJson]. */
+    private const val MEMORY_BUNDLE_VERSION = 1
+
+    /** Accepted editable fields. Stability/strength/access_count/timestamps are runtime-read-only. */
+    private val EDITABLE_MEMORY_FIELDS = setOf(
+        "content", "kind", "disclosure", "priority", "confidence",
+        "keywords", "aliases", "entities", "topics", "trigger_phrases",
+        "scope_hint", "person_uri", "project_uri", "status", "source", "raw_evidence"
+    )
+
+    fun editMemoryNode(nodeId: Int, patch: JsonObject): DatabaseService.MemoryNodeRecord? {
+        val existing = DatabaseService.getMemoryNodeById(nodeId) ?: return null
+        val unknown = patch.keys - EDITABLE_MEMORY_FIELDS
+        if (unknown.any { it != "uri" }) {
+            // Reject attempts to touch runtime fields. uri remap is risky; keep read-only too.
+            return null
+        }
+        val nextContent = patch["content"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null } ?: existing.content
+        val nextUri = patch["uri"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null } ?: existing.uri
+        val nextKind = patch["kind"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: existing.kind
+        val nextDisclosure = patch["disclosure"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: existing.disclosure
+        val nextPriority = patch["priority"]?.jsonPrimitive?.doubleOrNull ?: existing.priority
+        val nextConfidence = patch["confidence"]?.jsonPrimitive?.doubleOrNull ?: existing.confidence
+        val nextStatus = patch["status"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: existing.status
+        val nextSource = patch["source"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: existing.source
+        val nextKeywords = patch["keywords"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: existing.keywords
+        val nextAliases = patch["aliases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: existing.aliases
+        val nextEntities = patch["entities"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: existing.entities
+        val nextTopics = patch["topics"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: existing.topics
+        val nextTriggers = patch["trigger_phrases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: existing.triggerPhrases
+        val nextScopeHint = patch["scope_hint"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.scopeHint
+        val nextPersonUri = patch["person_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.personUri
+        val nextProjectUri = patch["project_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.projectUri
+        val nextRawEvidence = patch["raw_evidence"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.rawEvidence
+
+        val normalized = normalizeText(nextContent)
+        val searchableText = buildSearchableText(
+            nextContent, nextKeywords, nextAliases, nextEntities, nextTopics, nextTriggers,
+            nextUri, nextScopeHint, nextPersonUri, nextProjectUri
+        )
+        val draft = DatabaseService.MemoryNodeDraft(
+            uri = nextUri,
+            kind = nextKind,
+            content = nextContent,
+            normalizedText = normalized,
+            searchableText = searchableText,
+            keywords = nextKeywords,
+            aliases = nextAliases,
+            entities = nextEntities,
+            topics = nextTopics,
+            triggerPhrases = nextTriggers,
+            disclosure = nextDisclosure,
+            priority = nextPriority.coerceIn(0.0, 1.0),
+            confidence = nextConfidence.coerceIn(0.0, 1.0),
+            strength = existing.strength,
+            emotionValence = existing.emotionValence,
+            emotionArousal = existing.emotionArousal,
+            scopeHint = nextScopeHint,
+            personUri = nextPersonUri,
+            projectUri = nextProjectUri,
+            status = nextStatus,
+            source = nextSource,
+            rawEvidence = nextRawEvidence,
+            stability = existing.stability
+        )
+        DatabaseService.updateMemoryNode(existing.id, draft)
+        DatabaseService.replaceMemorySearchTerms(existing.id, deriveSearchTerms(draft))
+        refreshMemoryIndexAfterMutation("mem_edit")
+        return DatabaseService.getMemoryNodeById(existing.id)
+    }
+
+    fun softDeleteMemoryNode(nodeId: Int, reason: String): Boolean {
+        val node = DatabaseService.getMemoryNodeById(nodeId) ?: return false
+        if (node.status != "active") return false
+        val archived = DatabaseService.archiveMemoryNodeToRecycle(node, reason, Config.memoryRecycleRetentionDays)
+        if (archived) refreshMemoryIndexAfterMutation("mem_delete")
+        return archived
+    }
+
+    fun purgeMemoryNode(nodeId: Int): Boolean {
+        val ok = DatabaseService.purgeMemoryNode(nodeId)
+        if (ok) refreshMemoryIndexAfterMutation("mem_purge")
+        return ok
+    }
+
+    fun restoreMemoryNode(nodeId: Int): Boolean {
+        val ok = DatabaseService.restoreMemoryNode(nodeId)
+        if (ok) refreshMemoryIndexAfterMutation("mem_restore")
+        return ok
+    }
+
+    fun deleteMemoryEdge(edgeId: Int): Boolean {
+        val ok = DatabaseService.deleteMemoryEdge(edgeId)
+        if (ok) refreshMemoryIndexAfterMutation("mem_edge_delete")
+        return ok
+    }
+
+    fun getMemoryNodeNeighbors(nodeId: Int, limit: Int = 500): DatabaseService.MemoryNodeNeighbors? {
+        val node = DatabaseService.getMemoryNodeById(nodeId) ?: return null
+        return DatabaseService.getMemoryNodeNeighbors(node, limit)
+    }
+
+    /** Serializes a node with all fields (including runtime-read-only stability). */
+    fun memoryNodeBundleJson(m: DatabaseService.MemoryNodeRecord): JsonObject = buildJsonObject {
+        put("id", m.id)
+        put("uri", m.uri)
+        put("kind", m.kind)
+        put("content", m.content)
+        put("normalized_text", m.normalizedText)
+        put("searchable_text", m.searchableText)
+        put("keywords", buildJsonArray { m.keywords.forEach { add(JsonPrimitive(it)) } })
+        put("aliases", buildJsonArray { m.aliases.forEach { add(JsonPrimitive(it)) } })
+        put("entities", buildJsonArray { m.entities.forEach { add(JsonPrimitive(it)) } })
+        put("topics", buildJsonArray { m.topics.forEach { add(JsonPrimitive(it)) } })
+        put("trigger_phrases", buildJsonArray { m.triggerPhrases.forEach { add(JsonPrimitive(it)) } })
+        put("disclosure", m.disclosure)
+        put("priority", m.priority)
+        put("confidence", m.confidence)
+        put("strength", m.strength)
+        put("emotion_valence", m.emotionValence)
+        put("emotion_arousal", m.emotionArousal)
+        put("scope_hint", m.scopeHint ?: "")
+        put("person_uri", m.personUri ?: "")
+        put("project_uri", m.projectUri ?: "")
+        put("created_at", m.createdAt)
+        put("updated_at", m.updatedAt)
+        put("last_accessed_at", m.lastAccessedAt)
+        put("access_count", m.accessCount)
+        put("status", m.status)
+        put("source", m.source)
+        put("raw_evidence", m.rawEvidence ?: "")
+        put("stability", m.stability)
+    }
+
+    fun exportMemoryBundle(
+        q: String?, uriPrefix: String?, kind: String?, disclosure: String?, status: String?
+    ): JsonObject {
+        val nodes = DatabaseService.listMemoryNodes(q, uriPrefix, kind, disclosure, status, 100000, 0)
+        val uriToId = nodes.associateBy { it.uri }
+        val edges = DatabaseService.listAllMemoryEdges(1000000)
+        return buildJsonObject {
+            put("version", MEMORY_BUNDLE_VERSION)
+            put("exported_at", Instant.now().epochSecond)
+            put("nodes", buildJsonArray {
+                nodes.forEach { add(memoryNodeBundleJson(it)) }
+            })
+            put("edges", buildJsonArray {
+                edges.forEach { e ->
+                    // Skip edges whose endpoints are outside the filtered node set.
+                    val fromUri = uriToId.entries.firstOrNull { it.value.id == e.fromNodeId }?.key
+                    val toUri = uriToId.entries.firstOrNull { it.value.id == e.toNodeId }?.key
+                    if (fromUri == null || toUri == null) return@forEach
+                    add(buildJsonObject {
+                        put("from_uri", fromUri)
+                        put("to_uri", toUri)
+                        put("relation", e.relation)
+                        put("weight", e.weight)
+                    })
+                }
+            })
+        }
+    }
+
+    data class MemoryBundleContents(
+        val nodes: List<DatabaseService.MemoryNodeRecord>,
+        val edges: List<Triple<String, String, Pair<String, Double>>>
+    )
+
+    fun parseMemoryBundle(bundle: JsonObject): MemoryBundleContents? {
+        val nodes = mutableListOf<DatabaseService.MemoryNodeRecord>()
+        val edges = mutableListOf<Triple<String, String, Pair<String, Double>>>()
+        val now = Instant.now().epochSecond
+        fun longAt(n: JsonObject, key: String): Long =
+            n[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: now
+
+        val nodesArray = bundle["nodes"]?.jsonArray ?: return null
+        for (nodeEl in nodesArray) {
+            val n = nodeEl.jsonObject
+            val uri = n["uri"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: continue
+            val rawContent = n["content"]?.jsonPrimitive?.contentOrNull ?: ""
+            val dbNode = DatabaseService.MemoryNodeRecord(
+                id = 0,
+                uri = uri,
+                kind = n["kind"]?.jsonPrimitive?.contentOrNull ?: "preference",
+                content = rawContent,
+                normalizedText = n["normalized_text"]?.jsonPrimitive?.contentOrNull
+                    ?: normalizeText(rawContent),
+                searchableText = n["searchable_text"]?.jsonPrimitive?.contentOrNull ?: rawContent,
+                keywords = n["keywords"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                aliases = n["aliases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                entities = n["entities"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                topics = n["topics"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                triggerPhrases = n["trigger_phrases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                disclosure = n["disclosure"]?.jsonPrimitive?.contentOrNull ?: "private",
+                priority = n["priority"]?.jsonPrimitive?.doubleOrNull ?: 0.5,
+                confidence = n["confidence"]?.jsonPrimitive?.doubleOrNull ?: 0.5,
+                strength = n["strength"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
+                emotionValence = n["emotion_valence"]?.jsonPrimitive?.doubleOrNull ?: 0.5,
+                emotionArousal = n["emotion_arousal"]?.jsonPrimitive?.doubleOrNull ?: 0.3,
+                scopeHint = n["scope_hint"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+                personUri = n["person_uri"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+                projectUri = n["project_uri"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+                createdAt = longAt(n, "created_at"),
+                updatedAt = longAt(n, "updated_at"),
+                lastAccessedAt = longAt(n, "last_accessed_at"),
+                accessCount = n["access_count"]?.jsonPrimitive?.intOrNull ?: 0,
+                status = n["status"]?.jsonPrimitive?.contentOrNull ?: "active",
+                source = n["source"]?.jsonPrimitive?.contentOrNull ?: "import",
+                rawEvidence = n["raw_evidence"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+                stability = n["stability"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+            )
+            nodes.add(dbNode)
+        }
+
+        val edgesArray = bundle["edges"]?.jsonArray
+        if (edgesArray != null) {
+            for (edgeEl in edgesArray) {
+                val e = edgeEl.jsonObject
+                val fromUri = e["from_uri"]?.jsonPrimitive?.contentOrNull ?: continue
+                val toUri = e["to_uri"]?.jsonPrimitive?.contentOrNull ?: continue
+                val relation = e["relation"]?.jsonPrimitive?.contentOrNull ?: "related"
+                val weight = e["weight"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+                edges.add(Triple(fromUri, toUri, relation to weight))
+            }
+        }
+
+        return MemoryBundleContents(nodes = nodes, edges = edges)
+    }
+
+    /** Diffs the bundle against the current library (replace semantics: clear + rebuild). */
+    fun previewImportBundle(bundle: JsonObject): JsonObject {
+        val parsed = parseMemoryBundle(bundle)
+        if (parsed == null) {
+            return buildJsonObject {
+                put("error", "invalid memory bundle: missing or malformed 'nodes'")
+            }
+        }
+        val currentNodes = DatabaseService.listMemoryNodes(null, null, null, null, null, 100000, 0).size
+        val currentEdges = DatabaseService.listAllMemoryEdges(1000000).size
+        val bundleUris = parsed.nodes.map { it.uri }.toSet()
+        val skippedEdges = parsed.edges.count { it.first !in bundleUris || it.second !in bundleUris }
+        return buildJsonObject {
+            put("mode", "replace")
+            put("clear_nodes", currentNodes)
+            put("clear_edges", currentEdges)
+            put("import_nodes", parsed.nodes.size)
+            put("import_edges", parsed.edges.size - skippedEdges)
+            put("skipped_edges", skippedEdges)
+            put("bundle_version", bundle["version"]?.jsonPrimitive?.intOrNull ?: 0)
+        }
+    }
+
+    fun importMemoryBundle(bundle: JsonObject): JsonObject {
+        val parsed = parseMemoryBundle(bundle)
+            ?: return buildJsonObject { put("error", "invalid memory bundle") }
+        val result = DatabaseService.replaceMemoryGraph(parsed.nodes, parsed.edges)
+        refreshMemoryIndexAfterMutation("mem_import")
+        return buildJsonObject {
+            put("ok", true)
+            put("mode", "replace")
+            put("inserted_nodes", result.insertedNodes)
+            put("inserted_edges", result.insertedEdges)
+            put("skipped_edges", result.skippedEdges)
+        }
     }
 
     fun archiveSelfMemory(nodeId: Int, reason: String = "manual self memory archive"): Boolean {

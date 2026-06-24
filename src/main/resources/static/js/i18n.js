@@ -212,6 +212,8 @@ const STRINGS = {
     navCompanion: '伴侣',
     navLogs: '请求日志',
     navConfig: '配置',
+    navMemories: '记忆管理',
+    navMenu: '菜单',
     secBasicTitle: '基本设置',
     secClaudeTitle: 'Claude 缓存',
     secCompanionTitle: 'AI 伴侣核心',
@@ -430,6 +432,8 @@ const STRINGS = {
     navCompanion: 'Companion',
     navLogs: 'Request Logs',
     navConfig: 'Configuration',
+    navMemories: 'Memories',
+    navMenu: 'Menu',
     secBasicTitle: 'Basic Settings',
     secClaudeTitle: 'Claude Cache',
     secCompanionTitle: 'AI Companion Core',
@@ -648,6 +652,8 @@ const STRINGS = {
     navCompanion: 'コンパニオン',
     navLogs: 'リクエストログ',
     navConfig: '設定',
+    navMemories: '記憶管理',
+    navMenu: 'メニュー',
     secBasicTitle: '基本設定',
     secClaudeTitle: 'Claude キャッシュ',
     secCompanionTitle: 'AIコンパニオン',
@@ -936,12 +942,14 @@ function applyLang(lang) {
   });
 
   // Nav + section titles
-  const navIds = ['t-nav-status','t-nav-cache','t-nav-companion','t-nav-logs','t-nav-config'];
-  const navKeys = ['navStatus','navCache','navCompanion','navLogs','navConfig'];
+  const navIds = ['t-nav-status','t-nav-cache','t-nav-companion','t-nav-logs','t-nav-memories','t-nav-config'];
+  const navKeys = ['navStatus','navCache','navCompanion','navLogs','navMemories','navConfig'];
   navIds.forEach((id, i) => {
     const el = document.getElementById(id);
     if (el) el.textContent = s[navKeys[i]] || el.textContent;
   });
+  const menuEl = document.getElementById('t-nav-menu');
+  if (menuEl) menuEl.textContent = s['navMenu'] || menuEl.textContent;
   const secIds = ['t-sec-basic-title','t-sec-claude-title','t-sec-companion-title','t-sec-security-title'];
   const secKeys = ['secBasicTitle','secClaudeTitle','secCompanionTitle','secSecurityTitle'];
   secIds.forEach((id, i) => {

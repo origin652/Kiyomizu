@@ -10,6 +10,7 @@ function renderPane(name) {
     if (name === 'cache') loadCacheDiagnostics();
     else if (name === 'logs') loadLogs();
     else if (name === 'companion') loadCompanionState();
+    else if (name === 'memories') loadMemories();
   }
 }
 function setSectionCollapsed(section, collapsed) {
@@ -37,8 +38,24 @@ function initCollapsibles() {
 }
 function initNav() {
   document.querySelectorAll('.nav-item').forEach(btn => {
-    btn.addEventListener('click', () => renderPane(btn.dataset.nav));
+    btn.addEventListener('click', () => {
+      renderPane(btn.dataset.nav);
+      // Collapse the mobile menu after a selection.
+      const rail = document.querySelector('.nav-rail');
+      if (rail) rail.classList.remove('is-open');
+      const toggle = document.getElementById('nav-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
   });
+  const toggle = document.getElementById('nav-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const rail = document.querySelector('.nav-rail');
+      if (!rail) return;
+      const open = rail.classList.toggle('is-open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
   let saved;
   try { saved = localStorage.getItem('kiyomizu-nav'); } catch (e) {}
   const panes = Array.from(document.querySelectorAll('.pane')).map(p => p.dataset.pane);

@@ -65,6 +65,11 @@
   <div class="app-body">
     <!-- Left navigation rail -->
     <nav class="nav-rail" aria-label="sections">
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav-rail-items">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <span id="t-nav-menu">Menu</span>
+      </button>
+      <div class="nav-rail-items" id="nav-rail-items">
       <button type="button" class="nav-item is-active" data-nav="status">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
         <span id="t-nav-status">System Status</span>
@@ -77,6 +82,10 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
         <span id="t-nav-companion">Companion</span>
       </button>
+      <button type="button" class="nav-item" data-nav="memories">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <span id="t-nav-memories">Memories</span>
+      </button>
       <button type="button" class="nav-item" data-nav="logs">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         <span id="t-nav-logs">Request Logs</span>
@@ -85,6 +94,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span id="t-nav-config">Configuration</span>
       </button>
+      </div>
     </nav>
 
     <!-- Right content -->
@@ -183,9 +193,11 @@
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <span id="t-companion-panel-title">Companion State</span>
             </div>
-            <button class="btn btn-ghost" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
-            <button class="btn btn-ghost" onclick="runManualDream()" id="t-dream-run">Dream now</button>
-            <button class="btn btn-ghost" onclick="runDreamDryRun()" id="t-dream-dry-run">Dream dry run</button>
+            <div class="panel-title-actions">
+              <button class="btn btn-ghost" onclick="loadCompanionState()" id="t-companion-refresh">Refresh</button>
+              <button class="btn btn-ghost" onclick="runManualDream()" id="t-dream-run">Dream now</button>
+              <button class="btn btn-ghost" onclick="runDreamDryRun()" id="t-dream-dry-run">Dream dry run</button>
+            </div>
           </div>
           <div id="companion-state-body">
             <div class="bar-row">
@@ -346,6 +358,75 @@
               <div class="empty" id="t-no-reflections">No reflections yet.</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Pane: Memories -->
+      <section class="pane" data-pane="memories">
+        <div class="card">
+          <div class="panel-title-row">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              <span id="t-memories-panel-title">Memories</span>
+            </div>
+            <div class="panel-title-actions">
+              <button class="btn btn-secondary" onclick="exportMemories()" id="t-memories-export">Export filtered</button>
+              <button class="btn btn-secondary" onclick="document.getElementById('memories-import-input').click()" id="t-memories-import">Import</button>
+              <input type="file" id="memories-import-input" accept=".json" class="sr-only" onchange="previewImportMemories(event)">
+              <button class="btn btn-ghost" onclick="loadMemories()" id="t-memories-refresh">Refresh</button>
+            </div>
+          </div>
+
+          <div class="memories-filter-row">
+            <input type="text" id="memories-filter-q" placeholder="Search content / URI..." autocomplete="off" oninput="scheduleMemoriesFilter()">
+            <input type="text" id="memories-filter-uri" placeholder="URI prefix..." autocomplete="off" oninput="scheduleMemoriesFilter()">
+            <select id="memories-filter-kind" onchange="loadMemories()">
+              <option value="">All kinds</option>
+            </select>
+            <select id="memories-filter-status" onchange="loadMemories()">
+              <option value="">All status</option>
+              <option value="active">active</option>
+              <option value="archived">archived</option>
+              <option value="tombstone">tombstone</option>
+              <option value="dream">dream</option>
+            </select>
+            <select id="memories-filter-disclosure" onchange="loadMemories()">
+              <option value="">All disclosure</option>
+              <option value="private">private</option>
+              <option value="sensitive">sensitive</option>
+            </select>
+          </div>
+
+          <div class="memories-layout">
+            <div class="memories-list-wrap">
+              <div class="log-table-scroll">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th id="t-mem-th-uri">URI</th>
+                      <th id="t-mem-th-kind">Kind</th>
+                      <th id="t-mem-th-content">Content</th>
+                      <th id="t-mem-th-status">Status</th>
+                      <th id="t-mem-th-stability">Stability</th>
+                    </tr>
+                  </thead>
+                  <tbody id="memories-tbody">
+                    <tr><td colspan="5" class="empty" id="t-mem-empty">No memories loaded.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="memories-pager">
+                <button class="btn btn-ghost" onclick="memoriesPagePrev()" id="t-mem-prev">Prev</button>
+                <span id="memories-page-info">—</span>
+                <button class="btn btn-ghost" onclick="memoriesPageNext()" id="t-mem-next">Next</button>
+              </div>
+            </div>
+            <div class="memories-detail-wrap" id="memories-detail">
+              <div class="empty" id="t-mem-detail-empty">Select a memory to edit.</div>
+            </div>
+          </div>
+
+          <div class="memories-import-result" id="memories-import-result" aria-live="polite"></div>
         </div>
       </section>
 
@@ -917,9 +998,11 @@
 <script src="/ui/static/js/nav.js"></script>
 <script src="/ui/static/js/companion.js"></script>
 <script src="/ui/static/js/memory.js"></script>
+<script src="/ui/static/js/memories.js"></script>
 <script src="/ui/static/js/cache.js"></script>
 <script src="/ui/static/js/logs.js"></script>
 <script src="/ui/static/js/main.js"></script>
+<script src="/ui/static/vendor/vis-network.min.js"></script>
 <script src="/ui/static/js/alpine-setup.js"></script>
 <script src="/ui/static/vendor/alpine.min.js" defer></script>
 </body>
