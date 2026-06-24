@@ -209,7 +209,8 @@ object MemoryService {
         val fallbackReason: String?,
         val error: String?,
         val candidateCount: Int,
-        val durationMs: Int
+        val durationMs: Int,
+        val traceId: Int? = null
     )
 
     private data class ModelRecallCandidateResult(
@@ -287,6 +288,7 @@ object MemoryService {
                 delay(intervalMs.coerceAtLeast(60000L))
                 if (!Config.memoryEnabled) continue
                 try {
+                    applyLazyStrengthDecay()
                     DatabaseService.decayGraphMemoryNodes(Config.memoryThreshold)
                     DatabaseService.decayAllMemories(Config.memoryDecayRate, Config.memoryThreshold)
                     DatabaseService.decayIntimacy(Config.intimacyDecayRate)
@@ -675,6 +677,23 @@ object MemoryService {
         val tauHours = effectiveTauHours(memory)
         val elapsedHours = ((nowEpochSecond - memory.lastAccessedAt).coerceAtLeast(0)) / 3600.0
         return memory.strength * exp(-elapsedHours / tauHours)
+    }
+
+    /**
+     * Persist the lazily-decayed strength onto every active graph node, then reset its
+     * last_accessed_at to now. This realizes the exponential decay so that recall strength
+     * boosts (which raise the persisted strength) actually decay over time instead of being
+     * permanent peaks. Must run BEFORE decayGraphMemoryNodes so the threshold check sees
+     * decayed rather than peak strength. Updating last_accessed_at prevents the next
+     * lazyStrength call from double-counting the just-realized decay.
+     */
+    fun applyLazyStrengthDecay(now: Long = Instant.now().epochSecond) {
+        val nodes = DatabaseService.getActiveGraphMemoryNodesForDecay()
+        for (node in nodes) {
+            val decayed = lazyStrength(node, now).coerceIn(0.0, Config.memoryMaxStrength)
+            if (decayed >= node.strength) continue // not decayed (e.g. just accessed); skip
+            DatabaseService.updateMemoryNodeStrength(node.id, decayed, now)
+        }
     }
 
     private fun normalizeText(text: String): String {
@@ -3373,38 +3392,38 @@ object MemoryService {
         val projectBoost = if (node.projectUri != null && extractUriSegments(node.projectUri).any { it in context.projectTerms }) 0.8 else 0.0
         val relationshipBoost = if (node.kind == "relationship" && context.people.isNotEmpty()) 0.35 else 0.0
         val kindBias = when (node.kind) {
-            "identity" -> 0.35
-            "preference" -> 0.30
-            "relationship" -> 0.28
-            "project_fact" -> 0.12
-            "episodic_event" -> 0.08
-            "working_memory" -> 0.06
-            else -> 0.10
+            "identity" -> Config.memoryKindBiasIdentity
+            "preference" -> Config.memoryKindBiasPreference
+            "relationship" -> Config.memoryKindBiasRelationship
+            "project_fact" -> Config.memoryKindBiasProjectFact
+            "episodic_event" -> Config.memoryKindBiasEpisodicEvent
+            "working_memory" -> Config.memoryKindBiasWorkingMemory
+            else -> Config.memoryKindBiasDefault
         }
         val recency = lazyStrength(node, now)
         val salience = emotionalSalience(node.emotionValence, node.emotionArousal)
-        var score = overlap * 2.6 +
-            triggerHits * 0.35 +
-            uriHits * 0.18 +
+        var score = overlap * Config.memoryScoreOverlapWeight +
+            triggerHits * Config.memoryScoreTriggerHitsWeight +
+            uriHits * Config.memoryScoreUriHitsWeight +
             peopleBoost +
             projectBoost +
             relationshipBoost +
             kindBias +
-            (node.priority * 0.55) +
-            (node.confidence * 0.55) +
-            (recency * 0.9) +
-            (salience * 0.2)
+            (node.priority * Config.memoryScorePriorityWeight) +
+            (node.confidence * Config.memoryScoreConfidenceWeight) +
+            (recency * Config.memoryScoreRecencyWeight) +
+            (salience * Config.memoryScoreSalienceWeight)
 
         if (node.disclosure == "sensitive" && overlap < 0.18 && peopleBoost == 0.0 && projectBoost == 0.0) {
-            score -= 1.2
+            score += Config.memorySensitivePenalty
         }
         if (!context.deepRecall && node.kind in setOf("project_fact", "episodic_event", "working_memory") &&
             overlap < 0.12 && peopleBoost == 0.0 && projectBoost == 0.0
         ) {
-            score *= 0.45
+            score *= Config.memoryNonDeepEpisodicPenalty
         }
-        if (node.kind == "working_memory" && now - node.updatedAt > 14 * 86400) {
-            score *= 0.7
+        if (node.kind == "working_memory" && now - node.updatedAt > (Config.memoryWorkingMemoryStaleDays * 86400.0).toLong()) {
+            score *= Config.memoryWorkingMemoryStalePenalty
         }
         return score
     }
@@ -4119,7 +4138,14 @@ object MemoryService {
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
         val duration = (System.currentTimeMillis() - started).toInt()
-        DatabaseService.insertModelRecallTrace(
+        val successDebug = JsonObject(
+            candidateResult.debugJson + mapOf(
+                "injected_uris" to buildJsonArray { recalled.forEach { add(JsonPrimitive(it.memory.uri)) } },
+                "injected_self_uris" to buildJsonArray { selfMemories.forEach { add(JsonPrimitive(it.memory.uri)) } },
+                "injected_dream_uris" to buildJsonArray { dreamTraces.forEach { add(JsonPrimitive(it.memory.uri)) } }
+            )
+        )
+        val traceId = DatabaseService.insertModelRecallTrace(
             query = userQuery,
             indexVersion = indexVersion,
             planJson = planJson,
@@ -4129,10 +4155,10 @@ object MemoryService {
             fallbackReason = null,
             error = null,
             durationMs = duration,
-            debugJson = candidateResult.debugJson.toString()
+            debugJson = successDebug.toString()
         )
         modelRecallConsecutiveFailures.set(0)
-        return ModelRecallResult(recalled, selfMemories, dreamTraces, plan, null, null, candidates.size, duration)
+        return ModelRecallResult(recalled, selfMemories, dreamTraces, plan, null, null, candidates.size, duration, traceId)
     }
 
     private fun modelRecallFailure(
@@ -4147,7 +4173,7 @@ object MemoryService {
             modelRecallCooldownUntilMs.set(System.currentTimeMillis() + Config.memoryModelRecallCooldownSeconds.coerceAtLeast(0) * 1000L)
         }
         val duration = (System.currentTimeMillis() - started).toInt()
-        DatabaseService.insertModelRecallTrace(
+        val traceId = DatabaseService.insertModelRecallTrace(
             query = userQuery,
             indexVersion = indexVersion,
             planJson = planJson,
@@ -4158,7 +4184,7 @@ object MemoryService {
             error = error,
             durationMs = duration
         )
-        return ModelRecallResult(emptyList(), emptyList(), emptyList(), null, "local_recall_fallback", error, 0, duration)
+        return ModelRecallResult(emptyList(), emptyList(), emptyList(), null, "local_recall_fallback", error, 0, duration, traceId)
     }
 
     suspend fun buildCompanionMemoryContext(userQuery: String): CompanionMemoryContext {
@@ -4193,6 +4219,21 @@ object MemoryService {
         val selfObservations = selectSelfObservationsForDisclosure(userQuery)
         selfMemories.forEach { memory ->
             DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.25, Config.memoryMaxStrength)
+        }
+        // Observation-only: when model recall fell back to local recall, record which nodes
+        // the local stack actually injected onto the same trace row, for offline comparison
+        // of model-vs-local recall divergence. No fusion/boost is applied to the local path.
+        if (!useModelRecall && modelRecall != null && modelRecall.traceId != null && modelRecall.traceId > 0) {
+            val fallbackDebug = buildJsonObject {
+                put("local_fallback_injected_uris", buildJsonArray { recalled.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_fallback_injected_count", recalled.size)
+                put("local_fallback_person_context_uris", buildJsonArray { personContext.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_fallback_self_uris", buildJsonArray { selfMemories.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_fallback_dream_uris", buildJsonArray { dreamTraces.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("fallback_reason", modelRecall.fallbackReason ?: "local_recall_fallback")
+                put("fallback_error", modelRecall.error ?: "")
+            }
+            DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString())
         }
         return CompanionMemoryContext(
             recalled = recalled,

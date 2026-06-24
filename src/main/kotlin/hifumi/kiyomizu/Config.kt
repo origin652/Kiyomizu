@@ -121,6 +121,27 @@ object Config {
     private val memoryDecayTauHoursRef = AtomicReference(System.getenv("MEMORY_DECAY_TAU_HOURS")?.toDoubleOrNull() ?: 360.0)
     private val memorySalienceKRef = AtomicReference(System.getenv("MEMORY_SALIENCE_K")?.toDoubleOrNull() ?: 1.0)
 
+    // scoreNode weights — env-only tunables (not persisted in Snapshot, not exposed via ConfigApi).
+    // Defaults reproduce the prior hardcoded values in MemoryService.scoreNode exactly.
+    private val memoryKindBiasIdentityRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_IDENTITY")?.toDoubleOrNull() ?: 0.35)
+    private val memoryKindBiasPreferenceRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_PREFERENCE")?.toDoubleOrNull() ?: 0.30)
+    private val memoryKindBiasRelationshipRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_RELATIONSHIP")?.toDoubleOrNull() ?: 0.28)
+    private val memoryKindBiasProjectFactRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_PROJECT_FACT")?.toDoubleOrNull() ?: 0.12)
+    private val memoryKindBiasEpisodicEventRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_EPISODIC_EVENT")?.toDoubleOrNull() ?: 0.08)
+    private val memoryKindBiasWorkingMemoryRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_WORKING_MEMORY")?.toDoubleOrNull() ?: 0.06)
+    private val memoryKindBiasDefaultRef = AtomicReference(System.getenv("MEMORY_KIND_BIAS_DEFAULT")?.toDoubleOrNull() ?: 0.10)
+    private val memoryScoreOverlapWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_OVERLAP_WEIGHT")?.toDoubleOrNull() ?: 2.6)
+    private val memoryScoreTriggerHitsWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_TRIGGER_HITS_WEIGHT")?.toDoubleOrNull() ?: 0.35)
+    private val memoryScoreUriHitsWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_URI_HITS_WEIGHT")?.toDoubleOrNull() ?: 0.18)
+    private val memoryScorePriorityWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_PRIORITY_WEIGHT")?.toDoubleOrNull() ?: 0.55)
+    private val memoryScoreConfidenceWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_CONFIDENCE_WEIGHT")?.toDoubleOrNull() ?: 0.55)
+    private val memoryScoreRecencyWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_RECENCY_WEIGHT")?.toDoubleOrNull() ?: 0.9)
+    private val memoryScoreSalienceWeightRef = AtomicReference(System.getenv("MEMORY_SCORE_SALIENCE_WEIGHT")?.toDoubleOrNull() ?: 0.2)
+    private val memorySensitivePenaltyRef = AtomicReference(System.getenv("MEMORY_SENSITIVE_PENALTY")?.toDoubleOrNull() ?: -1.2)
+    private val memoryNonDeepEpisodicPenaltyRef = AtomicReference(System.getenv("MEMORY_NON_DEEP_EPISODIC_PENALTY")?.toDoubleOrNull() ?: 0.45)
+    private val memoryWorkingMemoryStaleDaysRef = AtomicReference(System.getenv("MEMORY_WORKING_MEMORY_STALE_DAYS")?.toDoubleOrNull() ?: 14.0)
+    private val memoryWorkingMemoryStalePenaltyRef = AtomicReference(System.getenv("MEMORY_WORKING_MEMORY_STALE_PENALTY")?.toDoubleOrNull() ?: 0.7)
+
     private val memoryRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_RECALL_MAX_NODES")?.toIntOrNull() ?: 6)
     private val memoryDeepRecallEnabledRef = AtomicReference(System.getenv("MEMORY_DEEP_RECALL_ENABLED") != "0")
     private val memoryDeepRecallMaxCandidatesRef = AtomicInteger(System.getenv("MEMORY_DEEP_RECALL_MAX_CANDIDATES")?.toIntOrNull() ?: 40)
@@ -254,6 +275,62 @@ object Config {
     var memorySalienceK: Double
         get() = memorySalienceKRef.get()
         set(value) { memorySalienceKRef.set(value) }
+
+    // scoreNode weights — env-only tunables. See refs above.
+    var memoryKindBiasIdentity: Double
+        get() = memoryKindBiasIdentityRef.get()
+        set(value) { memoryKindBiasIdentityRef.set(value) }
+    var memoryKindBiasPreference: Double
+        get() = memoryKindBiasPreferenceRef.get()
+        set(value) { memoryKindBiasPreferenceRef.set(value) }
+    var memoryKindBiasRelationship: Double
+        get() = memoryKindBiasRelationshipRef.get()
+        set(value) { memoryKindBiasRelationshipRef.set(value) }
+    var memoryKindBiasProjectFact: Double
+        get() = memoryKindBiasProjectFactRef.get()
+        set(value) { memoryKindBiasProjectFactRef.set(value) }
+    var memoryKindBiasEpisodicEvent: Double
+        get() = memoryKindBiasEpisodicEventRef.get()
+        set(value) { memoryKindBiasEpisodicEventRef.set(value) }
+    var memoryKindBiasWorkingMemory: Double
+        get() = memoryKindBiasWorkingMemoryRef.get()
+        set(value) { memoryKindBiasWorkingMemoryRef.set(value) }
+    var memoryKindBiasDefault: Double
+        get() = memoryKindBiasDefaultRef.get()
+        set(value) { memoryKindBiasDefaultRef.set(value) }
+    var memoryScoreOverlapWeight: Double
+        get() = memoryScoreOverlapWeightRef.get()
+        set(value) { memoryScoreOverlapWeightRef.set(value) }
+    var memoryScoreTriggerHitsWeight: Double
+        get() = memoryScoreTriggerHitsWeightRef.get()
+        set(value) { memoryScoreTriggerHitsWeightRef.set(value) }
+    var memoryScoreUriHitsWeight: Double
+        get() = memoryScoreUriHitsWeightRef.get()
+        set(value) { memoryScoreUriHitsWeightRef.set(value) }
+    var memoryScorePriorityWeight: Double
+        get() = memoryScorePriorityWeightRef.get()
+        set(value) { memoryScorePriorityWeightRef.set(value) }
+    var memoryScoreConfidenceWeight: Double
+        get() = memoryScoreConfidenceWeightRef.get()
+        set(value) { memoryScoreConfidenceWeightRef.set(value) }
+    var memoryScoreRecencyWeight: Double
+        get() = memoryScoreRecencyWeightRef.get()
+        set(value) { memoryScoreRecencyWeightRef.set(value) }
+    var memoryScoreSalienceWeight: Double
+        get() = memoryScoreSalienceWeightRef.get()
+        set(value) { memoryScoreSalienceWeightRef.set(value) }
+    var memorySensitivePenalty: Double
+        get() = memorySensitivePenaltyRef.get()
+        set(value) { memorySensitivePenaltyRef.set(value) }
+    var memoryNonDeepEpisodicPenalty: Double
+        get() = memoryNonDeepEpisodicPenaltyRef.get()
+        set(value) { memoryNonDeepEpisodicPenaltyRef.set(value) }
+    var memoryWorkingMemoryStaleDays: Double
+        get() = memoryWorkingMemoryStaleDaysRef.get()
+        set(value) { memoryWorkingMemoryStaleDaysRef.set(value) }
+    var memoryWorkingMemoryStalePenalty: Double
+        get() = memoryWorkingMemoryStalePenaltyRef.get()
+        set(value) { memoryWorkingMemoryStalePenaltyRef.set(value) }
 
     var memoryRecallMaxNodes: Int
         get() = memoryRecallMaxNodesRef.get()

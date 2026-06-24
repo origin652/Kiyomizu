@@ -1,6 +1,7 @@
 package hifumi.kiyomizu
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
@@ -95,6 +96,25 @@ class CompanionTest {
         Config.memoryTimelineRecallEnabled = true
         Config.memorySummarySanitizeInternalPrompts = true
         Config.memorySummaryKey = ""
+        // scoreNode weights (env-only tunables) — reset to defaults to avoid cross-test leakage.
+        Config.memoryKindBiasIdentity = 0.35
+        Config.memoryKindBiasPreference = 0.30
+        Config.memoryKindBiasRelationship = 0.28
+        Config.memoryKindBiasProjectFact = 0.12
+        Config.memoryKindBiasEpisodicEvent = 0.08
+        Config.memoryKindBiasWorkingMemory = 0.06
+        Config.memoryKindBiasDefault = 0.10
+        Config.memoryScoreOverlapWeight = 2.6
+        Config.memoryScoreTriggerHitsWeight = 0.35
+        Config.memoryScoreUriHitsWeight = 0.18
+        Config.memoryScorePriorityWeight = 0.55
+        Config.memoryScoreConfidenceWeight = 0.55
+        Config.memoryScoreRecencyWeight = 0.9
+        Config.memoryScoreSalienceWeight = 0.2
+        Config.memorySensitivePenalty = -1.2
+        Config.memoryNonDeepEpisodicPenalty = 0.45
+        Config.memoryWorkingMemoryStaleDays = 14.0
+        Config.memoryWorkingMemoryStalePenalty = 0.7
     }
 
     private fun insertNode(
@@ -199,8 +219,16 @@ class CompanionTest {
             keywords = listOf("temporary"),
             strength = 0.05
         )
+        // Mirror production ordering: realize lazy decay first (no-op for a freshly
+        // inserted node whose last_accessed_at == now), then archive below-threshold nodes.
+        MemoryService.applyLazyStrengthDecay()
         DatabaseService.decayGraphMemoryNodes(0.1)
-        assertEquals(2, DatabaseService.getGraphNodeCount(), "below-threshold working memory should be removed")
+        assertEquals(2, DatabaseService.getGraphNodeCount("active"), "below-threshold working memory should be archived, not deleted")
+        assertEquals(1, DatabaseService.getGraphNodeCount("archived"), "archived working memory should sit in archived status")
+        assertTrue(
+            DatabaseService.listRecycleBin(20).any { it.uri == "working://auto/throwaway" },
+            "archived node should leave a recycle-bin row"
+        )
     }
 
     @Test
@@ -831,6 +859,166 @@ class CompanionTest {
         assertEquals("text", tailContent[0].jsonObject["type"]?.jsonPrimitive?.content)
         assertTrue(
             tailContent[0].jsonObject["text"]?.jsonPrimitive?.content?.contains("Kiyomizu Companion Core") == true
+        )
+    }
+
+    @Test
+    fun scoreNodeWeightDefaultsReproducePriorHardcodedValues() {
+        resetConfig()
+        // Guards against drift: these Config defaults must equal the constants
+        // previously hardcoded inside MemoryService.scoreNode.
+        assertEquals(0.35, Config.memoryKindBiasIdentity, 1e-9)
+        assertEquals(0.30, Config.memoryKindBiasPreference, 1e-9)
+        assertEquals(0.28, Config.memoryKindBiasRelationship, 1e-9)
+        assertEquals(0.12, Config.memoryKindBiasProjectFact, 1e-9)
+        assertEquals(0.08, Config.memoryKindBiasEpisodicEvent, 1e-9)
+        assertEquals(0.06, Config.memoryKindBiasWorkingMemory, 1e-9)
+        assertEquals(0.10, Config.memoryKindBiasDefault, 1e-9)
+        assertEquals(2.6, Config.memoryScoreOverlapWeight, 1e-9)
+        assertEquals(0.35, Config.memoryScoreTriggerHitsWeight, 1e-9)
+        assertEquals(0.18, Config.memoryScoreUriHitsWeight, 1e-9)
+        assertEquals(0.55, Config.memoryScorePriorityWeight, 1e-9)
+        assertEquals(0.55, Config.memoryScoreConfidenceWeight, 1e-9)
+        assertEquals(0.9, Config.memoryScoreRecencyWeight, 1e-9)
+        assertEquals(0.2, Config.memoryScoreSalienceWeight, 1e-9)
+        assertEquals(-1.2, Config.memorySensitivePenalty, 1e-9)
+        assertEquals(0.45, Config.memoryNonDeepEpisodicPenalty, 1e-9)
+        assertEquals(14.0, Config.memoryWorkingMemoryStaleDays, 1e-9)
+        assertEquals(0.7, Config.memoryWorkingMemoryStalePenalty, 1e-9)
+    }
+
+    @Test
+    fun scoreNodeOverlapWeightZeroSuppressesOverlapMatches() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryRecallMaxNodes = 6
+        insertNode(
+            uri = "preference://drink/tea",
+            kind = "preference",
+            content = "The user prefers tea.",
+            keywords = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        MemoryService.rebuildMemoryIndex()
+
+        // The overlap weight contributes positively to a node's recall score when its terms
+        // overlap the query. Compare the recalled score for the same node under a high vs a
+        // near-zero overlap weight (all other weights at default): the high-weight case must
+        // score strictly higher, proving Config.memoryScoreOverlapWeight actually flows into
+        // the score rather than being dead config.
+        Config.memoryScoreOverlapWeight = 3.0
+        val high = MemoryService.buildCompanionMemoryContext("tea").recalled
+            .firstOrNull { it.memory.uri == "preference://drink/tea" }
+        Config.memoryScoreOverlapWeight = 0.05
+        val low = MemoryService.buildCompanionMemoryContext("tea").recalled
+            .firstOrNull { it.memory.uri == "preference://drink/tea" }
+        Config.memoryScoreOverlapWeight = 2.6
+
+        assertNotNull(high, "high overlap weight should surface the tea node")
+        assertNotNull(low, "low overlap weight should still surface the tea node (other paths contribute)")
+        // The overlap contribution is `overlap * weight`, so raising the weight from 0.05 to
+        // 3.0 must strictly raise the node's recall score for the same query.
+        assertTrue(
+            high!!.score > low!!.score,
+            "overlap weight must raise the score: high=${high.score} low=${low.score}"
+        )
+    }
+
+    @Test
+    fun applyLazyStrengthDecayPersistsDecayedStrength() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        Config.memorySalienceK = 1.0
+        val nodeId = insertNode(
+            uri = "preference://food/drink/coffee",
+            kind = "preference",
+            content = "The user likes coffee.",
+            keywords = listOf("coffee"),
+            strength = 1.0,
+            emotionValence = 0.5,
+            emotionArousal = 0.3
+        )
+        // Backdate the node 30 days so lazyStrength has room to decay. Use the same
+        // strength-persisting helper to set both the peak strength and last_accessed_at.
+        val now = Instant.now().epochSecond
+        val thirtyDaysAgo = now - 30L * 24 * 3600
+        DatabaseService.updateMemoryNodeStrength(nodeId, 1.0, thirtyDaysAgo)
+
+        val before = DatabaseService.getMemoryNodeById(nodeId)
+        assertNotNull(before)
+        assertEquals(1.0, before.strength, 1e-9)
+        val lazyBefore = MemoryService.lazyStrength(before, now)
+        assertTrue(lazyBefore < 1.0, "sanity: lazyStrength should be < 1 after 30d, got $lazyBefore")
+
+        MemoryService.applyLazyStrengthDecay(now)
+
+        val after = DatabaseService.getMemoryNodeById(nodeId)
+        assertNotNull(after)
+        assertTrue(after.strength < 1.0, "persisted strength should decay below 1.0, got ${after.strength}")
+        assertTrue(after.lastAccessedAt >= now - 5, "last_accessed_at should be realized to now, got ${after.lastAccessedAt}")
+        // The persisted strength should now match what lazyStrength predicted (tau unchanged).
+        assertEquals(lazyBefore, after.strength, 1e-9)
+
+        // Calling again immediately must be a near-no-op (no double-counting): elapsed ~0.
+        val after2 = DatabaseService.getMemoryNodeById(nodeId)
+        MemoryService.applyLazyStrengthDecay(now)
+        val after3 = DatabaseService.getMemoryNodeById(nodeId)
+        assertNotNull(after3)
+        assertEquals(after2!!.strength, after3!!.strength, 1e-9, "immediate re-decay must not double-count")
+    }
+
+    @Test
+    fun localRecallFallbackRecordsInjectedUris() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryRecallMaxNodes = 6
+        // Force model recall down the failure path (which writes a trace): enable it with a
+        // non-blank key but point the URL at a loopback address that Security rejects, so
+        // callRecallModel returns null -> recall_model_empty_response -> modelRecallFailure ->
+        // a trace row with fallback_reason=local_recall_fallback, and the local stack runs.
+        Config.memoryModelRecallEnabled = true
+        Config.memoryRecallModelUrl = "https://127.0.0.1"
+        Config.memoryRecallModelKey = "test-key"
+        Config.memoryRecallModelModel = "test-model"
+
+        insertNode(
+            uri = "preference://food/drink/tea",
+            kind = "preference",
+            content = "The user prefers tea.",
+            keywords = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        MemoryService.rebuildMemoryIndex()
+
+        val query = "tea"
+        val context = MemoryService.buildCompanionMemoryContext(query)
+        assertTrue(
+            context.recalled.any { it.memory.uri == "preference://food/drink/tea" },
+            context.recalled.joinToString("\n") { it.memory.uri }
+        )
+
+        val traces = DatabaseService.getRecentModelRecallTraces(10)
+        // Exactly one trace row for this query — guards against the double-INSERT pattern.
+        assertEquals(1, traces.count { it.query == query }, "expected a single trace row per fallback event")
+        val trace = traces.first { it.query == query }
+        assertEquals("local_recall_fallback", trace.fallbackReason)
+        assertNotNull(trace.debugJson, "fallback trace should carry debug_json")
+        val debug = Json.parseToJsonElement(trace.debugJson).jsonObject
+        val injected = debug["local_fallback_injected_uris"]?.jsonArray
+        assertNotNull(injected, "debug_json should include local_fallback_injected_uris")
+        assertTrue(
+            injected!!.any { it.jsonPrimitive.content == "preference://food/drink/tea" },
+            "injected URIs should include the recalled tea node: $injected"
         )
     }
 }

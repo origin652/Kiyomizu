@@ -2986,28 +2986,72 @@ object DatabaseService {
         }
     }
 
-    fun decayGraphMemoryNodes(threshold: Double) {
+    /**
+     * Persist the lazily-decayed strength back onto the node, resetting last_accessed_at to
+     * `now` so the next lazyStrength computation does not double-count the elapsed time.
+     * Called by MemoryService.applyLazyStrengthDecay before the decay job judges which
+     * nodes to archive.
+     */
+    fun updateMemoryNodeStrength(nodeId: Int, strength: Double, lastAccessedAt: Long) {
         getConnection().use { conn ->
             conn.prepareStatement("""
-                DELETE FROM memory_nodes
+                UPDATE memory_nodes
+                SET strength = ?, last_accessed_at = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setDouble(1, strength)
+                pstmt.setLong(2, lastAccessedAt)
+                pstmt.setInt(3, nodeId)
+                pstmt.executeUpdate()
+            }
+        }
+    }
+
+    /**
+     * All active graph nodes (no self-uri filter — self nodes decay too; the exemption
+     * applies only at the archive step in decayGraphMemoryNodes). Used by
+     * MemoryService.applyLazyStrengthDecay to persist decayed strength per-node (tau is
+     * salience-dependent and computed in MemoryService, so it cannot be expressed in SQL).
+     */
+    fun getActiveGraphMemoryNodesForDecay(): List<MemoryNodeRecord> {
+        val list = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT * FROM memory_nodes
+                WHERE status = 'active'
+            """.trimIndent()).use { pstmt ->
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryNode(rs))
+            }
+        }
+        return list
+    }
+
+    fun decayGraphMemoryNodes(threshold: Double) {
+        // Archive (route through recycle bin) instead of hard-deleting. Archiving keeps the
+        // row so memory_nodes_fts stays in sync and edges don't go dangling; recall already
+        // filters status='active' so archived nodes won't surface. The recycle bin row lets
+        // compressExpiredRecycleBin tombstone and later purge them on its own schedule.
+        val toArchive = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT * FROM memory_nodes
                 WHERE status = 'active'
                   AND strength < ?
                   AND uri NOT LIKE 'self://%'
                   AND COALESCE(person_uri, '') != 'person://self/kiyomizu'
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, threshold)
-                pstmt.executeUpdate()
+                val rs = pstmt.executeQuery()
+                while (rs.next()) toArchive.add(readMemoryNode(rs))
             }
-            try {
-                conn.createStatement().use { stmt ->
-                    stmt.execute("""
-                        DELETE FROM memory_nodes_fts
-                        WHERE node_id NOT IN (SELECT id FROM memory_nodes)
-                    """.trimIndent())
-                }
-            } catch (_: Exception) {
-                // Optional FTS table.
-            }
+        }
+        for (node in toArchive) {
+            archiveMemoryNodeToRecycle(
+                node,
+                reason = "decay_below_threshold",
+                retentionDays = Config.memoryRecycleRetentionDays
+            )
         }
     }
 
@@ -3333,6 +3377,27 @@ object DatabaseService {
             }
         }
         return -1
+    }
+
+    /**
+     * Overwrite the debug_json of an existing model-recall trace (e.g. to record what the
+     * local fallback ended up injecting after a model-recall failure). No-op for traceId <= 0
+     * (insertModelRecallTrace returns -1 on failure). Does not run the retention DELETE — the
+     * row already exists, so row count is unchanged.
+     */
+    fun updateModelRecallTraceDebugJson(traceId: Int, debugJson: String) {
+        if (traceId <= 0) return
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                UPDATE memory_model_recall_traces
+                SET debug_json = ?
+                WHERE id = ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setNullableString(1, debugJson)
+                pstmt.setInt(2, traceId)
+                pstmt.executeUpdate()
+            }
+        }
     }
 
     fun getRecentModelRecallTraces(limit: Int): List<ModelRecallTraceRecord> {
