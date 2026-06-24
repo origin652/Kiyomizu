@@ -1151,8 +1151,15 @@ object MemoryService {
         )
     }
 
+    private val frameworkInstructionMemoryGuard = """
+        Framework/tool instruction filtering:
+        - Do not create memory observations from framework, system, developer, tool-maintenance, skill-management, memory-management, or agent-instruction prompts.
+        - Ignore instructions about how an agent should use tools, update skills, manage protected skills, call memory tools, shape a skill library, or decide whether "Nothing to save." applies.
+        - If the recent conversation is only framework/tool instructions and contains no durable user fact, preference, relationship, project state, or explicit remember request, return an empty observations array with neutral relationship deltas.
+    """.trimIndent()
+
     private suspend fun fetchSummarizationAndStateUpdate(history: String): JsonObject? {
-        val response = callSummaryModel("${Config.memorySummaryPrompt}\n\nRecent Conversation:\n$history", requireJson = true)
+        val response = callSummaryModel("${Config.memorySummaryPrompt}\n\n$frameworkInstructionMemoryGuard\n\nRecent Conversation:\n$history", requireJson = true)
             ?: return null
         val cleaned = cleanJsonString(response)
         val parsed = Json.parseToJsonElement(cleaned) as? JsonObject
@@ -2941,40 +2948,23 @@ object MemoryService {
         saveSummaryEdgesBetweenExistingNodes(summaryEdges)
     }
 
-    fun extractAndSaveMemoriesAsync(
-        path: String,
-        originalJson: JsonObject,
-        responseText: String,
-        trafficDecision: MemoryTrafficClassifier.Decision? = null
-    ) {
+    fun extractAndSaveMemoriesAsync(path: String, originalJson: JsonObject, responseText: String) {
         if (!Config.memoryEnabled) return
 
         scope.launch {
             try {
                 val userText = MessagePatcher.extractLatestUserText(path, originalJson)?.trim().orEmpty()
                 if (userText.isEmpty()) return@launch
-                val primaryDecision = trafficDecision ?: MemoryTrafficClassifier.classify(path, originalJson, userText)
-                if (!primaryDecision.actions.extractMemory) {
-                    println("Skipping memory extraction for traffic_class=${primaryDecision.wireClass}: ${primaryDecision.reasons.joinToString(",")}")
-                    return@launch
-                }
-                val evidenceDecision = MemoryTrafficClassifier.shouldRejectEvidence(path, originalJson, userText, responseText)
-                if (!evidenceDecision.actions.extractMemory) {
-                    println("Skipping memory extraction after evidence filter for traffic_class=${evidenceDecision.wireClass}: ${evidenceDecision.reasons.joinToString(",")}")
-                    return@launch
-                }
                 tryApplyDirectSelfUpdate(userText)
                 if (responseText.isBlank()) return@launch
 
                 val history = "User: $userText\nAssistant: $responseText"
                 val result = fetchSummarizationAndStateUpdate(history) ?: return@launch
 
-                if (primaryDecision.actions.updateAffect) {
-                    val intimacyDelta = result["intimacy_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-                    val trustDelta = result["trust_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-                    val mood = result["mood"]?.jsonPrimitive?.contentOrNull ?: "neutral"
-                    DatabaseService.applyRelationshipDelta(intimacyDelta, trustDelta, mood)
-                }
+                val intimacyDelta = result["intimacy_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                val trustDelta = result["trust_delta"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                val mood = result["mood"]?.jsonPrimitive?.contentOrNull ?: "neutral"
+                DatabaseService.applyRelationshipDelta(intimacyDelta, trustDelta, mood)
 
                 val summaryNodes = parseSummaryNodes(result)
                 val summaryEdges = parseSummaryEdges(result)
@@ -3176,10 +3166,7 @@ object MemoryService {
             .take(Config.memoryPersonContextMaxClues)
     }
 
-    private suspend fun normalRecall(
-        context: RecallContext,
-        updateAccess: Boolean = true
-    ): Pair<List<RecalledMemory>, List<RecalledMemory>> {
+    private suspend fun normalRecall(context: RecallContext): Pair<List<RecalledMemory>, List<RecalledMemory>> {
         val now = Instant.now().epochSecond
         val limit = Config.memoryRecallMaxNodes.coerceAtLeast(0)
         if (limit == 0) return emptyList<RecalledMemory>() to emptyList()
@@ -3208,10 +3195,8 @@ object MemoryService {
             .take(limit)
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
-        if (updateAccess) {
-            (recalled + personContext).forEach { memory ->
-                DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
-            }
+        (recalled + personContext).forEach { memory ->
+            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
         }
         return recalled to personContext
     }
@@ -3769,20 +3754,6 @@ object MemoryService {
             dreamTraces = dreamTraces,
             selfMemories = selfMemories,
             selfObservations = selfObservations
-        )
-    }
-
-    suspend fun buildTaskMemoryContext(userQuery: String): CompanionMemoryContext {
-        if (!Config.memoryEnabled) return CompanionMemoryContext(emptyList(), emptyList(), null, emptyList(), emptyList(), emptyList())
-        val context = buildRecallContext(userQuery, deepRecall = false)
-        val (recalled, personContext) = normalRecall(context, updateAccess = false)
-        return CompanionMemoryContext(
-            recalled = recalled,
-            personContext = personContext,
-            deepRecall = null,
-            dreamTraces = emptyList(),
-            selfMemories = emptyList(),
-            selfObservations = emptyList()
         )
     }
 

@@ -103,13 +103,7 @@ object ProxyService {
         ignoreUnknownKeys = true
     }
 
-    fun logRequest(
-        method: String,
-        pathname: String,
-        originalBody: JsonObject,
-        patchedBody: JsonObject,
-        memoryTraffic: MemoryTrafficClassifier.Decision? = null
-    ): Int? {
+    fun logRequest(method: String, pathname: String, originalBody: JsonObject, patchedBody: JsonObject): Int? {
         val originalSummary = summarizeBody(originalBody)
         val patchedSummary = summarizeBody(patchedBody)
         val changed = originalSummary != patchedSummary
@@ -129,12 +123,6 @@ object ProxyService {
             put("method", method)
             put("pathname", pathname)
             put("patched", changed)
-            memoryTraffic?.let {
-                put("memory_traffic_class", it.wireClass)
-                put("memory_traffic_confidence", it.confidence)
-                put("memory_traffic_reasons", it.reasonsJsonString())
-                put("memory_actions", it.actions.toJsonString())
-            }
             if (originalThinking != null && patchedThinking != null) {
                 put("removed_thinking_blocks", removedThinking)
             }
@@ -157,11 +145,7 @@ object ProxyService {
                 cacheStrategy = Config.cacheStrategy,
                 cacheBreakpoints = Config.cacheBreakpoints,
                 cacheBreakpointIndexes = breakpointIndexes,
-                patchEligible = patchEligible,
-                memoryTrafficClass = memoryTraffic?.wireClass,
-                memoryTrafficConfidence = memoryTraffic?.confidence,
-                memoryTrafficReasons = memoryTraffic?.reasonsJsonString(),
-                memoryActions = memoryTraffic?.actions?.toJsonString()
+                patchEligible = patchEligible
             )
         } catch (e: Exception) {
             System.err.println("Failed to persist request log: ${e.message}")

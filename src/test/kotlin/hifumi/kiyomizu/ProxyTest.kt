@@ -8,7 +8,6 @@ import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -75,17 +74,6 @@ class ProxyTest {
         Config.memorySelfDirectUpdateEnabled = true
         Config.memorySelfRecallMaxNodes = 8
         Config.memorySelfPromoteRepeatThreshold = 3
-        Config.memoryModelRecallEnabled = false
-        Config.memoryRecallModelUrl = ""
-        Config.memoryRecallModelKey = ""
-        Config.memoryRecallModelModel = ""
-        Config.memoryModelRecallFailureThreshold = 3
-        Config.memoryModelRecallCooldownSeconds = 300
-        Config.memoryModelRecallTraceRetention = 200
-        Config.memoryTrafficClassifierEnabled = true
-        Config.memoryToolInternalBypassEnabled = true
-        Config.memoryUnknownDisableWrite = true
-        Config.memoryTaskDisableAffect = true
     }
 
     @Test
@@ -209,37 +197,6 @@ class ProxyTest {
             ProxyService.cleanHeaders(headersOf("Authorization", "Token raw-custom-header"))
         )
         assertEquals(listOf("Authorization" to "Token raw-custom-header"), adjustedHeaders)
-    }
-
-    @Test
-    fun toolInternalRequestBypassesCompanionPromptInjection() {
-        resetConfig()
-        Config.preset = "custom"
-        Config.upstream = "https://llm.example.test"
-        Config.memoryEnabled = true
-
-        val hermesPrompt = """
-            Review the conversation above and update the skill library.
-            You can only call memory and skill management tools.
-            Protected skills must not be changed.
-        """.trimIndent()
-        val request = buildJsonObject {
-            put("model", "gpt-4.1")
-            put("messages", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "user")
-                    put("content", hermesPrompt)
-                })
-            })
-        }
-
-        val patched = patch("/v1/chat/completions", request)
-        val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
-        assertNotNull(messages)
-        assertEquals(1, messages.size)
-        val content = messages.single()["content"]?.jsonPrimitive?.content
-        assertEquals(hermesPrompt, content)
-        assertFalse(content.orEmpty().contains("Kiyomizu Companion Core"))
     }
 
     @Test

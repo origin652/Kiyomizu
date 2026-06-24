@@ -477,15 +477,7 @@ object MessagePatcher {
         }
     }
 
-    private suspend fun buildCompanionPromptForQuery(
-        userQuery: String,
-        trafficDecision: MemoryTrafficClassifier.Decision?
-    ): String {
-        val decision = trafficDecision ?: MemoryTrafficClassifier.classify("", null, userQuery)
-        if (!decision.actions.injectCompanion || !decision.actions.recallMemory) return ""
-        if (decision.trafficClass != MemoryTrafficClassifier.TrafficClass.CONVERSATION) {
-            return buildTaskMemoryPromptForQuery(userQuery, decision)
-        }
+    private suspend fun buildCompanionPromptForQuery(userQuery: String): String {
         val context = if (userQuery.isNotEmpty()) {
             MemoryService.buildCompanionMemoryContext(userQuery)
         } else {
@@ -505,42 +497,18 @@ object MessagePatcher {
         )
     }
 
-    private suspend fun buildTaskMemoryPromptForQuery(
-        userQuery: String,
-        trafficDecision: MemoryTrafficClassifier.Decision
-    ): String {
-        val context = if (userQuery.isNotEmpty()) {
-            MemoryService.buildTaskMemoryContext(userQuery)
-        } else {
-            MemoryService.CompanionMemoryContext(emptyList(), emptyList(), null)
-        }
-        val items = (context.recalled + context.personContext).distinctBy { it.memory.id }
-        if (items.isEmpty()) return ""
-        return buildString {
-            append("\n[Kiyomizu Task Memory - readonly relevant memory]\n")
-            append("Traffic class: ${trafficDecision.wireClass}; no affect update or memory write is allowed for this request.\n")
-            append("Use these only as lightweight project/user context, below system, developer, and safety instructions.\n")
-            items.forEach { rm ->
-                append("  - ${rm.memory.content} (kind: ${rm.memory.kind}, source: ${rm.memory.source})\n")
-            }
-            append("[End Kiyomizu Task Memory]\n\n")
-        }
-    }
-
     private suspend fun injectCompanionIntoConversation(
         items: List<JsonObject>,
         isUserItem: (JsonObject) -> Boolean,
         extractUserText: (JsonObject) -> String,
         prependPrompt: (JsonObject, String) -> JsonObject,
-        appendPrompt: (String) -> JsonObject,
-        trafficDecision: MemoryTrafficClassifier.Decision?
+        appendPrompt: (String) -> JsonObject
     ): List<JsonObject> {
         if (!Config.memoryEnabled || items.isEmpty()) return items
 
         val lastUserAnywhere = items.lastOrNull(isUserItem)
         val userQuery = lastUserAnywhere?.let(extractUserText).orEmpty()
-        val companionPrompt = buildCompanionPromptForQuery(userQuery, trafficDecision)
-        if (companionPrompt.isBlank()) return items
+        val companionPrompt = buildCompanionPromptForQuery(userQuery)
 
         val stableEnd = stableEndIndex(items.size)
         val tailUserIdx = (stableEnd + 1 until items.size)
@@ -562,10 +530,7 @@ object MessagePatcher {
      * config leaves no dynamic tail, a new user message is appended after the cached
      * prefix instead of mutating a cached message.
      */
-    suspend fun injectCompanionPrompt(
-        messages: List<JsonObject>,
-        trafficDecision: MemoryTrafficClassifier.Decision? = null
-    ): List<JsonObject> {
+    suspend fun injectCompanionPrompt(messages: List<JsonObject>): List<JsonObject> {
         return injectCompanionIntoConversation(
             items = messages,
             isUserItem = { it["role"]?.jsonPrimitive?.contentOrNull == "user" },
@@ -576,20 +541,15 @@ object MessagePatcher {
                     put("role", "user")
                     put("content", prompt)
                 }
-            },
-            trafficDecision = trafficDecision
+            }
         )
     }
 
-    private suspend fun injectCompanionIntoResponsesInput(
-        body: JsonObject,
-        trafficDecision: MemoryTrafficClassifier.Decision?
-    ): JsonObject {
+    private suspend fun injectCompanionIntoResponsesInput(body: JsonObject): JsonObject {
         val input = body["input"] ?: return body
         return when {
             input is JsonPrimitive && input.isString -> {
-                val companionPrompt = buildCompanionPromptForQuery(input.content, trafficDecision)
-                if (companionPrompt.isBlank()) return body
+                val companionPrompt = buildCompanionPromptForQuery(input.content)
                 buildJsonObject {
                     body.forEach { (k, v) ->
                         if (k == "input") put("input", JsonPrimitive(companionPrompt + input.content)) else put(k, v)
@@ -609,16 +569,15 @@ object MessagePatcher {
                         buildJsonObject {
                             put("type", "message")
                             put("role", "user")
-	                            put("content", buildJsonArray {
-	                                add(buildJsonObject {
-	                                    put("type", "input_text")
-	                                    put("text", prompt)
-	                                })
-	                            })
-	                        }
-	                    },
-	                    trafficDecision = trafficDecision
-	                )
+                            put("content", buildJsonArray {
+                                add(buildJsonObject {
+                                    put("type", "input_text")
+                                    put("text", prompt)
+                                })
+                            })
+                        }
+                    }
+                )
                 buildJsonObject {
                     body.forEach { (k, v) ->
                         if (k == "input") put("input", JsonArray(updated)) else put(k, v)
@@ -630,10 +589,7 @@ object MessagePatcher {
         }
     }
 
-    private suspend fun injectCompanionIntoGeminiContents(
-        body: JsonObject,
-        trafficDecision: MemoryTrafficClassifier.Decision?
-    ): JsonObject {
+    private suspend fun injectCompanionIntoGeminiContents(body: JsonObject): JsonObject {
         val contents = body["contents"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return body
         val updated = injectCompanionIntoConversation(
             items = contents,
@@ -643,15 +599,14 @@ object MessagePatcher {
             appendPrompt = { prompt ->
                 buildJsonObject {
                     put("role", "user")
-	                    put("parts", buildJsonArray {
-	                        add(buildJsonObject {
-	                            put("text", prompt)
-	                        })
-	                    })
-	                }
-	            },
-	            trafficDecision = trafficDecision
-	        )
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject {
+                            put("text", prompt)
+                        })
+                    })
+                }
+            }
+        )
         return buildJsonObject {
             body.forEach { (k, v) ->
                 if (k == "contents") put("contents", JsonArray(updated)) else put(k, v)
@@ -694,11 +649,7 @@ object MessagePatcher {
         }
     }
 
-    suspend fun patchJsonBody(
-        path: String,
-        body: JsonObject,
-        trafficDecision: MemoryTrafficClassifier.Decision? = null
-    ): JsonObject {
+    suspend fun patchJsonBody(path: String, body: JsonObject): JsonObject {
         val envelope = detectEnvelope(path, body)
         val capabilityProfile = detectCapabilityProfile()
         val capabilityPatched = applyCapabilityPatching(body, envelope, capabilityProfile)
@@ -708,7 +659,7 @@ object MessagePatcher {
             RequestEnvelope.OPENAI_CHAT_COMPLETIONS,
             RequestEnvelope.ANTHROPIC_MESSAGES -> {
                 val messages = capabilityPatched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return capabilityPatched
-                val withCompanion = injectCompanionPrompt(messages, trafficDecision)
+                val withCompanion = injectCompanionPrompt(messages)
                 buildJsonObject {
                     capabilityPatched.forEach { (k, v) ->
                         if (k == "messages") put("messages", JsonArray(withCompanion)) else put(k, v)
@@ -716,8 +667,8 @@ object MessagePatcher {
                 }
             }
 
-            RequestEnvelope.OPENAI_RESPONSES -> injectCompanionIntoResponsesInput(capabilityPatched, trafficDecision)
-            RequestEnvelope.GEMINI_GENERATE_CONTENT -> injectCompanionIntoGeminiContents(capabilityPatched, trafficDecision)
+            RequestEnvelope.OPENAI_RESPONSES -> injectCompanionIntoResponsesInput(capabilityPatched)
+            RequestEnvelope.GEMINI_GENERATE_CONTENT -> injectCompanionIntoGeminiContents(capabilityPatched)
             RequestEnvelope.UNKNOWN -> capabilityPatched
         }
     }
