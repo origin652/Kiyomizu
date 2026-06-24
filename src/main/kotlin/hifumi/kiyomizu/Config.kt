@@ -148,6 +148,26 @@ object Config {
     private val memoryStabilityMinRef = AtomicReference(System.getenv("MEMORY_STABILITY_MIN")?.toDoubleOrNull() ?: 1.0)
     private val memoryStabilityMaxRef = AtomicReference(System.getenv("MEMORY_STABILITY_MAX")?.toDoubleOrNull() ?: 8.0)
     private val memoryStabilityRegressRateRef = AtomicReference(System.getenv("MEMORY_STABILITY_REGRESS_RATE")?.toDoubleOrNull() ?: 0.05)
+    // spacing effect (FSRS): when a node is recalled while nearly forgotten (low retrievability), stability grows
+    // more. multiplier = (1 + spacingK*(1-R)). default 0 => multiplier 1 => no spacing, behavior identical to round 1.
+    private val memoryStabilitySpacingKRef = AtomicReference(System.getenv("MEMORY_STABILITY_SPACING_K")?.toDoubleOrNull() ?: 0.0)
+    // stabilization decay (FSRS): the larger stability already is, the smaller each recall's incremental growth.
+    // multiplier = (1 - decayK * stability/(stability+1)). default 0 => multiplier 1 => no decay, behavior identical to round 1.
+    private val memoryStabilityStabilizationDecayRef = AtomicReference(System.getenv("MEMORY_STABILITY_STABILIZATION_DECAY")?.toDoubleOrNull() ?: 0.0)
+    // working_memory→factual consolidation: when a project's active working_memory node count reaches this
+    // fraction of memoryWorkingMemorySlotsPerProject, buildMaintenanceSuggestions emits a "consolidate"
+    // suggestion feeding create_consolidated_node. default 1.0 = only at full slot capacity.
+    private val memoryConsolidationWmThresholdRef = AtomicReference(System.getenv("MEMORY_CONSOLIDATION_WM_THRESHOLD")?.toDoubleOrNull() ?: 1.0)
+    // B-档 feedback signal (env-only): detect user corrections to previously-injected memories and penalize
+    // their stability. All default-off / default-safe so behavior is identical to round 1 until enabled.
+    private val memoryFeedbackCorrectionEnabledRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_CORRECTION_ENABLED") == "1")
+    private val memoryFeedbackCorrectionPatternsRef = AtomicReference(
+        System.getenv("MEMORY_FEEDBACK_CORRECTION_PATTERNS")
+            ?.takeIf { it.isNotBlank() }
+            ?: "不是这个;不是这样;记错了;我没说过;你记错了;不对;that's not right;I never said that;you remembered it wrong;wrong"
+    )
+    private val memoryFeedbackPenaltyKRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_PENALTY_K")?.toDoubleOrNull() ?: 0.3)
+    private val memoryFeedbackResolveLookbackHoursRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_RESOLVE_LOOKBACK_HOURS")?.toDoubleOrNull() ?: 48.0)
 
     private val memoryRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_RECALL_MAX_NODES")?.toIntOrNull() ?: 6)
     private val memoryDeepRecallEnabledRef = AtomicReference(System.getenv("MEMORY_DEEP_RECALL_ENABLED") != "0")
@@ -351,6 +371,27 @@ object Config {
     var memoryStabilityRegressRate: Double
         get() = memoryStabilityRegressRateRef.get()
         set(value) { memoryStabilityRegressRateRef.set(value) }
+    var memoryStabilitySpacingK: Double
+        get() = memoryStabilitySpacingKRef.get()
+        set(value) { memoryStabilitySpacingKRef.set(value) }
+    var memoryStabilityStabilizationDecay: Double
+        get() = memoryStabilityStabilizationDecayRef.get()
+        set(value) { memoryStabilityStabilizationDecayRef.set(value) }
+    var memoryConsolidationWmThreshold: Double
+        get() = memoryConsolidationWmThresholdRef.get()
+        set(value) { memoryConsolidationWmThresholdRef.set(value) }
+    var memoryFeedbackCorrectionEnabled: Boolean
+        get() = memoryFeedbackCorrectionEnabledRef.get()
+        set(value) { memoryFeedbackCorrectionEnabledRef.set(value) }
+    var memoryFeedbackCorrectionPatterns: String
+        get() = memoryFeedbackCorrectionPatternsRef.get()
+        set(value) { memoryFeedbackCorrectionPatternsRef.set(value) }
+    var memoryFeedbackPenaltyK: Double
+        get() = memoryFeedbackPenaltyKRef.get()
+        set(value) { memoryFeedbackPenaltyKRef.set(value) }
+    var memoryFeedbackResolveLookbackHours: Double
+        get() = memoryFeedbackResolveLookbackHoursRef.get()
+        set(value) { memoryFeedbackResolveLookbackHoursRef.set(value) }
 
     var memoryRecallMaxNodes: Int
         get() = memoryRecallMaxNodesRef.get()

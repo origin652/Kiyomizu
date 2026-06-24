@@ -704,6 +704,18 @@ object DatabaseService {
                 stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN debug_json TEXT")
             }
         }
+        // B-档 feedback signal: the node ids injected this round (JSON array) + when a later round
+        // confirmed/denied them. Existing rows default NULL → no pending feedback, behavior identical to round 1.
+        if ("injected_node_ids" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN injected_node_ids TEXT")
+            }
+        }
+        if ("resolved_at" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN resolved_at INTEGER")
+            }
+        }
     }
 
     private fun ensureRequestLogsSchema(conn: Connection) {
@@ -1243,7 +1255,9 @@ object DatabaseService {
         val fallbackReason: String?,
         val error: String?,
         val durationMs: Int,
-        val debugJson: String?
+        val debugJson: String?,
+        val injectedNodeIds: String? = null,
+        val resolvedAt: Long? = null
     )
 
     data class MemoryObservationRecord(
@@ -2979,7 +2993,13 @@ object DatabaseService {
         return list
     }
 
-    fun updateMemoryNodeAccess(nodeId: Int, strengthDelta: Double, maxStrength: Double) {
+    fun updateMemoryNodeAccess(
+        nodeId: Int,
+        strengthDelta: Double,
+        maxStrength: Double,
+        spacingMultiplier: Double = 1.0,
+        stabilizationMultiplier: Double = 1.0
+    ) {
         val now = Instant.now().epochSecond
         val growthK = Config.memoryStabilityGrowthK
         val maxStability = Config.memoryStabilityMax
@@ -2991,13 +3011,18 @@ object DatabaseService {
         val recoveryAmount = Config.memoryRecoveryAmount
         val normalizedFactor = if (recoveryAmount <= 0.0) 1.0 else (strengthDelta / recoveryAmount)
         val effectiveFactor = normalizedFactor.coerceIn(0.0, 4.0)
+        // spacingMultiplier (FSRS spacing effect) and stabilizationMultiplier (FSRS stabilization decay) are
+        // computed by callers from the node's pre-update retrievability and current stability. Defaults 1.0
+        // reproduce the round-1 stability bump exactly (守零).
+        val spacing = spacingMultiplier.coerceIn(0.0, 2.0)
+        val stabilization = stabilizationMultiplier.coerceIn(0.0, 2.0)
         getConnection().use { conn ->
             conn.prepareStatement("""
                 UPDATE memory_nodes
                 SET strength = MIN(strength + ?, ?),
                     last_accessed_at = ?,
                     access_count = access_count + 1,
-                    stability = MIN(stability * (1.0 + ? * ?), ?)
+                    stability = MIN(stability * (1.0 + ? * ? * ? * ?), ?)
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, strengthDelta)
@@ -3005,8 +3030,10 @@ object DatabaseService {
                 pstmt.setLong(3, now)
                 pstmt.setDouble(4, growthK)
                 pstmt.setDouble(5, effectiveFactor)
-                pstmt.setDouble(6, maxStability)
-                pstmt.setInt(7, nodeId)
+                pstmt.setDouble(6, spacing)
+                pstmt.setDouble(7, stabilization)
+                pstmt.setDouble(8, maxStability)
+                pstmt.setInt(9, nodeId)
                 pstmt.executeUpdate()
             }
         }
@@ -3373,7 +3400,9 @@ object DatabaseService {
             fallbackReason = rs.getString("fallback_reason"),
             error = rs.getString("error"),
             durationMs = rs.getInt("duration_ms"),
-            debugJson = rs.getString("debug_json")
+            debugJson = rs.getString("debug_json"),
+            injectedNodeIds = rs.getString("injected_node_ids"),
+            resolvedAt = rs.getObject("resolved_at")?.let { (it as Number).toLong() }
         )
     }
 
@@ -3387,15 +3416,16 @@ object DatabaseService {
         fallbackReason: String?,
         error: String?,
         durationMs: Int,
-        debugJson: String? = null
+        debugJson: String? = null,
+        injectedNodeIds: String? = null
     ): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
             conn.prepareStatement("""
                 INSERT INTO memory_model_recall_traces (
                     created_at, query, index_version, plan_json, candidate_count, injected_count,
-                    filtered_summary, fallback_reason, error, duration_ms, debug_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    filtered_summary, fallback_reason, error, duration_ms, debug_json, injected_node_ids
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setLong(1, now)
                 pstmt.setString(2, query)
@@ -3408,6 +3438,7 @@ object DatabaseService {
                 pstmt.setNullableString(9, error)
                 pstmt.setInt(10, durationMs)
                 pstmt.setNullableString(11, debugJson)
+                pstmt.setNullableString(12, injectedNodeIds)
                 pstmt.executeUpdate()
             }
             conn.createStatement().use { stmt ->
@@ -3430,18 +3461,55 @@ object DatabaseService {
      * (insertModelRecallTrace returns -1 on failure). Does not run the retention DELETE — the
      * row already exists, so row count is unchanged.
      */
-    fun updateModelRecallTraceDebugJson(traceId: Int, debugJson: String) {
+    fun updateModelRecallTraceDebugJson(traceId: Int, debugJson: String, injectedNodeIds: String? = null) {
         if (traceId <= 0) return
         getConnection().use { conn ->
             conn.prepareStatement("""
                 UPDATE memory_model_recall_traces
-                SET debug_json = ?
+                SET debug_json = ?, injected_node_ids = COALESCE(?, injected_node_ids)
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setNullableString(1, debugJson)
-                pstmt.setInt(2, traceId)
+                if (injectedNodeIds != null) pstmt.setNullableString(2, injectedNodeIds) else pstmt.setString(2, null as String?)
+                pstmt.setInt(3, traceId)
                 pstmt.executeUpdate()
             }
+        }
+    }
+
+    /**
+     * B-档 feedback signal: traces still awaiting a later round's confirm/deny verdict, within the lookback
+     * window. Used by buildCompanionMemoryContext to penalize/resolve the previous round's injected nodes.
+     */
+    fun getPendingRecallTraces(lookbackSeconds: Long, limit: Int = 16): List<ModelRecallTraceRecord> {
+        val cutoff = Instant.now().epochSecond - lookbackSeconds.coerceAtLeast(0L)
+        val list = mutableListOf<ModelRecallTraceRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT * FROM memory_model_recall_traces
+                WHERE resolved_at IS NULL AND created_at >= ?
+                ORDER BY id DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, cutoff)
+                pstmt.setInt(2, limit.coerceAtLeast(1))
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readModelRecallTrace(rs))
+            }
+        }
+        return list
+    }
+
+    /** Mark a trace as resolved (confirmed or denied) so it is not re-processed next round. */
+    fun resolveRecallTrace(traceId: Int, at: Long = Instant.now().epochSecond) {
+        if (traceId <= 0) return
+        getConnection().use { conn ->
+            conn.prepareStatement("UPDATE memory_model_recall_traces SET resolved_at = ? WHERE id = ?")
+                .use { pstmt ->
+                    pstmt.setLong(1, at)
+                    pstmt.setInt(2, traceId)
+                    pstmt.executeUpdate()
+                }
         }
     }
 

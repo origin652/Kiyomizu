@@ -684,6 +684,88 @@ object MemoryService {
     }
 
     /**
+     * FSRS-inspired stability growth modulators, computed from the node's pre-update state (callers must
+     * pass the record from BEFORE any merge/strength change so retrievability reflects "how forgotten was
+     * it when recalled").
+     * - spacing: a node recalled while nearly forgotten (low retrievability R = lazyStrength/strength) grows
+     *   more. multiplier = (1 + spacingK*(1-R)). spacingK default 0 => 1.0 (no spacing, round-1 behavior).
+     * - stabilization: the larger stability already is, the smaller each recall's incremental growth.
+     *   multiplier = (1 - decayK * stability/(stability+1)). decayK default 0 => 1.0 (round-1 behavior).
+     * Both are clamped to [0,2] again inside updateMemoryNodeAccess; clamp here keeps callers honest.
+     */
+    internal fun stabilityMultipliers(
+        node: DatabaseService.MemoryNodeRecord,
+        nowEpochSecond: Long = Instant.now().epochSecond
+    ): Pair<Double, Double> {
+        val strength = node.strength.coerceAtLeast(1e-9)
+        val retrievability = (lazyStrength(node, nowEpochSecond) / strength).coerceIn(0.0, 1.0)
+        val spacing = (1.0 + Config.memoryStabilitySpacingK * (1.0 - retrievability)).coerceIn(0.0, 2.0)
+        val s = node.stability.coerceAtLeast(1e-9)
+        val stabilization = (1.0 - Config.memoryStabilityStabilizationDecay * (s / (s + 1.0))).coerceIn(0.0, 2.0)
+        return spacing to stabilization
+    }
+
+    /**
+     * B-档 feedback signal: detect whether the user's current message corrects/denies something the
+     * companion recalled last round. Conservative keyword heuristic only (no NLU) to limit false positives.
+     * Default-disabled via Config.memoryFeedbackCorrectionEnabled — when off, always returns false, so the
+     * whole feedback loop short-circuits and behavior is identical to round 1.
+     */
+    internal fun detectMemoryCorrection(userText: String): Boolean {
+        if (!Config.memoryFeedbackCorrectionEnabled) return false
+        val text = userText.lowercase()
+        return Config.memoryFeedbackCorrectionPatterns
+            .split(';')
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .any { pattern -> text.contains(pattern) }
+    }
+
+    /** Serialize a collection of node ids into a JSON array string for memory_model_recall_traces.injected_node_ids. */
+    internal fun encodeInjectedNodeIds(ids: Collection<Int>): String {
+        return ids.joinToString(prefix = "[", postfix = "]", separator = ",")
+    }
+
+    /** Parse memory_model_recall_traces.injected_node_ids back into a list of ids. */
+    internal fun decodeInjectedNodeIds(raw: String?): List<Int> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return raw.trim().trim('[', ']').split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+    }
+
+    /**
+     * B-档 feedback loop core: resolve the previous round's pending recall traces against the current user
+     * message. If the user corrects/denies, penalize the stability of every node injected last round and mark
+     * those traces resolved. If no correction, mark them resolved as implicit successes (no extra boost — the
+     * current round's own recall boost already applies). No-op when feedback is disabled (detectMemoryCorrection
+     * returns false and no penalty applies; traces are still resolved so they don't pile up, but resolution is
+     * gated on enabled too, to keep default behavior — disabled — fully inert: traces just stay pending as before).
+     */
+    internal fun resolvePreviousRecallFeedback(userQuery: String) {
+        if (!Config.memoryFeedbackCorrectionEnabled) return
+        val lookback = (Config.memoryFeedbackResolveLookbackHours * 3600L).toLong()
+        val pending = DatabaseService.getPendingRecallTraces(lookback)
+        if (pending.isEmpty()) return
+        val denying = detectMemoryCorrection(userQuery)
+        val penaltyFactor = (1.0 - Config.memoryFeedbackPenaltyK).coerceIn(0.0, 1.0)
+        val min = Config.memoryStabilityMin
+        for (trace in pending) {
+            val ids = decodeInjectedNodeIds(trace.injectedNodeIds)
+            if (denying) {
+                for (nodeId in ids) {
+                    DatabaseService.getMemoryNodeById(nodeId)?.let { node ->
+                        val penalized = (node.stability * penaltyFactor).coerceAtLeast(min)
+                        if (penalized < node.stability) {
+                            DatabaseService.updateMemoryNodeStability(nodeId, penalized)
+                        }
+                    }
+                }
+            }
+            DatabaseService.resolveRecallTrace(trace.id)
+        }
+    }
+
+    /**
      * Persist the lazily-decayed strength onto every active graph node, then reset its
      * last_accessed_at to now. This realizes the exponential decay so that recall strength
      * boosts (which raise the persisted strength) actually decay over time instead of being
@@ -1665,6 +1747,29 @@ object MemoryService {
                     reason = "old weak low-priority node strength=${"%.2f".format(node.strength)} confidence=${"%.2f".format(node.confidence)}",
                     score = 1.0 - node.strength
                 )
+            }
+
+        // working_memory→factual consolidation: when a project accumulates working_memory nodes at or above
+        // memoryConsolidationWmThreshold * slots, suggest the model consolidate them into one factual node via
+        // create_consolidated_node. Only a suggestion — the model decides whether/how to synthesize (不绕过模型).
+        val slots = Config.memoryWorkingMemorySlotsPerProject.coerceAtLeast(1)
+        val wmThreshold = (Config.memoryConsolidationWmThreshold * slots).let { threshold ->
+            if (Config.memoryConsolidationWmThreshold >= 1.0) threshold.toInt() else Math.ceil(threshold).toInt()
+        }
+        nodes.filter { it.kind == "working_memory" }
+            .groupBy { it.projectUri.orEmpty() }
+            .forEach { (projectUri, wmNodes) ->
+                if (wmNodes.size >= wmThreshold && wmThreshold >= 1) {
+                    val representative = wmNodes.sortedWith(
+                        compareBy<DatabaseService.MemoryNodeRecord> { it.strength }.thenBy { it.updatedAt }
+                    ).first()
+                    suggestions += MaintenanceSuggestion(
+                        type = "consolidate",
+                        sourceUri = representative.uri,
+                        reason = "working_memory pile-up in project=${projectUri.ifBlank { "(none)" }} (${wmNodes.size} nodes >= ${wmThreshold} threshold); consider create_consolidated_node into a factual node",
+                        score = wmNodes.size.toDouble() / slots.toDouble()
+                    )
+                }
             }
 
         return suggestions
@@ -2964,13 +3069,18 @@ object MemoryService {
     ): Int {
         val duplicate = findDuplicateNode(existingNodes, draft) ?: findWorkingMemorySlot(draft, allowFullFallback = true)
         val nodeId = if (duplicate != null) {
+            // Snapshot spacing/stabilization multipliers from the PRE-merge duplicate so retrievability
+            // reflects how forgotten the node was when this merge/recall touched it (merge below changes strength).
+            val (spacing, stabilization) = stabilityMultipliers(duplicate)
             val merged = mergeNodeDraft(duplicate, draft)
             DatabaseService.updateMemoryNode(duplicate.id, merged)
             DatabaseService.replaceMemorySearchTerms(duplicate.id, deriveSearchTerms(merged))
             DatabaseService.updateMemoryNodeAccess(
                 duplicate.id,
                 Config.memoryRecoveryAmount * (0.5 + payload.priority),
-                Config.memoryMaxStrength
+                Config.memoryMaxStrength,
+                spacing,
+                stabilization
             )
             duplicate.id
         } else {
@@ -3101,13 +3211,17 @@ object MemoryService {
                         continue
                     }
                 }
+                // Snapshot multipliers from the PRE-merge duplicate (merge below changes strength).
+                val (spacing, stabilization) = stabilityMultipliers(existingDuplicate)
                 val merged = mergeNodeDraft(existingDuplicate, nodeDraft)
                 DatabaseService.updateMemoryNode(existingDuplicate.id, merged)
                 DatabaseService.replaceMemorySearchTerms(existingDuplicate.id, deriveSearchTerms(merged))
                 DatabaseService.updateMemoryNodeAccess(
                     existingDuplicate.id,
                     Config.memoryRecoveryAmount * (0.5 + payload.priority),
-                    Config.memoryMaxStrength
+                    Config.memoryMaxStrength,
+                    spacing,
+                    stabilization
                 )
                 val observationId = DatabaseService.insertMemoryObservation(observationDraft)
                 DatabaseService.replaceMemoryObservationTerms(observationId, deriveObservationTerms(observationDraft))
@@ -3545,7 +3659,8 @@ object MemoryService {
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
         (recalled + personContext).forEach { memory ->
-            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength)
+            val (spacing, stabilization) = stabilityMultipliers(memory.memory)
+            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
         }
         return recalled to personContext
     }
@@ -3753,7 +3868,8 @@ object MemoryService {
         lastDeepRecallClues.set(clueCount)
 
         (result.direct + result.weak + result.conflict).forEach { recalled ->
-            DatabaseService.updateMemoryNodeAccess(recalled.memory.id, Config.memoryRecoveryAmount * 0.5, Config.memoryMaxStrength)
+            val (spacing, stabilization) = stabilityMultipliers(recalled.memory)
+            DatabaseService.updateMemoryNodeAccess(recalled.memory.id, Config.memoryRecoveryAmount * 0.5, Config.memoryMaxStrength, spacing, stabilization)
         }
         return result
     }
@@ -4169,8 +4285,14 @@ object MemoryService {
         // a recall-success signal. Only strength/access/stability/timing change — no fusion boost, no model hint
         // flows to local recall. selfMemories are NOT boosted here: they are boosted uniformly at
         // buildCompanionMemoryContext (factor 0.25), so boosting here too would double-count.
-        recalled.forEach { DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength) }
-        dreamTraces.forEach { DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength) }
+        recalled.forEach {
+            val (spacing, stabilization) = stabilityMultipliers(it.memory)
+            DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
+        }
+        dreamTraces.forEach {
+            val (spacing, stabilization) = stabilityMultipliers(it.memory)
+            DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
+        }
         val successDebug = JsonObject(
             candidateResult.debugJson + mapOf(
                 "injected_uris" to buildJsonArray { recalled.forEach { add(JsonPrimitive(it.memory.uri)) } },
@@ -4188,7 +4310,13 @@ object MemoryService {
             fallbackReason = null,
             error = null,
             durationMs = duration,
-            debugJson = successDebug.toString()
+            debugJson = successDebug.toString(),
+            injectedNodeIds = encodeInjectedNodeIds(
+                (recalled.asSequence() + selfMemories.asSequence() + dreamTraces.asSequence())
+                    .map { it.memory.id }
+                    .distinct()
+                    .toList()
+            )
         )
         modelRecallConsecutiveFailures.set(0)
         return ModelRecallResult(recalled, selfMemories, dreamTraces, plan, null, null, candidates.size, duration, traceId)
@@ -4222,6 +4350,8 @@ object MemoryService {
 
     suspend fun buildCompanionMemoryContext(userQuery: String): CompanionMemoryContext {
         if (!Config.memoryEnabled) return CompanionMemoryContext(emptyList(), emptyList(), null, emptyList(), emptyList(), emptyList())
+        // B-档 feedback: resolve last round's injected memories against this message before recalling anew.
+        resolvePreviousRecallFeedback(userQuery)
         val normalContext = buildRecallContext(userQuery, deepRecall = false)
         val modelRecall = tryModelRecall(userQuery, normalContext)
         val useModelRecall = modelRecall != null && modelRecall.fallbackReason == null && modelRecall.error == null
@@ -4251,7 +4381,8 @@ object MemoryService {
         }
         val selfObservations = selectSelfObservationsForDisclosure(userQuery)
         selfMemories.forEach { memory ->
-            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.25, Config.memoryMaxStrength)
+            val (spacing, stabilization) = stabilityMultipliers(memory.memory)
+            DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.25, Config.memoryMaxStrength, spacing, stabilization)
         }
         // Observation-only: when model recall fell back to local recall, record which nodes
         // the local stack actually injected onto the same trace row, for offline comparison
@@ -4266,7 +4397,13 @@ object MemoryService {
                 put("fallback_reason", modelRecall.fallbackReason ?: "local_recall_fallback")
                 put("fallback_error", modelRecall.error ?: "")
             }
-            DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString())
+            val fallbackInjectedIds = encodeInjectedNodeIds(
+                (recalled.asSequence() + personContext.asSequence() + selfMemories.asSequence() + dreamTraces.asSequence())
+                    .map { it.memory.id }
+                    .distinct()
+                    .toList()
+            )
+            DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString(), fallbackInjectedIds)
         }
         return CompanionMemoryContext(
             recalled = recalled,

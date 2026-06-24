@@ -20,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CompanionTest {
@@ -121,6 +122,14 @@ class CompanionTest {
         Config.memoryStabilityMin = 1.0
         Config.memoryStabilityMax = 8.0
         Config.memoryStabilityRegressRate = 0.05
+        // round-2 stability modulators — defaults reproduce round-1 behavior (守零).
+        Config.memoryStabilitySpacingK = 0.0
+        Config.memoryStabilityStabilizationDecay = 0.0
+        // round-2 consolidation + feedback signal — defaults off / safe.
+        Config.memoryConsolidationWmThreshold = 1.0
+        Config.memoryFeedbackCorrectionEnabled = false
+        Config.memoryFeedbackPenaltyK = 0.3
+        Config.memoryFeedbackResolveLookbackHours = 48.0
     }
 
     private fun insertNode(
@@ -1159,5 +1168,264 @@ class CompanionTest {
         )
         assertEquals(4.0, freshAfter.stability, 1e-9,
             "node accessed this cycle should keep its stability, got ${freshAfter.stability}")
+    }
+
+    // ---- Round 2: spacing + stabilization decay (档①②) ----
+
+    @Test
+    fun defaultMultipliersReproducePriorStabilityBump() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        val id = insertNode(
+            uri = "preference://food/drink/rooibos",
+            kind = "preference",
+            content = "The user likes rooibos.",
+            keywords = listOf("rooibos"),
+            strength = 1.0
+        )
+        val now = Instant.now().epochSecond
+        DatabaseService.updateMemoryNodeStrength(id, 1.0, now)
+        // spacingK=0, stabDecay=0 (defaults) => multipliers must be exactly 1.0.
+        val node = DatabaseService.getMemoryNodeById(id)!!
+        val (spacing, stabilization) = MemoryService.stabilityMultipliers(node, now)
+        assertEquals(1.0, spacing, 1e-12, "default spacing multiplier must be 1.0")
+        assertEquals(1.0, stabilization, 1e-12, "default stabilization multiplier must be 1.0")
+        // A bump with default multipliers must equal the round-1 formula stability*(1+growthK*factor) bit-for-bit.
+        DatabaseService.updateMemoryNodeAccess(id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        val expected = (1.0 * (1.0 + Config.memoryStabilityGrowthK * 0.35)).coerceAtMost(Config.memoryStabilityMax)
+        assertEquals(expected, after.stability, 1e-9, "default-multiplier bump must reproduce round-1 stability growth")
+    }
+
+    @Test
+    fun spacingBoostsStabilityMoreWhenNearlyForgotten() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        Config.memoryStabilitySpacingK = 1.0
+        val now = Instant.now().epochSecond
+        val aId = insertNode(
+            uri = "episodic://event/forgotten",
+            kind = "episodic_event",
+            content = "A nearly-forgotten event.",
+            keywords = listOf("forgotten"),
+            strength = 1.0
+        )
+        val bId = insertNode(
+            uri = "episodic://event/recent",
+            kind = "episodic_event",
+            content = "A recently-recalled event.",
+            keywords = listOf("recent"),
+            strength = 1.0
+        )
+        // A: backdated 30 days => low retrievability (nearly forgotten). B: just accessed => R≈1.
+        DatabaseService.updateMemoryNodeStrength(aId, 1.0, now - 30L * 24 * 3600)
+        DatabaseService.updateMemoryNodeStrength(bId, 1.0, now)
+        val aNode = DatabaseService.getMemoryNodeById(aId)!!
+        val bNode = DatabaseService.getMemoryNodeById(bId)!!
+        val (aSpacing, _) = MemoryService.stabilityMultipliers(aNode, now)
+        val (bSpacing, _) = MemoryService.stabilityMultipliers(bNode, now)
+        assertTrue(aSpacing > bSpacing, "nearly-forgotten node should get a larger spacing multiplier; a=$aSpacing b=$bSpacing")
+        DatabaseService.updateMemoryNodeAccess(aId, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, aSpacing, 1.0)
+        DatabaseService.updateMemoryNodeAccess(bId, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, bSpacing, 1.0)
+        val aAfter = DatabaseService.getMemoryNodeById(aId)!!
+        val bAfter = DatabaseService.getMemoryNodeById(bId)!!
+        assertTrue(aAfter.stability > bAfter.stability,
+            "nearly-forgotten node should grow stability more; a=${aAfter.stability} b=${bAfter.stability}")
+    }
+
+    @Test
+    fun stabilizationDecayShrinksGrowthAtHighStability() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDecayTauHours = 360.0
+        Config.memoryStabilityStabilizationDecay = 0.5
+        val now = Instant.now().epochSecond
+        val lowId = insertNode(uri = "preference://food/drink/low", kind = "preference", content = "low stability node.", keywords = listOf("low"), strength = 1.0)
+        val highId = insertNode(uri = "preference://food/drink/high", kind = "preference", content = "high stability node.", keywords = listOf("high"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStrength(lowId, 1.0, now)
+        DatabaseService.updateMemoryNodeStrength(highId, 1.0, now)
+        DatabaseService.updateMemoryNodeStability(lowId, 1.0)
+        DatabaseService.updateMemoryNodeStability(highId, 6.0)
+        val lowNode = DatabaseService.getMemoryNodeById(lowId)!!
+        val highNode = DatabaseService.getMemoryNodeById(highId)!!
+        val (_, lowStab) = MemoryService.stabilityMultipliers(lowNode, now)
+        val (_, highStab) = MemoryService.stabilityMultipliers(highNode, now)
+        assertTrue(highStab < lowStab, "high-stability node should have smaller stabilization multiplier; low=$lowStab high=$highStab")
+        // Same R (both just accessed), same factor; high-stability grows less in absolute terms.
+        DatabaseService.updateMemoryNodeAccess(lowId, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, 1.0, lowStab)
+        DatabaseService.updateMemoryNodeAccess(highId, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, 1.0, highStab)
+        val lowAfter = DatabaseService.getMemoryNodeById(lowId)!!
+        val highAfter = DatabaseService.getMemoryNodeById(highId)!!
+        // stabilization decay shrinks the relative growth RATE, not the absolute delta (a high-stability base
+        // is larger, so its absolute gain can still exceed a low-stability node's). Compare relative growth.
+        val lowRelativeGrowth = (lowAfter.stability - 1.0) / 1.0
+        val highRelativeGrowth = (highAfter.stability - 6.0) / 6.0
+        assertTrue(highRelativeGrowth < lowRelativeGrowth,
+            "high-stability node should have a smaller relative growth rate; low=$lowRelativeGrowth high=$highRelativeGrowth")
+    }
+
+    // ---- Round 2: user feedback signal (档③) ----
+
+    @Test
+    fun denialPenalizesPendingStability() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackPenaltyK = 0.3
+        val id = insertNode(uri = "identity://user/name2", kind = "identity", content = "The user's name is Bo.", keywords = listOf("name"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what is my name", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        assertTrue(MemoryService.detectMemoryCorrection("不对，不是这个"), "denial phrase should be detected when enabled")
+        // Resolve previous round: denial => stability *= (1-0.3) = 2.8, trace resolved.
+        MemoryService.resolvePreviousRecallFeedback("不对，不是这个")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(2.8, after.stability, 1e-9, "denied node stability should be penalized to 4.0*0.7=2.8")
+        val trace = DatabaseService.getRecentModelRecallTraces(10).first { it.id == traceId }
+        assertNotNull(trace.resolvedAt, "trace should be marked resolved after denial")
+    }
+
+    @Test
+    fun noDenialResolvesTraceWithoutPenalty() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        val id = insertNode(uri = "preference://food/drink/thanks", kind = "preference", content = "The user likes thanks-tea.", keywords = listOf("thanks"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what tea", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        assertFalse(MemoryService.detectMemoryCorrection("好的谢谢"), "non-denial message should not be detected")
+        MemoryService.resolvePreviousRecallFeedback("好的谢谢")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(4.0, after.stability, 1e-9, "non-denial should not penalize stability")
+        val trace = DatabaseService.getRecentModelRecallTraces(10).first { it.id == traceId }
+        assertNotNull(trace.resolvedAt, "trace should still be resolved (implicit success)")
+    }
+
+    @Test
+    fun feedbackDisabledByDefaultNoPenalty() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        // memoryFeedbackCorrectionEnabled defaults false.
+        val id = insertNode(uri = "preference://food/drink/default", kind = "preference", content = "default node.", keywords = listOf("default"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        assertFalse(MemoryService.detectMemoryCorrection("不是这个"), "detection must short-circuit when disabled")
+        MemoryService.resolvePreviousRecallFeedback("不是这个")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(4.0, after.stability, 1e-9, "disabled feedback must not penalize")
+        val trace = DatabaseService.getRecentModelRecallTraces(10).first { it.id == traceId }
+        assertNull(trace.resolvedAt, "disabled feedback must leave traces pending (守零)")
+    }
+
+    // ---- Round 2: working_memory consolidation rule (档④) ----
+
+    @Test
+    fun workingMemoryPileUpSuggestsConsolidate() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryMaintenanceAggressiveness = "aggressive"
+        // slots default = 3; threshold default = 1.0 => need >= 3 working_memory in one project.
+        val projectUri = "project://kiyomizu"
+        val now = Instant.now().epochSecond
+        val ids = (1..3).map { i ->
+            val id = insertNode(
+                uri = "working://auto/$i",
+                kind = "working_memory",
+                content = "working task $i",
+                keywords = listOf("task$i"),
+                projectUri = projectUri,
+                strength = 0.8
+            )
+            DatabaseService.updateMemoryNodeStrength(id, 0.8, now)
+            id
+        }
+        val materials = ids.mapIndexed { idx, id ->
+            val n = DatabaseService.getMemoryNodeById(id)!!
+            MemoryService.DreamMaterial(
+                sourceType = "node",
+                uri = n.uri,
+                kind = "working_memory",
+                node = n,
+                content = "working task ${idx + 1}",
+                keywords = listOf("task${idx + 1}"),
+                topics = emptyList(),
+                strength = 0.8,
+                confidence = 0.7,
+                priority = 0.6,
+                emotionValence = 0.5,
+                emotionArousal = 0.3,
+                updatedAt = now,
+                reason = "test"
+            )
+        }
+        val suggestions = MemoryService.buildMaintenanceSuggestions(materials)
+        val consolidate = suggestions.firstOrNull { it.type == "consolidate" }
+        assertNotNull(consolidate, "pile-up of 3 working_memory (>= slots 3) should yield a consolidate suggestion")
+        assertTrue(consolidate!!.reason.contains("working_memory pile-up"), "reason should describe the pile-up")
+    }
+
+    @Test
+    fun workingMemoryBelowThresholdNoConsolidate() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryMaintenanceAggressiveness = "aggressive"
+        val projectUri = "project://kiyomizu"
+        val now = Instant.now().epochSecond
+        // Only 2 working_memory nodes, below the default slot threshold of 3.
+        val ids = (1..2).map { i ->
+            val id = insertNode(uri = "working://auto/below$i", kind = "working_memory", content = "task $i", keywords = listOf("task$i"), projectUri = projectUri, strength = 0.8)
+            DatabaseService.updateMemoryNodeStrength(id, 0.8, now)
+            id
+        }
+        val materials = ids.mapIndexed { idx, id ->
+            val n = DatabaseService.getMemoryNodeById(id)!!
+            MemoryService.DreamMaterial(
+                sourceType = "node",
+                uri = n.uri,
+                kind = "working_memory",
+                node = n,
+                content = "task ${idx + 1}",
+                keywords = listOf("task${idx + 1}"),
+                topics = emptyList(),
+                strength = 0.8,
+                confidence = 0.7,
+                priority = 0.6,
+                emotionValence = 0.5,
+                emotionArousal = 0.3,
+                updatedAt = now,
+                reason = "test"
+            )
+        }
+        val suggestions = MemoryService.buildMaintenanceSuggestions(materials)
+        assertNull(suggestions.firstOrNull { it.type == "consolidate" }, "below-threshold pile-up should not suggest consolidation")
     }
 }
