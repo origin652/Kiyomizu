@@ -127,6 +127,18 @@ fun main() {
                 serveResource(call, "favicon.ico", ContentType.Image.XIcon)
             }
 
+            // Static UI assets (split CSS / JS / vendored libs) served from classpath `static/`.
+            // Path is clamped to a single segment tree under `static/` so `..` cannot escape the resource root.
+            get("/ui/static/{path...}") {
+                val pathSegments = call.parameters.getAll("path").orEmpty()
+                if (pathSegments.isEmpty() || pathSegments.any { it.isBlank() || it == "." || it == ".." || it.contains('/') || it.contains('\\') }) {
+                    call.respond(HttpStatusCode.NotFound)
+                    return@get
+                }
+                val raw = pathSegments.joinToString("/")
+                serveResource(call, "static/$raw", contentTypeForExtension(raw.substringAfterLast('.', "").lowercase()), cacheable = true)
+            }
+
             route("/api/config") {
                 get {
                     if (!ConfigAuth.isConfigured()) {
@@ -856,9 +868,17 @@ private suspend fun serveUi(call: ApplicationCall) {
     serveResource(call, "ui.html", ContentType.Text.Html)
 }
 
-private suspend fun serveResource(call: ApplicationCall, resourceName: String, contentType: ContentType) {
+private suspend fun serveResource(
+    call: ApplicationCall,
+    resourceName: String,
+    contentType: ContentType,
+    cacheable: Boolean = false,
+) {
     val stream = Config::class.java.classLoader.getResourceAsStream(resourceName)
     if (stream != null) {
+        if (cacheable) {
+            call.response.headers.append(HttpHeaders.CacheControl, "public, max-age=86400", safeOnly = true)
+        }
         when {
             contentType.match(ContentType.Text.Html) -> {
                 val text = stream.bufferedReader().use { it.readText() }
@@ -872,6 +892,22 @@ private suspend fun serveResource(call: ApplicationCall, resourceName: String, c
     } else {
         call.respondText("$resourceName not found in resources", ContentType.Text.Plain, HttpStatusCode.NotFound)
     }
+}
+
+private fun contentTypeForExtension(ext: String): ContentType = when (ext) {
+    "html" -> ContentType.Text.Html
+    "css" -> ContentType.Text.CSS
+    "js" -> ContentType.Text.JavaScript
+    "json" -> ContentType.Application.Json
+    "svg" -> ContentType.Image.SVG
+    "png" -> ContentType.Image.PNG
+    "jpg", "jpeg" -> ContentType.Image.JPEG
+    "gif" -> ContentType.Image.GIF
+    "ico" -> ContentType.Image.XIcon
+    "woff2" -> ContentType("font", "woff2")
+    "woff" -> ContentType("font", "woff")
+    "ttf" -> ContentType("font", "ttf")
+    else -> ContentType.Application.OctetStream
 }
 
 private suspend fun handleModelListProxy(call: ApplicationCall) {
