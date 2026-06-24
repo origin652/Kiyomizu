@@ -158,7 +158,25 @@ object MemoryService {
         val node: DatabaseService.MemoryNodeRecord,
         val score: Double,
         val associated: Boolean = false,
-        val channel: String = "normal"
+        val channel: String = "normal",
+        val matchReason: String = "",
+        val matchedTerms: List<String> = emptyList()
+    )
+
+    private data class EnhancedSearchResult(
+        val hits: List<DatabaseService.MemoryNodeSearchHit>,
+        val expandedTerms: List<String>,
+        val termGraphHitCount: Int,
+        val ftsHitCount: Int,
+        val termWeightHitCount: Int
+    )
+
+    private data class TimelineBuckets(
+        val recent: List<DatabaseService.MemoryNodeRecord>,
+        val mid: List<DatabaseService.MemoryNodeRecord>,
+        val deep: List<DatabaseService.MemoryNodeRecord>,
+        val recentDays: Int,
+        val midDays: Int
     )
 
     private data class ModelRecallPlan(
@@ -175,6 +193,11 @@ object MemoryService {
         val includeDreams: Boolean,
         val needDeepRecall: Boolean,
         val reason: String?,
+        val seedTerms: List<String>,
+        val expandedTerms: List<String>,
+        val timeBuckets: List<String>,
+        val termGraphHops: Int,
+        val candidateStrategy: String?,
         val rawJson: JsonObject
     )
 
@@ -187,6 +210,12 @@ object MemoryService {
         val error: String?,
         val candidateCount: Int,
         val durationMs: Int
+    )
+
+    private data class ModelRecallCandidateResult(
+        val candidates: List<ScoredNode>,
+        val filteredSummary: String,
+        val debugJson: JsonObject
     )
 
     private data class DreamOperationPayload(
@@ -383,7 +412,7 @@ object MemoryService {
         put("clues", lastDeepRecallClues.get())
     }
 
-    private val memoryIndexSegmentKeys = listOf("global", "self", "people", "projects", "topics", "recent", "dreams")
+    private val memoryIndexSegmentKeys = listOf("global", "self", "people", "projects", "topics", "recent", "dreams", "term_graph", "timeline")
 
     private fun shortIndexText(value: String, maxLength: Int = 120): String {
         val normalized = value.replace(Regex("""\s+"""), " ").trim()
@@ -408,6 +437,9 @@ object MemoryService {
         val sensitiveCount = active.count { it.disclosure == "sensitive" }
         val selfNodes = DatabaseService.listSelfMemoryNodes("active", 80)
         val dreamNodes = DatabaseService.listMemoryNodes(null, "dream://", null, null, "dream", 80)
+        val termGraphStats = DatabaseService.memoryTermGraphStats()
+        val topTermEdges = DatabaseService.getTopMemoryTermEdges(120)
+        val timelineBuckets = timelineBuckets(perBucketLimit = 24)
         val archivedCount = DatabaseService.getGraphNodeCount("archived")
         val byKind = active.groupingBy { it.kind }.eachCount().toSortedMap()
 
@@ -480,6 +512,42 @@ object MemoryService {
             dreamNodes.sortedByDescending { it.updatedAt }.take(40).forEach { append(indexEntry(it)).append("\n") }
         }
 
+        val termGraph = buildString {
+            append(heading("term_graph"))
+            append("This is a compressed associative term graph. Use related terms as retrieval hints only; backend filtering still applies.\n")
+            append("term_count=${termGraphStats.termCount}; edge_count=${termGraphStats.edgeCount}; updated=${termGraphStats.updatedAt}\n")
+            val adjacency = mutableMapOf<String, MutableList<Pair<String, DatabaseService.MemoryTermEdgeRecord>>>()
+            topTermEdges.forEach { edge ->
+                adjacency.getOrPut(edge.termA) { mutableListOf() } += edge.termB to edge
+                adjacency.getOrPut(edge.termB) { mutableListOf() } += edge.termA to edge
+            }
+            adjacency
+                .toSortedMap()
+                .entries
+                .take(80)
+                .forEach { (term, relatedEdges) ->
+                    val related = relatedEdges.sortedWith(compareByDescending<Pair<String, DatabaseService.MemoryTermEdgeRecord>> { it.second.weight }.thenBy { it.first })
+                        .take(6)
+                        .joinToString("|") { "${it.first}:${"%.2f".format(it.second.weight)}" }
+                    append("- term=$term related=$related\n")
+                }
+        }
+
+        fun timelineLine(bucket: String, node: DatabaseService.MemoryNodeRecord): String {
+            val topicsText = node.topics.take(4).joinToString("|").ifBlank { "-" }
+            val person = node.personUri ?: "-"
+            val project = node.projectUri ?: "-"
+            return "- bucket=$bucket uri=${node.uri} kind=${node.kind} person=$person project=$project topics=$topicsText created=${node.createdAt} :: ${shortIndexText(node.content, 90)}"
+        }
+
+        val timeline = buildString {
+            append(heading("timeline"))
+            append("Timeline buckets are compressed recall hints. recent<=${timelineBuckets.recentDays}d; mid<=${timelineBuckets.midDays}d; deep>${timelineBuckets.midDays}d.\n")
+            timelineBuckets.recent.filter { it.disclosure != "sensitive" }.take(16).forEach { append(timelineLine("recent", it)).append("\n") }
+            timelineBuckets.mid.filter { it.disclosure != "sensitive" }.take(16).forEach { append(timelineLine("mid", it)).append("\n") }
+            timelineBuckets.deep.filter { it.disclosure != "sensitive" }.take(16).forEach { append(timelineLine("deep", it)).append("\n") }
+        }
+
         return mapOf(
             "global" to global,
             "self" to self,
@@ -487,13 +555,18 @@ object MemoryService {
             "projects" to projects,
             "topics" to topics,
             "recent" to recent,
-            "dreams" to dreams
+            "dreams" to dreams,
+            "term_graph" to termGraph,
+            "timeline" to timeline
         )
     }
 
     fun rebuildMemoryIndex(): JsonObject {
         synchronized(memoryIndexRefreshLock) {
             return try {
+                if (Config.memoryTagGraphEnabled) {
+                    DatabaseService.rebuildMemoryTermEdges()
+                }
                 val segments = buildMemoryIndexSegments()
                 memoryIndexSegmentKeys.forEach { key ->
                     DatabaseService.upsertMemoryIndexSegment(key, segments[key].orEmpty())
@@ -532,6 +605,14 @@ object MemoryService {
             put("version", indexVersionString(segments))
             put("dirty", segments.any { it.dirty })
             put("error", segments.firstOrNull { !it.error.isNullOrBlank() }?.error ?: "")
+            val termStats = DatabaseService.memoryTermGraphStats()
+            put("term_graph_stats", buildJsonObject {
+                put("term_count", termStats.termCount)
+                put("edge_count", termStats.edgeCount)
+                put("last_rebuilt_at", termStats.updatedAt)
+                put("dirty", termStats.dirty)
+                put("error", termStats.error ?: "")
+            })
             put("segments", buildJsonArray {
                 memoryIndexSegmentKeys.forEach { key ->
                     val segment = segments.firstOrNull { it.segmentKey == key }
@@ -606,11 +687,34 @@ object MemoryService {
         return cleaned
     }
 
+    private fun isCjkChar(char: Char): Boolean {
+        return (char in '\u4e00'..'\u9fff') ||
+            (char in '\u3400'..'\u4dbf') ||
+            (char in '\u3040'..'\u30ff') ||
+            (char in '\uac00'..'\ud7af')
+    }
+
+    private fun cjkNgrams(token: String): List<String> {
+        if (token.length < 2 || token.none(::isCjkChar)) return emptyList()
+        val chars = token.filter(::isCjkChar)
+        if (chars.length < 2) return emptyList()
+        return buildList {
+            for (size in 2..3) {
+                if (chars.length >= size) {
+                    for (index in 0..(chars.length - size)) {
+                        add(chars.substring(index, index + size))
+                    }
+                }
+            }
+        }
+    }
+
     private fun tokenize(text: String): List<String> {
-        return normalizeTerm(text)
+        val baseTokens = normalizeTerm(text)
             .split(Regex("""[\s/:_-]+"""))
             .map { it.trim() }
             .filter { it.length >= 2 }
+        return (baseTokens + baseTokens.flatMap(::cjkNgrams))
             .distinct()
     }
 
@@ -1158,8 +1262,38 @@ object MemoryService {
         - If the recent conversation is only framework/tool instructions and contains no durable user fact, preference, relationship, project state, or explicit remember request, return an empty observations array with neutral relationship deltas.
     """.trimIndent()
 
+    private fun sanitizeHistoryForMemorySummary(history: String): String {
+        if (!Config.memorySummarySanitizeInternalPrompts) return history
+        var sanitized = history
+            .replace(Regex("""<<<\[?TOOL_REQUEST\]?>>>[\s\S]*?<<<\[?END_TOOL_REQUEST\]?>>>""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\{\{.*?\}\}|\[\[.*?\]\]|<<.*?>>|《《.*?》》""", setOf(RegexOption.DOT_MATCHES_ALL)), " ")
+            .replace(Regex("""\[系统通知\][\s\S]*?\[系统通知结束\]"""), " ")
+            .replace(Regex("""(?is)```(?:json|yaml|yml)?\s*\{[\s\S]{1500,}?\}\s*```"""), " ")
+            .replace(Regex("""(?im)^.*(Review the conversation above and update the skill library|You can only call memory and skill management tools|Protected skills|Target shape of the library|Nothing to save\.|skill_manage|skills_list|skill_view).*$"""), " ")
+            .replace(Regex("""(?im)^.*(framework instruction|developer instruction|system prompt|tool-maintenance|memory-management|agent-instruction).*$"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+        val strongInternalMarkers = listOf(
+            "review the conversation above and update the skill library",
+            "you can only call memory and skill management tools",
+            "protected skills",
+            "target shape of the library",
+            "skill_manage",
+            "skills_list",
+            "skill_view",
+            "nothing to save."
+        )
+        val markerCount = strongInternalMarkers.count { history.lowercase().contains(it) }
+        if (markerCount >= 2 && sanitized.length < 80) {
+            sanitized = "[Internal framework/tool instructions removed. No durable user memory content remains.]"
+        }
+        return sanitized.ifBlank { "[No durable memory-bearing conversation after sanitization.]" }
+    }
+
     private suspend fun fetchSummarizationAndStateUpdate(history: String): JsonObject? {
-        val response = callSummaryModel("${Config.memorySummaryPrompt}\n\n$frameworkInstructionMemoryGuard\n\nRecent Conversation:\n$history", requireJson = true)
+        val sanitizedHistory = sanitizeHistoryForMemorySummary(history)
+        val response = callSummaryModel("${Config.memorySummaryPrompt}\n\n$frameworkInstructionMemoryGuard\n\nRecent Conversation:\n$sanitizedHistory", requireJson = true)
             ?: return null
         val cleaned = cleanJsonString(response)
         val parsed = Json.parseToJsonElement(cleaned) as? JsonObject
@@ -1373,7 +1507,7 @@ object MemoryService {
         return selected.values.take(limit)
     }
 
-    internal fun collectDreamMaterials(limit: Int): List<DreamMaterial> {
+    internal fun collectDreamMaterials(limit: Int, seed: String? = null): List<DreamMaterial> {
         val materialLimit = limit.coerceAtLeast(1)
         val aggressive = isAggressiveMaintenance()
         val nodeBudget = max(materialLimit - minOf(materialLimit / 4, if (aggressive) 8 else 10), 1)
@@ -1401,18 +1535,35 @@ object MemoryService {
         likelyDuplicateNodes(limit = duplicateBudget).forEach {
             nodes.putIfAbsent(it.id, materialFromNode(it, "possible duplicate cluster"))
         }
+        if (Config.memoryTimelineRecallEnabled) {
+            val timelineBudget = max(nodeBudget / 3, 6)
+            val buckets = timelineBuckets(perBucketLimit = timelineBudget, seed = seed)
+            (buckets.recent.take(max(2, timelineBudget / 3)) +
+                buckets.mid.take(max(2, timelineBudget / 3)) +
+                buckets.deep.take(max(2, timelineBudget / 3))).forEach {
+                nodes.putIfAbsent(it.id, materialFromNode(it, "timeline bucket memory"))
+            }
+        }
 
         val observations = DatabaseService.getBufferedObservationsForMaintenance(observationBudget)
             .map(::materialFromObservation)
+
+        fun seededJitter(material: DreamMaterial): Double {
+            if (seed == null) return 0.0
+            return ((deterministicOrderKey(seed, material.uri) and Int.MAX_VALUE) % 1000) / 1000.0 * 0.08
+        }
 
         return (nodes.values + observations)
             .sortedWith(
                 compareByDescending<DreamMaterial> {
                     it.priority + it.confidence + emotionalSalience(it.emotionValence, it.emotionArousal) +
                         if (aggressive && it.reason.contains("duplicate")) 0.8 else 0.0 +
-                        if (aggressive && it.reason.contains("old low-strength")) 0.5 else 0.0
+                        if (aggressive && it.reason.contains("old low-strength")) 0.5 else 0.0 +
+                        if (it.reason.contains("timeline")) 0.15 else 0.0 +
+                        seededJitter(it)
                 }
                     .thenByDescending { it.updatedAt }
+                    .thenBy { it.uri }
             )
             .take(materialLimit)
     }
@@ -1716,7 +1867,7 @@ object MemoryService {
         val dreamRunId = DatabaseService.insertDreamRun(
             DatabaseService.DreamRunDraft(mode = mode, status = "running", nextAllowedAt = nextAllowedAt)
         )
-        val materials = collectDreamMaterials(Config.memoryDreamBatchMaxNodes)
+        val materials = collectDreamMaterials(Config.memoryDreamBatchMaxNodes, seed = dreamRunId.toString())
         if (materials.isEmpty()) {
             val draft = DatabaseService.DreamRunDraft(mode = mode, status = "skipped", error = "no memory candidates", nextAllowedAt = nextAllowedAt)
             DatabaseService.updateDreamRun(dreamRunId, draft)
@@ -1735,6 +1886,23 @@ object MemoryService {
         }
 
         val maintenanceSuggestions = if (allowMaintenanceOps) buildMaintenanceSuggestions(materials) else emptyList()
+        if (maintenanceSuggestions.isNotEmpty()) {
+            val materialNodes = materials.mapNotNull { material -> material.node?.let { material.uri to it } }.toMap()
+            maintenanceSuggestions.forEach { suggestion ->
+                val source = materialNodes[suggestion.sourceUri]
+                val target = suggestion.targetUri?.let { uri -> materialNodes[uri] ?: DatabaseService.getMemoryNodeByUri(normalizeUri(uri, "working_memory", uri)) }
+                DatabaseService.insertDreamRunItem(
+                    dreamRunId = dreamRunId,
+                    nodeId = source?.id,
+                    nodeUri = suggestion.sourceUri,
+                    operation = "suggest_${suggestion.type}",
+                    reason = suggestion.reason,
+                    result = if (dryRun) "dry_run" else "suggested",
+                    targetNodeId = target?.id,
+                    targetUri = suggestion.targetUri
+                )
+            }
+        }
         val raw = callSummaryModel(
             buildDreamPrompt(
                 materials = materials,
@@ -3051,6 +3219,130 @@ object MemoryService {
             ).map { normalizeTerm(it) }.filter { it.isNotBlank() }.toSet()
     }
 
+    private fun relatedTermFromEdge(edge: DatabaseService.MemoryTermEdgeRecord, sourceTerms: Set<String>): String? {
+        return when {
+            edge.termA in sourceTerms && edge.termB !in sourceTerms -> edge.termB
+            edge.termB in sourceTerms && edge.termA !in sourceTerms -> edge.termA
+            else -> null
+        }
+    }
+
+    private fun expandRecallTerms(
+        terms: List<String>,
+        extraTerms: List<String> = emptyList(),
+        maxHops: Int = 1
+    ): List<String> {
+        if (!Config.memoryLocalRecallEnhancedEnabled || !Config.memoryTagGraphEnabled) return emptyList()
+        if (maxHops <= 0 || Config.memoryTagGraphMaxExpandedTerms <= 0) return emptyList()
+        val sourceTerms = (terms + extraTerms).map { normalizeTerm(it) }.filter { it.isNotBlank() }.distinct()
+        if (sourceTerms.isEmpty()) return emptyList()
+        val limit = Config.memoryTagGraphMaxExpandedTerms.coerceIn(0, 128)
+        val seen = sourceTerms.toMutableSet()
+        var frontier = sourceTerms
+        val expanded = mutableListOf<String>()
+
+        repeat(maxHops.coerceIn(1, 2)) {
+            if (frontier.isEmpty() || expanded.size >= limit) return@repeat
+            val frontierSet = frontier.toSet()
+            val next = DatabaseService.getRelatedMemoryTerms(frontier, limit * 2)
+                .mapNotNull { relatedTermFromEdge(it, frontierSet) }
+                .filter { it.isNotBlank() && it !in seen }
+                .distinct()
+                .take(limit - expanded.size)
+            expanded += next
+            seen += next
+            frontier = next
+        }
+        return expanded
+    }
+
+    private fun enhancedSearch(
+        context: RecallContext,
+        limit: Int,
+        statuses: Set<String> = setOf("active"),
+        modelTerms: List<String> = emptyList(),
+        termGraphHops: Int = 1
+    ): EnhancedSearchResult {
+        if (limit <= 0) return EnhancedSearchResult(emptyList(), emptyList(), 0, 0, 0)
+        val primaryTerms = (context.queryTerms + modelTerms)
+            .map { normalizeTerm(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val expandedTerms = expandRecallTerms(context.queryTerms, modelTerms, termGraphHops)
+        val searchTerms = if (Config.memoryLocalRecallEnhancedEnabled) primaryTerms else context.queryTerms
+        val hits = DatabaseService.searchMemoryNodeHits(
+            queryTerms = searchTerms,
+            expandedTerms = if (Config.memoryLocalRecallEnhancedEnabled) expandedTerms else emptyList(),
+            statuses = statuses,
+            limit = limit
+        )
+        return EnhancedSearchResult(
+            hits = hits,
+            expandedTerms = expandedTerms,
+            termGraphHitCount = hits.count { hit -> hit.matchedTerms.any { it in expandedTerms } },
+            ftsHitCount = hits.count { it.matchReason.contains("fts_bm25") },
+            termWeightHitCount = hits.count { it.matchReason.contains("term_weight") }
+        )
+    }
+
+    private fun deterministicOrderKey(seed: String, value: String): Int {
+        return "$seed:$value".hashCode()
+    }
+
+    private fun timelineBuckets(
+        perBucketLimit: Int,
+        statuses: Set<String> = setOf("active"),
+        seed: String? = null
+    ): TimelineBuckets {
+        val now = Instant.now().epochSecond
+        var recentDays = 7
+        var recent = DatabaseService.getGraphMemoryNodesByCreatedRange(
+            minCreatedAt = now - recentDays * 86400L,
+            maxCreatedAt = now,
+            limit = perBucketLimit,
+            statuses = statuses
+        )
+        while (recent.size < 3 && recentDays < 30) {
+            recentDays = minOf(30, recentDays + 7)
+            recent = DatabaseService.getGraphMemoryNodesByCreatedRange(now - recentDays * 86400L, now, perBucketLimit, statuses)
+        }
+
+        var midDays = 90
+        var mid = DatabaseService.getGraphMemoryNodesByCreatedRange(
+            minCreatedAt = now - midDays * 86400L,
+            maxCreatedAt = now - (recentDays + 1) * 86400L,
+            limit = perBucketLimit,
+            statuses = statuses
+        )
+        while (mid.size < 2 && midDays < 180) {
+            midDays = minOf(180, midDays + 30)
+            mid = DatabaseService.getGraphMemoryNodesByCreatedRange(now - midDays * 86400L, now - (recentDays + 1) * 86400L, perBucketLimit, statuses)
+        }
+
+        val deep = DatabaseService.getGraphMemoryNodesByCreatedRange(
+            minCreatedAt = null,
+            maxCreatedAt = now - (midDays + 1) * 86400L,
+            limit = perBucketLimit,
+            statuses = statuses
+        )
+
+        fun ordered(nodes: List<DatabaseService.MemoryNodeRecord>): List<DatabaseService.MemoryNodeRecord> {
+            return if (seed == null) {
+                nodes.sortedWith(compareByDescending<DatabaseService.MemoryNodeRecord> { it.priority + it.confidence }.thenByDescending { it.createdAt }.thenBy { it.uri })
+            } else {
+                nodes.sortedWith(compareBy<DatabaseService.MemoryNodeRecord> { deterministicOrderKey(seed, it.uri) }.thenBy { it.uri })
+            }
+        }
+
+        return TimelineBuckets(
+            recent = ordered(recent),
+            mid = ordered(mid),
+            deep = ordered(deep),
+            recentDays = recentDays,
+            midDays = midDays
+        )
+    }
+
     private fun uriSoftMatches(uri: String?, targets: Set<String>): Boolean {
         if (uri.isNullOrBlank() || targets.isEmpty()) return false
         return targets.any { target ->
@@ -3172,17 +3464,30 @@ object MemoryService {
         if (limit == 0) return emptyList<RecalledMemory>() to emptyList()
 
         val searchLimit = max(limit * 4, 12)
+        val enhanced = enhancedSearch(context, searchLimit)
+        val hitById = enhanced.hits.associateBy { it.node.id }
         val seeds = linkedSetOf<DatabaseService.MemoryNodeRecord>()
-        DatabaseService.searchMemoryNodes(context.queryTerms, searchLimit).forEach { seeds += it }
+        enhanced.hits.forEach { seeds += it.node }
+        if (seeds.isEmpty()) {
+            DatabaseService.searchMemoryNodes(context.queryTerms, searchLimit).forEach { seeds += it }
+        }
         DatabaseService.getRecentGraphMemoryNodes(
             limit = 10,
             kinds = setOf("identity", "preference", "relationship")
         ).forEach { seeds += it }
 
         val primary = seeds
-            .map { ScoredNode(it, scoreNode(context, it, now)) }
+            .map {
+                val hit = hitById[it.id]
+                ScoredNode(
+                    node = it,
+                    score = scoreNode(context, it, now) + (hit?.textScore ?: 0.0) * 0.35,
+                    matchReason = hit?.matchReason ?: "",
+                    matchedTerms = hit?.matchedTerms ?: emptyList()
+                )
+            }
             .filter { it.score >= defaultNormalRecallThreshold }
-            .sortedByDescending { it.score }
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
             .take(limit)
 
         val associated = expandAssociatedNodes(primary, context, now, limit / 2)
@@ -3191,7 +3496,7 @@ object MemoryService {
 
         val recalled = (primary + associated)
             .filterNot { it.node.id in personContextIds }
-            .sortedByDescending { it.score }
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
             .take(limit)
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
@@ -3341,19 +3646,38 @@ object MemoryService {
         val candidateLimit = Config.memoryDeepRecallMaxCandidates.coerceAtLeast(1)
         val searchLimit = max(candidateLimit, 24)
         val seeds = linkedSetOf<DatabaseService.MemoryNodeRecord>()
-        DatabaseService.searchMemoryNodes(context.queryTerms, searchLimit).forEach { seeds += it }
-        DatabaseService.getRecentGraphMemoryNodes(limit = minOf(24, candidateLimit * 2)).forEach { seeds += it }
+        val enhanced = enhancedSearch(context, searchLimit)
+        val hitById = enhanced.hits.associateBy { it.node.id }
+        enhanced.hits.forEach { seeds += it.node }
+        if (seeds.isEmpty()) {
+            DatabaseService.searchMemoryNodes(context.queryTerms, searchLimit).forEach { seeds += it }
+        }
+        if (Config.memoryTimelineRecallEnabled) {
+            val buckets = timelineBuckets(perBucketLimit = max(4, candidateLimit / 3))
+            (buckets.recent + buckets.mid + buckets.deep).forEach { seeds += it }
+        } else {
+            DatabaseService.getRecentGraphMemoryNodes(limit = minOf(24, candidateLimit * 2)).forEach { seeds += it }
+        }
 
         val primary = seeds
-            .map { ScoredNode(it, scoreNode(context, it, now), channel = "deep") }
+            .map {
+                val hit = hitById[it.id]
+                ScoredNode(
+                    node = it,
+                    score = scoreNode(context, it, now) + (hit?.textScore ?: 0.0) * 0.35,
+                    channel = "deep",
+                    matchReason = hit?.matchReason ?: "",
+                    matchedTerms = hit?.matchedTerms ?: emptyList()
+                )
+            }
             .filter { it.score >= defaultDeepRecallWeakThreshold }
-            .sortedByDescending { it.score }
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
             .take(candidateLimit)
 
         val associated = expandAssociatedNodes(primary, context, now, candidateLimit / 2)
         val combined = (primary + associated)
             .distinctBy { it.node.id }
-            .sortedByDescending { it.score }
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
             .take(candidateLimit)
 
         if (combined.isEmpty()) return null
@@ -3436,6 +3760,7 @@ object MemoryService {
             put("fallback_reason", trace.fallbackReason ?: "")
             put("error", trace.error ?: "")
             put("duration_ms", trace.durationMs)
+            put("debug_json", trace.debugJson ?: "")
         }
     }
 
@@ -3453,18 +3778,25 @@ object MemoryService {
             Read the stable materialized memory index and produce a retrieval plan. Do not answer the user.
             Use only JSON. Do not invent memory facts.
             Prefer exact target_uris when the index exposes them. Use query_terms, uri_prefixes, kinds, people, and projects when exact URI is unclear.
+            Use the term_graph segment for associative seed terms and the timeline segment for recent/mid/deep recall hints.
             Sensitive summaries may be hidden in the index. Set include_sensitive=true only when the user is explicitly asking to recall sensitive/private material or directly points at it.
             Set include_archived/include_conflicts/include_dreams only for explicit recollection, dream, conflict, or old-memory requests.
             Set need_deep_recall=true only when the user clearly asks for recollection, dream traces, conflict, or old history.
+            candidate_strategy may be direct, associative, timeline, or deep_recall. It is a hint; backend filters still decide final retrieval.
             Output shape:
             {
               "target_uris": ["uri"],
               "uri_prefixes": ["preference://"],
               "query_terms": ["term"],
+              "seed_terms": ["term from query or index"],
+              "expanded_terms": ["associated term from term_graph"],
               "kinds": ["identity", "preference", "relationship", "project_fact", "episodic_event", "working_memory", "reflection"],
               "people": ["person://user/primary"],
               "projects": ["project://..."],
               "time_hint": "optional natural time hint",
+              "time_buckets": ["recent", "mid", "deep"],
+              "term_graph_hops": 1,
+              "candidate_strategy": "direct",
               "include_sensitive": false,
               "include_archived": false,
               "include_conflicts": false,
@@ -3498,6 +3830,16 @@ object MemoryService {
             includeDreams = parsed["include_dreams"]?.jsonPrimitive?.booleanOrNull ?: false,
             needDeepRecall = parsed["need_deep_recall"]?.jsonPrimitive?.booleanOrNull ?: false,
             reason = parsed["reason"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
+            seedTerms = parseStringArray(parsed["seed_terms"]).map { normalizeTerm(it) }.filter { it.isNotBlank() }.distinct().take(24),
+            expandedTerms = parseStringArray(parsed["expanded_terms"]).map { normalizeTerm(it) }.filter { it.isNotBlank() }.distinct().take(24),
+            timeBuckets = parseStringArray(parsed["time_buckets"]).map { it.trim().lowercase() }
+                .filter { it in setOf("recent", "mid", "deep") }
+                .distinct(),
+            termGraphHops = (parsed["term_graph_hops"]?.jsonPrimitive?.intOrNull ?: 1).coerceIn(0, 2),
+            candidateStrategy = parsed["candidate_strategy"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it in setOf("direct", "associative", "timeline", "deep_recall") },
             rawJson = parsed
         )
     }
@@ -3525,23 +3867,41 @@ object MemoryService {
         plan: ModelRecallPlan,
         context: RecallContext,
         explicitRecall: Boolean
-    ): Pair<List<ScoredNode>, String> {
+    ): ModelRecallCandidateResult {
         val now = Instant.now().epochSecond
         val seeds = linkedMapOf<Int, DatabaseService.MemoryNodeRecord>()
-        var filtered = 0
+        val sourceById = mutableMapOf<Int, MutableSet<String>>()
+        val filteredCounts = mutableMapOf<String, Int>()
         val dreamRelevant = shouldConsiderDreamTraces(context)
 
-        fun addNode(node: DatabaseService.MemoryNodeRecord?) {
+        fun filterReason(node: DatabaseService.MemoryNodeRecord): String? {
+            val isDream = node.status == "dream" || node.uri.startsWith("dream://")
+            val isArchived = node.status == "archived"
+            val isSensitive = node.disclosure == "sensitive"
+            val isSelf = isSelfNode(node)
+            return when {
+                isDream && !(plan.includeDreams && (explicitRecall || dreamRelevant)) -> "dream"
+                isArchived && !(explicitRecall && plan.includeArchived) -> "archived"
+                isSensitive && !(explicitRecall && plan.includeSensitive) -> "sensitive"
+                isSelf && node.status != "active" && !explicitRecall -> "self_non_active"
+                !isDream && !isArchived && node.status != "active" -> "non_active"
+                else -> null
+            }
+        }
+
+        fun addNode(node: DatabaseService.MemoryNodeRecord?, source: String) {
             if (node == null) return
-            if (nodeAllowedForModelRecall(node, plan, explicitRecall, dreamRelevant)) {
+            val reason = filterReason(node)
+            if (reason == null) {
                 seeds[node.id] = node
+                sourceById.getOrPut(node.id) { linkedSetOf() }.add(source)
             } else {
-                filtered += 1
+                filteredCounts[reason] = (filteredCounts[reason] ?: 0) + 1
             }
         }
 
         plan.targetUris.forEach { uri ->
-            addNode(DatabaseService.getMemoryNodeByUri(uri))
+            addNode(DatabaseService.getMemoryNodeByUri(uri), "direct_uri")
         }
 
         val statuses = buildList {
@@ -3552,22 +3912,37 @@ object MemoryService {
 
         plan.uriPrefixes.forEach { prefix ->
             statuses.forEach { status ->
-                DatabaseService.listMemoryNodes(null, prefix, null, null, status, 40).forEach { addNode(it) }
+                DatabaseService.listMemoryNodes(null, prefix, null, null, status, 40).forEach { addNode(it, "uri_prefix") }
             }
         }
 
         plan.kinds.forEach { kind ->
             statuses.forEach { status ->
-                DatabaseService.listMemoryNodes(null, null, kind, null, status, 40).forEach { addNode(it) }
+                DatabaseService.listMemoryNodes(null, null, kind, null, status, 40).forEach { addNode(it, "kind") }
             }
         }
 
-        val queryText = plan.queryTerms.joinToString(" ").ifBlank { context.queryTerms.joinToString(" ") }
+        val modelTerms = (plan.queryTerms + plan.seedTerms + plan.expandedTerms)
+            .map { normalizeTerm(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val queryText = modelTerms.joinToString(" ").ifBlank { context.queryTerms.joinToString(" ") }
+        val enhanced = enhancedSearch(
+            context = context,
+            limit = max(Config.memoryRecallMaxNodes * 8, 32),
+            statuses = statuses.toSet(),
+            modelTerms = modelTerms,
+            termGraphHops = plan.termGraphHops
+        )
+        val hitById = enhanced.hits.associateBy { it.node.id }
+        enhanced.hits.forEach { hit ->
+            val source = if (hit.matchedTerms.any { it in enhanced.expandedTerms || it in plan.expandedTerms }) "term_graph" else "text"
+            addNode(hit.node, source)
+        }
         if (queryText.isNotBlank()) {
-            DatabaseService.searchMemoryNodes(tokenize(queryText), max(Config.memoryRecallMaxNodes * 6, 24)).forEach { addNode(it) }
             if (explicitRecall) {
                 statuses.forEach { status ->
-                    DatabaseService.listMemoryNodes(queryText, null, null, null, status, 50).forEach { addNode(it) }
+                    DatabaseService.listMemoryNodes(queryText, null, null, null, status, 50).forEach { addNode(it, "explicit_text") }
                 }
             }
         }
@@ -3579,7 +3954,28 @@ object MemoryService {
                         plan.people.any { uriSoftMatches(node.personUri, setOf(it)) || uriSoftMatches(node.uri, setOf(it)) } ||
                             plan.projects.any { uriSoftMatches(node.projectUri, setOf(it)) || uriSoftMatches(node.uri, setOf(it)) }
                     }
-                    .forEach { addNode(it) }
+                    .forEach { addNode(it, "person_project") }
+            }
+        }
+
+        val selectedTimeBuckets = buildSet {
+            addAll(plan.timeBuckets)
+            if (plan.candidateStrategy in setOf("timeline", "deep_recall") || (explicitRecall && plan.needDeepRecall)) {
+                add("recent")
+                add("mid")
+                add("deep")
+            }
+        }.filter { it in setOf("recent", "mid", "deep") }
+        if (Config.memoryTimelineRecallEnabled && (selectedTimeBuckets.isNotEmpty() || explicitRecall)) {
+            val buckets = timelineBuckets(perBucketLimit = max(6, Config.memoryRecallMaxNodes * 2), statuses = statuses.toSet())
+            if (selectedTimeBuckets.isEmpty() || "recent" in selectedTimeBuckets) {
+                buckets.recent.forEach { addNode(it, "timeline_recent") }
+            }
+            if (selectedTimeBuckets.isEmpty() || "mid" in selectedTimeBuckets) {
+                buckets.mid.forEach { addNode(it, "timeline_mid") }
+            }
+            if (selectedTimeBuckets.isEmpty() || "deep" in selectedTimeBuckets) {
+                buckets.deep.forEach { addNode(it, "timeline_deep") }
             }
         }
 
@@ -3587,14 +3983,36 @@ object MemoryService {
             .map { node ->
                 val directUriBoost = if (node.uri in plan.targetUris) 2.0 else 0.0
                 val prefixBoost = if (plan.uriPrefixes.any { node.uri.startsWith(it) }) 0.8 else 0.0
-                val score = scoreNode(context, node, now) + directUriBoost + prefixBoost
-                ScoredNode(node, score, associated = false, channel = modelRecallChannel(node))
+                val textHit = hitById[node.id]
+                val sources = sourceById[node.id].orEmpty()
+                val associativeBoost = if ("term_graph" in sources || plan.candidateStrategy == "associative") 0.35 else 0.0
+                val timelineBoost = if (sources.any { it.startsWith("timeline_") } || plan.candidateStrategy == "timeline") 0.25 else 0.0
+                val deepBoost = if (plan.candidateStrategy == "deep_recall" || plan.needDeepRecall) 0.2 else 0.0
+                val score = scoreNode(context, node, now) +
+                    directUriBoost +
+                    prefixBoost +
+                    (textHit?.textScore ?: 0.0) * 0.35 +
+                    associativeBoost +
+                    timelineBoost +
+                    deepBoost
+                ScoredNode(
+                    node = node,
+                    score = score,
+                    associated = false,
+                    channel = modelRecallChannel(node),
+                    matchReason = (sources + listOfNotNull(textHit?.matchReason)).joinToString("+"),
+                    matchedTerms = textHit?.matchedTerms ?: emptyList()
+                )
             }
-            .sortedByDescending { it.score }
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
 
         val associated = expandAssociatedNodes(primary.take(Config.memoryRecallMaxNodes.coerceAtLeast(1)), context, now, Config.memoryRecallMaxNodes)
-            .filter { nodeAllowedForModelRecall(it.node, plan, explicitRecall, dreamRelevant) }
-            .map { it.copy(channel = modelRecallChannel(it.node), associated = true) }
+            .filter {
+                val reason = filterReason(it.node)
+                if (reason != null) filteredCounts[reason] = (filteredCounts[reason] ?: 0) + 1
+                reason == null
+            }
+            .map { it.copy(channel = modelRecallChannel(it.node), associated = true, matchReason = "graph_edge") }
 
         val conflictAssociated = if (explicitRecall && plan.includeConflicts) {
             val conflictIds = DatabaseService.getEdgesForNodeIds(
@@ -3603,16 +4021,43 @@ object MemoryService {
                 limit = 24
             ).flatMap { listOf(it.fromNodeId, it.toNodeId) }.toSet()
             DatabaseService.getMemoryNodesByIds(conflictIds)
-                .filter { nodeAllowedForModelRecall(it, plan, explicitRecall, dreamRelevant) }
-                .map { ScoredNode(it, scoreNode(context, it, now), associated = true, channel = modelRecallChannel(it)) }
+                .filter {
+                    val reason = filterReason(it)
+                    if (reason != null) filteredCounts[reason] = (filteredCounts[reason] ?: 0) + 1
+                    reason == null
+                }
+                .map { ScoredNode(it, scoreNode(context, it, now), associated = true, channel = modelRecallChannel(it), matchReason = "conflict_edge") }
         } else {
             emptyList()
         }
 
         val all = (primary + associated + conflictAssociated)
             .distinctBy { it.node.id }
-            .sortedByDescending { it.score }
-        return all to "filtered_by_backend=$filtered"
+            .sortedWith(compareByDescending<ScoredNode> { it.score }.thenBy { it.node.uri }.thenBy { it.node.id })
+        val debug = buildJsonObject {
+            put("model_seed_terms", buildJsonArray { plan.seedTerms.forEach { add(JsonPrimitive(it)) } })
+            put("model_expanded_terms", buildJsonArray { plan.expandedTerms.forEach { add(JsonPrimitive(it)) } })
+            put("backend_expanded_terms", buildJsonArray { enhanced.expandedTerms.forEach { add(JsonPrimitive(it)) } })
+            put("selected_time_buckets", buildJsonArray { selectedTimeBuckets.forEach { add(JsonPrimitive(it)) } })
+            put("candidate_strategy", plan.candidateStrategy ?: "")
+            put("direct_uri_hits", seeds.values.count { it.uri in plan.targetUris })
+            put("term_graph_hits", enhanced.termGraphHitCount)
+            put("fts_bm25_hits", enhanced.ftsHitCount)
+            put("term_weight_hits", enhanced.termWeightHitCount)
+            put("candidate_count", all.size)
+            put("filtered", buildJsonObject {
+                put("sensitive", filteredCounts["sensitive"] ?: 0)
+                put("dream", filteredCounts["dream"] ?: 0)
+                put("archived", filteredCounts["archived"] ?: 0)
+                put("self", filteredCounts["self_non_active"] ?: 0)
+                put("non_active", filteredCounts["non_active"] ?: 0)
+            })
+        }
+        val filteredSummary = "filtered_by_backend=" + filteredCounts.entries
+            .sortedBy { it.key }
+            .joinToString(",") { "${it.key}:${it.value}" }
+            .ifBlank { "0" }
+        return ModelRecallCandidateResult(all, filteredSummary, debug)
     }
 
     private fun modelRecallChannel(node: DatabaseService.MemoryNodeRecord): String {
@@ -3649,7 +4094,8 @@ object MemoryService {
         } ?: return modelRecallFailure(userQuery, indexVersion, null, "recall_model_invalid_json", started)
 
         val planJson = plan.rawJson.toString()
-        val (candidates, filteredSummary) = collectModelRecallCandidates(plan, context, explicitRecall)
+        val candidateResult = collectModelRecallCandidates(plan, context, explicitRecall)
+        val candidates = candidateResult.candidates
         val ordinaryLimit = Config.memoryRecallMaxNodes.coerceAtLeast(0)
         val selfLimit = if (shouldTriggerSelfRecall(userQuery)) Config.memorySelfRecallMaxNodes.coerceAtLeast(0) else 2
         val dreamLimit = Config.memoryDreamRecallMaxTraces.coerceAtLeast(0)
@@ -3679,10 +4125,11 @@ object MemoryService {
             planJson = planJson,
             candidateCount = candidates.size,
             injectedCount = recalled.size + selfMemories.size + dreamTraces.size,
-            filteredSummary = filteredSummary,
+            filteredSummary = candidateResult.filteredSummary,
             fallbackReason = null,
             error = null,
-            durationMs = duration
+            durationMs = duration,
+            debugJson = candidateResult.debugJson.toString()
         )
         modelRecallConsecutiveFailures.set(0)
         return ModelRecallResult(recalled, selfMemories, dreamTraces, plan, null, null, candidates.size, duration)

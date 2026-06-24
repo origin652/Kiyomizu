@@ -73,6 +73,11 @@ object ConfigApi {
             put("memory_model_recall_failure_threshold", Config.memoryModelRecallFailureThreshold)
             put("memory_model_recall_cooldown_seconds", Config.memoryModelRecallCooldownSeconds)
             put("memory_model_recall_trace_retention", Config.memoryModelRecallTraceRetention)
+            put("memory_local_recall_enhanced_enabled", Config.memoryLocalRecallEnhancedEnabled)
+            put("memory_tag_graph_enabled", Config.memoryTagGraphEnabled)
+            put("memory_tag_graph_max_expanded_terms", Config.memoryTagGraphMaxExpandedTerms)
+            put("memory_timeline_recall_enabled", Config.memoryTimelineRecallEnabled)
+            put("memory_summary_sanitize_internal_prompts", Config.memorySummarySanitizeInternalPrompts)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -138,6 +143,11 @@ object ConfigApi {
         var nextMemoryModelRecallFailureThreshold = Config.memoryModelRecallFailureThreshold
         var nextMemoryModelRecallCooldownSeconds = Config.memoryModelRecallCooldownSeconds
         var nextMemoryModelRecallTraceRetention = Config.memoryModelRecallTraceRetention
+        var nextMemoryLocalRecallEnhancedEnabled = Config.memoryLocalRecallEnhancedEnabled
+        var nextMemoryTagGraphEnabled = Config.memoryTagGraphEnabled
+        var nextMemoryTagGraphMaxExpandedTerms = Config.memoryTagGraphMaxExpandedTerms
+        var nextMemoryTimelineRecallEnabled = Config.memoryTimelineRecallEnabled
+        var nextMemorySummarySanitizeInternalPrompts = Config.memorySummarySanitizeInternalPrompts
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var nextMemoryRecallModelKey = Config.memoryRecallModelKey
@@ -463,6 +473,25 @@ object ConfigApi {
                 errors.add("memory_model_recall_trace_retention must be an integer 1-5000")
             }
         }
+        body.readBoolean("memory_local_recall_enhanced_enabled", errors) {
+            nextMemoryLocalRecallEnhancedEnabled = it
+        }
+        body.readBoolean("memory_tag_graph_enabled", errors) {
+            nextMemoryTagGraphEnabled = it
+        }
+        body.readInt("memory_tag_graph_max_expanded_terms", errors) {
+            if (it in 0..128) {
+                nextMemoryTagGraphMaxExpandedTerms = it
+            } else {
+                errors.add("memory_tag_graph_max_expanded_terms must be an integer 0-128")
+            }
+        }
+        body.readBoolean("memory_timeline_recall_enabled", errors) {
+            nextMemoryTimelineRecallEnabled = it
+        }
+        body.readBoolean("memory_summary_sanitize_internal_prompts", errors) {
+            nextMemorySummarySanitizeInternalPrompts = it
+        }
 
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
@@ -585,7 +614,12 @@ object ConfigApi {
             memoryRecallModelModel = nextMemoryRecallModelModel,
             memoryModelRecallFailureThreshold = nextMemoryModelRecallFailureThreshold,
             memoryModelRecallCooldownSeconds = nextMemoryModelRecallCooldownSeconds,
-            memoryModelRecallTraceRetention = nextMemoryModelRecallTraceRetention
+            memoryModelRecallTraceRetention = nextMemoryModelRecallTraceRetention,
+            memoryLocalRecallEnhancedEnabled = nextMemoryLocalRecallEnhancedEnabled,
+            memoryTagGraphEnabled = nextMemoryTagGraphEnabled,
+            memoryTagGraphMaxExpandedTerms = nextMemoryTagGraphMaxExpandedTerms,
+            memoryTimelineRecallEnabled = nextMemoryTimelineRecallEnabled,
+            memorySummarySanitizeInternalPrompts = nextMemorySummarySanitizeInternalPrompts
         )
 
         try {

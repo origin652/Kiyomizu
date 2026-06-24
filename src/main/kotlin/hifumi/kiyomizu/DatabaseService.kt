@@ -342,7 +342,20 @@ object DatabaseService {
                         filtered_summary TEXT,
                         fallback_reason TEXT,
                         error TEXT,
-                        duration_ms INTEGER NOT NULL DEFAULT 0
+                        duration_ms INTEGER NOT NULL DEFAULT 0,
+                        debug_json TEXT
+                    )
+                """.trimIndent())
+                ensureModelRecallTracesSchema(conn)
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS memory_term_edges (
+                        term_a TEXT NOT NULL,
+                        term_b TEXT NOT NULL,
+                        co_count INTEGER NOT NULL DEFAULT 1,
+                        weight REAL NOT NULL DEFAULT 1.0,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(term_a, term_b)
                     )
                 """.trimIndent())
 
@@ -368,6 +381,8 @@ object DatabaseService {
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_created ON self_memory_events(created_at DESC)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_self_memory_events_node ON self_memory_events(node_id)")
                 stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_model_recall_traces_created ON memory_model_recall_traces(created_at DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_term_edges_a ON memory_term_edges(term_a, weight DESC)")
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_memory_term_edges_b ON memory_term_edges(term_b, weight DESC)")
 
                 try {
                     stmt.execute("""
@@ -666,6 +681,21 @@ object DatabaseService {
         if ("status" !in columns) {
             conn.createStatement().use { stmt ->
                 stmt.execute("ALTER TABLE memory_nodes ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            }
+        }
+    }
+
+    private fun ensureModelRecallTracesSchema(conn: Connection) {
+        val columns = mutableSetOf<String>()
+        conn.prepareStatement("PRAGMA table_info(memory_model_recall_traces)").use { pstmt ->
+            val rs = pstmt.executeQuery()
+            while (rs.next()) {
+                columns.add(rs.getString("name"))
+            }
+        }
+        if ("debug_json" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN debug_json TEXT")
             }
         }
     }
@@ -1160,6 +1190,29 @@ object DatabaseService {
         val weight: Double = 1.0
     )
 
+    data class MemoryNodeSearchHit(
+        val node: MemoryNodeRecord,
+        val textScore: Double,
+        val matchReason: String,
+        val matchedTerms: List<String>
+    )
+
+    data class MemoryTermEdgeRecord(
+        val termA: String,
+        val termB: String,
+        val coCount: Int,
+        val weight: Double,
+        val updatedAt: Long
+    )
+
+    data class MemoryTermGraphStats(
+        val termCount: Int,
+        val edgeCount: Int,
+        val updatedAt: Long,
+        val dirty: Boolean,
+        val error: String?
+    )
+
     data class MemoryIndexSegmentRecord(
         val segmentKey: String,
         val content: String,
@@ -1181,7 +1234,8 @@ object DatabaseService {
         val filteredSummary: String?,
         val fallbackReason: String?,
         val error: String?,
-        val durationMs: Int
+        val durationMs: Int,
+        val debugJson: String?
     )
 
     data class MemoryObservationRecord(
@@ -2459,6 +2513,296 @@ object DatabaseService {
         return ids.mapNotNull { byId[it] }.take(limit)
     }
 
+    fun searchMemoryNodeHits(
+        queryTerms: List<String>,
+        expandedTerms: List<String>,
+        statuses: Set<String> = setOf("active"),
+        limit: Int
+    ): List<MemoryNodeSearchHit> {
+        if (limit <= 0) return emptyList()
+        val primaryTerms = queryTerms.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        val secondaryTerms = expandedTerms.map { it.trim().lowercase() }.filter { it.isNotEmpty() && it !in primaryTerms }.distinct()
+        val allTerms = (primaryTerms + secondaryTerms).distinct()
+        if (allTerms.isEmpty()) return emptyList()
+        val allowedStatuses = statuses.ifEmpty { setOf("active") }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (allowedStatuses.isEmpty()) return emptyList()
+
+        data class HitAccumulator(
+            var score: Double,
+            val reasons: MutableSet<String>
+        )
+
+        val hits = linkedMapOf<Int, HitAccumulator>()
+        fun addHit(id: Int, score: Double, reason: String) {
+            val existing = hits[id]
+            if (existing == null) {
+                hits[id] = HitAccumulator(score, linkedSetOf(reason))
+            } else {
+                existing.score = maxOf(existing.score, score)
+                existing.reasons += reason
+            }
+        }
+
+        getConnection().use { conn ->
+            val statusPlaceholders = allowedStatuses.joinToString(",") { "?" }
+            try {
+                val matchQuery = allTerms.joinToString(" OR ") { "\"${it.replace("\"", "\"\"")}\"" }
+                conn.prepareStatement("""
+                    SELECT memory_nodes_fts.node_id AS node_id, bm25(memory_nodes_fts) AS rank
+                    FROM memory_nodes_fts
+                    JOIN memory_nodes ON memory_nodes.id = memory_nodes_fts.node_id
+                    WHERE memory_nodes_fts MATCH ?
+                      AND memory_nodes.status IN ($statusPlaceholders)
+                    ORDER BY rank ASC, memory_nodes.updated_at DESC, memory_nodes.uri ASC
+                    LIMIT ?
+                """.trimIndent()).use { pstmt ->
+                    pstmt.setString(1, matchQuery)
+                    allowedStatuses.forEachIndexed { index, status -> pstmt.setString(index + 2, status) }
+                    pstmt.setInt(allowedStatuses.size + 2, limit * 2)
+                    val rs = pstmt.executeQuery()
+                    var rank = 0
+                    while (rs.next()) {
+                        rank += 1
+                        addHit(rs.getInt("node_id"), 3.0 + (limit * 2 - rank).coerceAtLeast(0) / limit.toDouble(), "fts_bm25")
+                    }
+                }
+            } catch (_: Exception) {
+                // FTS5 is optional. Term and LIKE search below keep recall functional.
+            }
+
+            val termPlaceholders = allTerms.joinToString(",") { "?" }
+            conn.prepareStatement("""
+                SELECT memory_search_terms.node_id AS node_id,
+                       SUM(memory_search_terms.weight) AS score
+                FROM memory_search_terms
+                JOIN memory_nodes ON memory_nodes.id = memory_search_terms.node_id
+                WHERE memory_search_terms.term IN ($termPlaceholders)
+                  AND memory_nodes.status IN ($statusPlaceholders)
+                GROUP BY memory_search_terms.node_id
+                ORDER BY score DESC, memory_nodes.updated_at DESC, memory_nodes.uri ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                var position = 1
+                allTerms.forEach { term -> pstmt.setString(position++, term) }
+                allowedStatuses.forEach { status -> pstmt.setString(position++, status) }
+                pstmt.setInt(position, limit * 3)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    addHit(rs.getInt("node_id"), 1.2 + rs.getDouble("score"), "term_weight")
+                }
+            }
+
+            if (hits.size < limit) {
+                val likeTerms = allTerms.take(16)
+                val likeWhere = likeTerms.joinToString(" OR ") {
+                    "(LOWER(memory_nodes.searchable_text) LIKE ? OR LOWER(memory_nodes.content) LIKE ? OR LOWER(memory_nodes.uri) LIKE ?)"
+                }
+                conn.prepareStatement("""
+                    SELECT id
+                    FROM memory_nodes
+                    WHERE memory_nodes.status IN ($statusPlaceholders)
+                      AND ($likeWhere)
+                    ORDER BY updated_at DESC, uri ASC
+                    LIMIT ?
+                """.trimIndent()).use { pstmt ->
+                    var position = 1
+                    allowedStatuses.forEach { status -> pstmt.setString(position++, status) }
+                    likeTerms.forEach { term ->
+                        val like = "%$term%"
+                        pstmt.setString(position++, like)
+                        pstmt.setString(position++, like)
+                        pstmt.setString(position++, like)
+                    }
+                    pstmt.setInt(position, limit * 2)
+                    val rs = pstmt.executeQuery()
+                    while (rs.next()) {
+                        addHit(rs.getInt("id"), 0.8, "like")
+                    }
+                }
+            }
+        }
+
+        val nodesById = getMemoryNodesByIds(hits.keys).associateBy { it.id }
+        return hits.mapNotNull { (id, hit) ->
+            val node = nodesById[id] ?: return@mapNotNull null
+            val searchText = "${node.searchableText} ${node.content} ${node.uri}".lowercase()
+            val matched = allTerms.filter { searchText.contains(it) }.take(24)
+            MemoryNodeSearchHit(
+                node = node,
+                textScore = hit.score,
+                matchReason = hit.reasons.joinToString("+"),
+                matchedTerms = matched
+            )
+        }
+            .sortedWith(
+                compareByDescending<MemoryNodeSearchHit> { it.textScore }
+                    .thenByDescending { it.node.priority }
+                    .thenByDescending { it.node.confidence }
+                    .thenBy { it.node.uri }
+                    .thenBy { it.node.id }
+            )
+            .take(limit)
+    }
+
+    fun rebuildMemoryTermEdges(maxTermsPerSource: Int = 12) {
+        val now = Instant.now().epochSecond
+        data class SourceTerm(val sourceId: String, val term: String, val weight: Double)
+        data class EdgeAccumulator(var coCount: Int = 0, var weight: Double = 0.0)
+        val sourceTerms = mutableListOf<SourceTerm>()
+
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT 'n:' || node_id AS source_id, term, SUM(weight) AS weight
+                FROM memory_search_terms
+                GROUP BY node_id, term
+                UNION ALL
+                SELECT 'o:' || observation_id AS source_id, term, SUM(weight) AS weight
+                FROM memory_observation_terms
+                GROUP BY observation_id, term
+            """.trimIndent()).use { pstmt ->
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    val term = rs.getString("term")?.trim()?.lowercase().orEmpty()
+                    if (term.isNotBlank()) {
+                        sourceTerms += SourceTerm(rs.getString("source_id"), term, rs.getDouble("weight"))
+                    }
+                }
+            }
+
+            val edges = linkedMapOf<Pair<String, String>, EdgeAccumulator>()
+            sourceTerms.groupBy { it.sourceId }.values.forEach { terms ->
+                val topTerms = terms
+                    .groupBy { it.term }
+                    .map { (term, values) -> term to values.sumOf { it.weight } }
+                    .filter { it.first.isNotBlank() }
+                    .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+                    .take(maxTermsPerSource.coerceIn(2, 32))
+                for (leftIndex in topTerms.indices) {
+                    val left = topTerms[leftIndex]
+                    for (right in topTerms.drop(leftIndex + 1)) {
+                        if (left.first == right.first) continue
+                        val a = minOf(left.first, right.first)
+                        val b = maxOf(left.first, right.first)
+                        val edge = edges.getOrPut(a to b) { EdgeAccumulator() }
+                        edge.coCount += 1
+                        edge.weight += (left.second + right.second) / 2.0
+                    }
+                }
+            }
+
+            conn.autoCommit = false
+            try {
+                conn.createStatement().use { stmt -> stmt.execute("DELETE FROM memory_term_edges") }
+                conn.prepareStatement("""
+                    INSERT INTO memory_term_edges (term_a, term_b, co_count, weight, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """.trimIndent()).use { insert ->
+                    edges.toSortedMap(compareBy<Pair<String, String>> { it.first }.thenBy { it.second }).forEach { (key, edge) ->
+                        insert.setString(1, key.first)
+                        insert.setString(2, key.second)
+                        insert.setInt(3, edge.coCount)
+                        insert.setDouble(4, edge.weight)
+                        insert.setLong(5, now)
+                        insert.addBatch()
+                    }
+                    insert.executeBatch()
+                }
+                conn.commit()
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
+    fun getRelatedMemoryTerms(terms: List<String>, limit: Int): List<MemoryTermEdgeRecord> {
+        val normalizedTerms = terms.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        if (normalizedTerms.isEmpty() || limit <= 0) return emptyList()
+        val placeholders = normalizedTerms.joinToString(",") { "?" }
+        val sourceSet = normalizedTerms.toSet()
+        val list = mutableListOf<MemoryTermEdgeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT term_a, term_b, co_count, weight, updated_at
+                FROM memory_term_edges
+                WHERE term_a IN ($placeholders) OR term_b IN ($placeholders)
+                ORDER BY weight DESC, co_count DESC, term_a ASC, term_b ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                var position = 1
+                normalizedTerms.forEach { term -> pstmt.setString(position++, term) }
+                normalizedTerms.forEach { term -> pstmt.setString(position++, term) }
+                pstmt.setInt(position, limit * 4)
+                val rs = pstmt.executeQuery()
+                while (rs.next() && list.size < limit) {
+                    val a = rs.getString("term_a")
+                    val b = rs.getString("term_b")
+                    if (a in sourceSet && b in sourceSet) continue
+                    list += MemoryTermEdgeRecord(
+                        termA = a,
+                        termB = b,
+                        coCount = rs.getInt("co_count"),
+                        weight = rs.getDouble("weight"),
+                        updatedAt = rs.getLong("updated_at")
+                    )
+                }
+            }
+        }
+        return list
+    }
+
+    fun getTopMemoryTermEdges(limit: Int): List<MemoryTermEdgeRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<MemoryTermEdgeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT term_a, term_b, co_count, weight, updated_at
+                FROM memory_term_edges
+                ORDER BY weight DESC, co_count DESC, term_a ASC, term_b ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list += MemoryTermEdgeRecord(
+                        termA = rs.getString("term_a"),
+                        termB = rs.getString("term_b"),
+                        coCount = rs.getInt("co_count"),
+                        weight = rs.getDouble("weight"),
+                        updatedAt = rs.getLong("updated_at")
+                    )
+                }
+            }
+        }
+        return list
+    }
+
+    fun memoryTermGraphStats(): MemoryTermGraphStats {
+        getConnection().use { conn ->
+            val edgeCount = conn.prepareStatement("SELECT COUNT(*) FROM memory_term_edges").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) rs.getInt(1) else 0
+            }
+            val termCount = conn.prepareStatement("""
+                SELECT COUNT(*) FROM (
+                    SELECT term_a AS term FROM memory_term_edges
+                    UNION
+                    SELECT term_b AS term FROM memory_term_edges
+                )
+            """.trimIndent()).use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) rs.getInt(1) else 0
+            }
+            val updatedAt = conn.prepareStatement("SELECT COALESCE(MAX(updated_at), 0) FROM memory_term_edges").use { pstmt ->
+                val rs = pstmt.executeQuery()
+                if (rs.next()) rs.getLong(1) else 0L
+            }
+            return MemoryTermGraphStats(termCount, edgeCount, updatedAt, dirty = false, error = null)
+        }
+    }
+
     fun getRecentGraphMemoryNodes(limit: Int, kinds: Set<String> = emptySet()): List<MemoryNodeRecord> {
         val list = mutableListOf<MemoryNodeRecord>()
         val sql = if (kinds.isEmpty()) {
@@ -2476,6 +2820,41 @@ object DatabaseService {
                 while (rs.next()) {
                     list.add(readMemoryNode(rs))
                 }
+            }
+        }
+        return list
+    }
+
+    fun getGraphMemoryNodesByCreatedRange(
+        minCreatedAt: Long?,
+        maxCreatedAt: Long?,
+        limit: Int,
+        statuses: Set<String> = setOf("active")
+    ): List<MemoryNodeRecord> {
+        if (limit <= 0) return emptyList()
+        val allowedStatuses = statuses.ifEmpty { setOf("active") }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (allowedStatuses.isEmpty()) return emptyList()
+        val list = mutableListOf<MemoryNodeRecord>()
+        val conditions = mutableListOf<String>()
+        val statusPlaceholders = allowedStatuses.joinToString(",") { "?" }
+        conditions += "status IN ($statusPlaceholders)"
+        if (minCreatedAt != null) conditions += "created_at >= ?"
+        if (maxCreatedAt != null) conditions += "created_at <= ?"
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT *
+                FROM memory_nodes
+                WHERE ${conditions.joinToString(" AND ")}
+                ORDER BY created_at DESC, priority DESC, confidence DESC, uri ASC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                var position = 1
+                allowedStatuses.forEach { status -> pstmt.setString(position++, status) }
+                if (minCreatedAt != null) pstmt.setLong(position++, minCreatedAt)
+                if (maxCreatedAt != null) pstmt.setLong(position++, maxCreatedAt)
+                pstmt.setInt(position, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryNode(rs))
             }
         }
         return list
@@ -2904,7 +3283,8 @@ object DatabaseService {
             filteredSummary = rs.getString("filtered_summary"),
             fallbackReason = rs.getString("fallback_reason"),
             error = rs.getString("error"),
-            durationMs = rs.getInt("duration_ms")
+            durationMs = rs.getInt("duration_ms"),
+            debugJson = rs.getString("debug_json")
         )
     }
 
@@ -2917,15 +3297,16 @@ object DatabaseService {
         filteredSummary: String?,
         fallbackReason: String?,
         error: String?,
-        durationMs: Int
+        durationMs: Int,
+        debugJson: String? = null
     ): Int {
         val now = Instant.now().epochSecond
         getConnection().use { conn ->
             conn.prepareStatement("""
                 INSERT INTO memory_model_recall_traces (
                     created_at, query, index_version, plan_json, candidate_count, injected_count,
-                    filtered_summary, fallback_reason, error, duration_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    filtered_summary, fallback_reason, error, duration_ms, debug_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setLong(1, now)
                 pstmt.setString(2, query)
@@ -2937,6 +3318,7 @@ object DatabaseService {
                 pstmt.setNullableString(8, fallbackReason)
                 pstmt.setNullableString(9, error)
                 pstmt.setInt(10, durationMs)
+                pstmt.setNullableString(11, debugJson)
                 pstmt.executeUpdate()
             }
             conn.createStatement().use { stmt ->

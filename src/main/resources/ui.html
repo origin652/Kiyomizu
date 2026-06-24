@@ -2088,13 +2088,39 @@ input[disabled], textarea[disabled], select[disabled] {
                     </label>
                   </div>
 
-                  <label id="t-comp-model-recall-retention-label">
-                    Recall Trace Retention (1-5000)
-                    <input type="number" name="memory_model_recall_trace_retention" min="1" max="5000" step="1">
-                  </label>
+	                  <label id="t-comp-model-recall-retention-label">
+	                    Recall Trace Retention (1-5000)
+	                    <input type="number" name="memory_model_recall_trace_retention" min="1" max="5000" step="1">
+	                  </label>
 
-                  <div class="companion-num-grid field-pair-grid">
-                    <label id="t-comp-decay-hours-label">
+	                  <div class="companion-block-subtitle" id="t-comp-local-recall-title">Local Recall Enhancements</div>
+	                  <div class="companion-num-grid field-pair-grid">
+	                    <label class="label-inline" id="t-comp-local-recall-toggle-label">
+	                      <span>Enable Local Recall Enhancements</span>
+	                      <input type="checkbox" name="memory_local_recall_enhanced_enabled" class="cb-accent">
+	                    </label>
+	                    <label class="label-inline" id="t-comp-tag-graph-toggle-label">
+	                      <span>Enable Tag Graph</span>
+	                      <input type="checkbox" name="memory_tag_graph_enabled" class="cb-accent">
+	                    </label>
+	                  </div>
+	                  <div class="companion-num-grid field-pair-grid">
+	                    <label id="t-comp-tag-graph-max-label">
+	                      Tag Graph Expanded Terms (0-128)
+	                      <input type="number" name="memory_tag_graph_max_expanded_terms" min="0" max="128" step="1">
+	                    </label>
+	                    <label class="label-inline" id="t-comp-timeline-recall-toggle-label">
+	                      <span>Enable Timeline Recall</span>
+	                      <input type="checkbox" name="memory_timeline_recall_enabled" class="cb-accent">
+	                    </label>
+	                  </div>
+	                  <label class="label-inline" id="t-comp-summary-sanitize-toggle-label">
+	                    <span>Sanitize Internal Prompts Before Memory Summary</span>
+	                    <input type="checkbox" name="memory_summary_sanitize_internal_prompts" class="cb-accent">
+	                  </label>
+
+	                  <div class="companion-num-grid field-pair-grid">
+	                    <label id="t-comp-decay-hours-label">
                       Decay Interval (Hours)
                       <input type="number" name="memory_decay_interval_hours" min="1" max="720">
                     </label>
@@ -3242,6 +3268,11 @@ function applyConfigData(d) {
   f.memory_model_recall_failure_threshold.value = d.memory_model_recall_failure_threshold !== undefined ? d.memory_model_recall_failure_threshold : 3;
   f.memory_model_recall_cooldown_seconds.value = d.memory_model_recall_cooldown_seconds !== undefined ? d.memory_model_recall_cooldown_seconds : 300;
   f.memory_model_recall_trace_retention.value = d.memory_model_recall_trace_retention !== undefined ? d.memory_model_recall_trace_retention : 200;
+  f.memory_local_recall_enhanced_enabled.checked = d.memory_local_recall_enhanced_enabled !== undefined ? d.memory_local_recall_enhanced_enabled : true;
+  f.memory_tag_graph_enabled.checked = d.memory_tag_graph_enabled !== undefined ? d.memory_tag_graph_enabled : true;
+  f.memory_tag_graph_max_expanded_terms.value = d.memory_tag_graph_max_expanded_terms !== undefined ? d.memory_tag_graph_max_expanded_terms : 16;
+  f.memory_timeline_recall_enabled.checked = d.memory_timeline_recall_enabled !== undefined ? d.memory_timeline_recall_enabled : true;
+  f.memory_summary_sanitize_internal_prompts.checked = d.memory_summary_sanitize_internal_prompts !== undefined ? d.memory_summary_sanitize_internal_prompts : true;
   f.memory_summary_prompt.value = d.memory_summary_prompt || '';
   f.memory_decay_interval_hours.value = d.memory_decay_interval_hours !== undefined ? d.memory_decay_interval_hours : 24;
   f.memory_decay_rate.value = d.memory_decay_rate !== undefined ? d.memory_decay_rate : 0.1;
@@ -3394,6 +3425,16 @@ function applyLang(lang) {
   setText('t-comp-model-recall-failure-label', s.compModelRecallFailureLabel || 'Recall Failure Threshold (1-20)', 'memory_model_recall_failure_threshold');
   setText('t-comp-model-recall-cooldown-label', s.compModelRecallCooldownLabel || 'Recall Cooldown Seconds (0-86400)', 'memory_model_recall_cooldown_seconds');
   setText('t-comp-model-recall-retention-label', s.compModelRecallRetentionLabel || 'Recall Trace Retention (1-5000)', 'memory_model_recall_trace_retention');
+  setText('t-comp-local-recall-title', s.compLocalRecallTitle || 'Local Recall Enhancements');
+  const localRecallToggleLabel = document.querySelector('#t-comp-local-recall-toggle-label span');
+  if (localRecallToggleLabel) localRecallToggleLabel.textContent = s.compLocalRecallToggleLabel || 'Enable Local Recall Enhancements';
+  const tagGraphToggleLabel = document.querySelector('#t-comp-tag-graph-toggle-label span');
+  if (tagGraphToggleLabel) tagGraphToggleLabel.textContent = s.compTagGraphToggleLabel || 'Enable Tag Graph';
+  setText('t-comp-tag-graph-max-label', s.compTagGraphMaxLabel || 'Tag Graph Expanded Terms (0-128)', 'memory_tag_graph_max_expanded_terms');
+  const timelineRecallToggleLabel = document.querySelector('#t-comp-timeline-recall-toggle-label span');
+  if (timelineRecallToggleLabel) timelineRecallToggleLabel.textContent = s.compTimelineRecallToggleLabel || 'Enable Timeline Recall';
+  const summarySanitizeToggleLabel = document.querySelector('#t-comp-summary-sanitize-toggle-label span');
+  if (summarySanitizeToggleLabel) summarySanitizeToggleLabel.textContent = s.compSummarySanitizeToggleLabel || 'Sanitize Internal Prompts Before Memory Summary';
   setText('t-comp-decay-hours-label', s.compDecayHoursLabel || 'Decay Interval (Hours)', 'memory_decay_interval_hours');
   setText('t-comp-decay-rate-label', s.compDecayRateLabel || 'Memory Decay Rate (0-1)', 'memory_decay_rate');
   setText('t-comp-threshold-label', s.compThresholdLabel || 'Forget Threshold (0-1)', 'memory_threshold');
@@ -3850,6 +3891,11 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_model_recall_failure_threshold: Number(f.memory_model_recall_failure_threshold.value),
     memory_model_recall_cooldown_seconds: Number(f.memory_model_recall_cooldown_seconds.value),
     memory_model_recall_trace_retention: Number(f.memory_model_recall_trace_retention.value),
+    memory_local_recall_enhanced_enabled: f.memory_local_recall_enhanced_enabled.checked,
+    memory_tag_graph_enabled: f.memory_tag_graph_enabled.checked,
+    memory_tag_graph_max_expanded_terms: Number(f.memory_tag_graph_max_expanded_terms.value),
+    memory_timeline_recall_enabled: f.memory_timeline_recall_enabled.checked,
+    memory_summary_sanitize_internal_prompts: f.memory_summary_sanitize_internal_prompts.checked,
     memory_summary_prompt: f.memory_summary_prompt.value,
     memory_decay_interval_hours: Number(f.memory_decay_interval_hours.value),
     memory_decay_rate: Number(f.memory_decay_rate.value),
@@ -4616,6 +4662,20 @@ function renderMemoryIndex(indexJson) {
     list.appendChild(empty);
     return;
   }
+  if (indexJson.term_graph_stats) {
+    const stats = indexJson.term_graph_stats;
+    const statsItem = document.createElement('div');
+    statsItem.className = 'memory-queue-item';
+    const statsLine = document.createElement('div');
+    statsLine.textContent =
+      `term_graph_stats: terms=${stats.term_count || 0} edges=${stats.edge_count || 0} dirty=${stats.dirty ? 'true' : 'false'}${stats.error ? ' error=' + stats.error : ''}`;
+    statsItem.appendChild(statsLine);
+    const statsMeta = document.createElement('div');
+    statsMeta.className = 'memory-queue-meta';
+    statsMeta.textContent = stats.last_rebuilt_at ? new Date(stats.last_rebuilt_at * 1000).toLocaleString() : 'not built';
+    statsItem.appendChild(statsMeta);
+    list.appendChild(statsItem);
+  }
   segments.forEach(segment => {
     const item = document.createElement('div');
     item.className = 'memory-queue-item';
@@ -4661,15 +4721,21 @@ function renderRecallTraces(tracesJson) {
     meta.textContent =
       `${trace.created_at ? new Date(trace.created_at * 1000).toLocaleString() : 'unknown'} · fallback=${trace.fallback_reason || 'none'} · error=${trace.error || 'none'}`;
     item.appendChild(meta);
-    if (trace.plan_json) {
-      const plan = document.createElement('pre');
-      plan.className = 'index-preview';
-      plan.textContent = trace.plan_json;
-      item.appendChild(plan);
-    }
-    list.appendChild(item);
-  });
-}
+	    if (trace.plan_json) {
+	      const plan = document.createElement('pre');
+	      plan.className = 'index-preview';
+	      plan.textContent = trace.plan_json;
+	      item.appendChild(plan);
+	    }
+	    if (trace.debug_json) {
+	      const debug = document.createElement('pre');
+	      debug.className = 'index-preview';
+	      debug.textContent = trace.debug_json;
+	      item.appendChild(debug);
+	    }
+	    list.appendChild(item);
+	  });
+	}
 
 async function loadModelRecallDebug(existingDiagnostics) {
   let diagnostics = existingDiagnostics;

@@ -162,6 +162,11 @@ object Config {
     private val memoryModelRecallFailureThresholdRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_FAILURE_THRESHOLD")?.toIntOrNull() ?: 3)
     private val memoryModelRecallCooldownSecondsRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_COOLDOWN_SECONDS")?.toIntOrNull() ?: 300)
     private val memoryModelRecallTraceRetentionRef = AtomicInteger(System.getenv("MEMORY_MODEL_RECALL_TRACE_RETENTION")?.toIntOrNull() ?: 200)
+    private val memoryLocalRecallEnhancedEnabledRef = AtomicReference(System.getenv("MEMORY_LOCAL_RECALL_ENHANCED_ENABLED") != "0")
+    private val memoryTagGraphEnabledRef = AtomicReference(System.getenv("MEMORY_TAG_GRAPH_ENABLED") != "0")
+    private val memoryTagGraphMaxExpandedTermsRef = AtomicInteger(System.getenv("MEMORY_TAG_GRAPH_MAX_EXPANDED_TERMS")?.toIntOrNull() ?: 16)
+    private val memoryTimelineRecallEnabledRef = AtomicReference(System.getenv("MEMORY_TIMELINE_RECALL_ENABLED") != "0")
+    private val memorySummarySanitizeInternalPromptsRef = AtomicReference(System.getenv("MEMORY_SUMMARY_SANITIZE_INTERNAL_PROMPTS") != "0")
 
     var preset: String
         get() = presetRef.get()
@@ -394,6 +399,26 @@ object Config {
         get() = memoryModelRecallTraceRetentionRef.get()
         set(value) { memoryModelRecallTraceRetentionRef.set(value) }
 
+    var memoryLocalRecallEnhancedEnabled: Boolean
+        get() = memoryLocalRecallEnhancedEnabledRef.get()
+        set(value) { memoryLocalRecallEnhancedEnabledRef.set(value) }
+
+    var memoryTagGraphEnabled: Boolean
+        get() = memoryTagGraphEnabledRef.get()
+        set(value) { memoryTagGraphEnabledRef.set(value) }
+
+    var memoryTagGraphMaxExpandedTerms: Int
+        get() = memoryTagGraphMaxExpandedTermsRef.get()
+        set(value) { memoryTagGraphMaxExpandedTermsRef.set(value.coerceIn(0, 128)) }
+
+    var memoryTimelineRecallEnabled: Boolean
+        get() = memoryTimelineRecallEnabledRef.get()
+        set(value) { memoryTimelineRecallEnabledRef.set(value) }
+
+    var memorySummarySanitizeInternalPrompts: Boolean
+        get() = memorySummarySanitizeInternalPromptsRef.get()
+        set(value) { memorySummarySanitizeInternalPromptsRef.set(value) }
+
     data class Snapshot(
         val preset: String,
         val upstream: String,
@@ -449,7 +474,12 @@ object Config {
         val memoryRecallModelModel: String,
         val memoryModelRecallFailureThreshold: Int,
         val memoryModelRecallCooldownSeconds: Int,
-        val memoryModelRecallTraceRetention: Int
+        val memoryModelRecallTraceRetention: Int,
+        val memoryLocalRecallEnhancedEnabled: Boolean,
+        val memoryTagGraphEnabled: Boolean,
+        val memoryTagGraphMaxExpandedTerms: Int,
+        val memoryTimelineRecallEnabled: Boolean,
+        val memorySummarySanitizeInternalPrompts: Boolean
     ) {
         fun toJson(): JsonObject {
             return buildJsonObject {
@@ -508,6 +538,11 @@ object Config {
                 put("memory_model_recall_failure_threshold", memoryModelRecallFailureThreshold)
                 put("memory_model_recall_cooldown_seconds", memoryModelRecallCooldownSeconds)
                 put("memory_model_recall_trace_retention", memoryModelRecallTraceRetention)
+                put("memory_local_recall_enhanced_enabled", memoryLocalRecallEnhancedEnabled)
+                put("memory_tag_graph_enabled", memoryTagGraphEnabled)
+                put("memory_tag_graph_max_expanded_terms", memoryTagGraphMaxExpandedTerms)
+                put("memory_timeline_recall_enabled", memoryTimelineRecallEnabled)
+                put("memory_summary_sanitize_internal_prompts", memorySummarySanitizeInternalPrompts)
             }
         }
     }
@@ -568,7 +603,12 @@ object Config {
             memoryRecallModelModel = memoryRecallModelModel,
             memoryModelRecallFailureThreshold = memoryModelRecallFailureThreshold,
             memoryModelRecallCooldownSeconds = memoryModelRecallCooldownSeconds,
-            memoryModelRecallTraceRetention = memoryModelRecallTraceRetention
+            memoryModelRecallTraceRetention = memoryModelRecallTraceRetention,
+            memoryLocalRecallEnhancedEnabled = memoryLocalRecallEnhancedEnabled,
+            memoryTagGraphEnabled = memoryTagGraphEnabled,
+            memoryTagGraphMaxExpandedTerms = memoryTagGraphMaxExpandedTerms,
+            memoryTimelineRecallEnabled = memoryTimelineRecallEnabled,
+            memorySummarySanitizeInternalPrompts = memorySummarySanitizeInternalPrompts
         )
     }
 
@@ -628,6 +668,11 @@ object Config {
         memoryModelRecallFailureThreshold = snapshot.memoryModelRecallFailureThreshold
         memoryModelRecallCooldownSeconds = snapshot.memoryModelRecallCooldownSeconds
         memoryModelRecallTraceRetention = snapshot.memoryModelRecallTraceRetention
+        memoryLocalRecallEnhancedEnabled = snapshot.memoryLocalRecallEnhancedEnabled
+        memoryTagGraphEnabled = snapshot.memoryTagGraphEnabled
+        memoryTagGraphMaxExpandedTerms = snapshot.memoryTagGraphMaxExpandedTerms
+        memoryTimelineRecallEnabled = snapshot.memoryTimelineRecallEnabled
+        memorySummarySanitizeInternalPrompts = snapshot.memorySummarySanitizeInternalPrompts
     }
 
     fun loadPersisted(jsonText: String?) {
@@ -705,7 +750,14 @@ object Config {
                     memoryRecallModelModel = body.stringValue("memory_recall_model_model") ?: memoryRecallModelModel,
                     memoryModelRecallFailureThreshold = body.intValue("memory_model_recall_failure_threshold") ?: memoryModelRecallFailureThreshold,
                     memoryModelRecallCooldownSeconds = body.intValue("memory_model_recall_cooldown_seconds") ?: memoryModelRecallCooldownSeconds,
-                    memoryModelRecallTraceRetention = body.intValue("memory_model_recall_trace_retention") ?: memoryModelRecallTraceRetention
+                    memoryModelRecallTraceRetention = body.intValue("memory_model_recall_trace_retention") ?: memoryModelRecallTraceRetention,
+                    memoryLocalRecallEnhancedEnabled = body.booleanValue("memory_local_recall_enhanced_enabled") ?: memoryLocalRecallEnhancedEnabled,
+                    memoryTagGraphEnabled = body.booleanValue("memory_tag_graph_enabled") ?: memoryTagGraphEnabled,
+                    memoryTagGraphMaxExpandedTerms = body.intValue("memory_tag_graph_max_expanded_terms")
+                        ?.coerceIn(0, 128)
+                        ?: memoryTagGraphMaxExpandedTerms,
+                    memoryTimelineRecallEnabled = body.booleanValue("memory_timeline_recall_enabled") ?: memoryTimelineRecallEnabled,
+                    memorySummarySanitizeInternalPrompts = body.booleanValue("memory_summary_sanitize_internal_prompts") ?: memorySummarySanitizeInternalPrompts
                 )
             )
         } catch (e: Exception) {

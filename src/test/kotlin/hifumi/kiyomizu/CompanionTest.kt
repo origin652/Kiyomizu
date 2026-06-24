@@ -89,6 +89,11 @@ class CompanionTest {
         Config.memoryModelRecallFailureThreshold = 3
         Config.memoryModelRecallCooldownSeconds = 300
         Config.memoryModelRecallTraceRetention = 200
+        Config.memoryLocalRecallEnhancedEnabled = true
+        Config.memoryTagGraphEnabled = true
+        Config.memoryTagGraphMaxExpandedTerms = 16
+        Config.memoryTimelineRecallEnabled = true
+        Config.memorySummarySanitizeInternalPrompts = true
         Config.memorySummaryKey = ""
     }
 
@@ -253,13 +258,60 @@ class CompanionTest {
         val segments = index["segments"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
 
         assertEquals(
-            listOf("global", "self", "people", "projects", "topics", "recent", "dreams"),
+            listOf("global", "self", "people", "projects", "topics", "recent", "dreams", "term_graph", "timeline"),
             segments.map { it["segment_key"]?.jsonPrimitive?.content }
         )
+        val stats = index["term_graph_stats"]?.jsonObject
+        assertNotNull(stats)
+        assertTrue((stats["edge_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) >= 1)
         val previewText = segments.joinToString("\n") { it["preview"]?.jsonPrimitive?.content.orEmpty() }
         assertTrue(previewText.contains("The user prefers oolong tea"))
         assertTrue(previewText.contains("sensitive active count=1"))
         assertFalse(previewText.contains("alpha seven"), "sensitive node text should not appear in normal materialized index previews")
+    }
+
+    @Test
+    fun localRecallUsesTermGraphAndCjkNgramsWithoutEmbeddings() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        Config.memoryEnabled = true
+        Config.memoryRecallMaxNodes = 4
+        insertNode(
+            uri = "preference://tea/oolong",
+            kind = "preference",
+            content = "The user prefers oolong tea in the afternoon.",
+            keywords = listOf("oolong", "tea"),
+            personUri = "person://user/primary"
+        )
+        insertNode(
+            uri = "episode://tea/gongfu-session",
+            kind = "episodic_event",
+            content = "The user mentioned a gongfu tea session.",
+            keywords = listOf("gongfu", "oolong"),
+            personUri = "person://user/primary"
+        )
+        insertNode(
+            uri = "preference://weather/summer",
+            kind = "preference",
+            content = "用户觉得夏天不算太热时适合散步。",
+            keywords = emptyList(),
+            personUri = "person://user/primary"
+        )
+        MemoryService.rebuildMemoryIndex()
+
+        val associative = MemoryService.buildCompanionMemoryContext("gongfu")
+        assertTrue(
+            associative.recalled.any { it.memory.uri == "preference://tea/oolong" },
+            associative.recalled.joinToString("\n") { it.memory.uri }
+        )
+
+        val cjk = MemoryService.buildCompanionMemoryContext("太热")
+        assertTrue(
+            cjk.recalled.any { it.memory.uri == "preference://weather/summer" },
+            cjk.recalled.joinToString("\n") { it.memory.uri }
+        )
     }
 
     @Test

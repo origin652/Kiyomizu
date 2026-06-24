@@ -68,6 +68,11 @@ class ConfigApiTest {
         Config.memoryModelRecallFailureThreshold = 3
         Config.memoryModelRecallCooldownSeconds = 300
         Config.memoryModelRecallTraceRetention = 200
+        Config.memoryLocalRecallEnhancedEnabled = true
+        Config.memoryTagGraphEnabled = true
+        Config.memoryTagGraphMaxExpandedTerms = 16
+        Config.memoryTimelineRecallEnabled = true
+        Config.memorySummarySanitizeInternalPrompts = true
     }
 
     private fun withIsolatedDb(block: () -> Unit) {
@@ -100,6 +105,11 @@ class ConfigApiTest {
             assertTrue("memory_embedding_model" !in publicJson)
             assertTrue("memory_embedding_key_configured" !in publicJson)
             assertEquals("aggressive", publicJson["memory_maintenance_aggressiveness"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_local_recall_enhanced_enabled"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_tag_graph_enabled"]?.jsonPrimitive?.content)
+            assertEquals("16", publicJson["memory_tag_graph_max_expanded_terms"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_timeline_recall_enabled"]?.jsonPrimitive?.content)
+            assertEquals("true", publicJson["memory_summary_sanitize_internal_prompts"]?.jsonPrimitive?.content)
             assertTrue("config_password_changeable" in publicJson)
 
             val keepResult = ConfigApi.applyUpdate(buildJsonObject {
@@ -134,6 +144,7 @@ class ConfigApiTest {
                 put("memory_model_recall_failure_threshold", 0)
                 put("memory_model_recall_cooldown_seconds", -1)
                 put("memory_model_recall_trace_retention", 0)
+                put("memory_tag_graph_max_expanded_terms", 129)
             })
 
             assertTrue(result.errors.contains("memory_decay_rate must be between 0.0 and 1.0"))
@@ -143,6 +154,7 @@ class ConfigApiTest {
             assertTrue(result.errors.contains("memory_model_recall_failure_threshold must be an integer 1-20"))
             assertTrue(result.errors.contains("memory_model_recall_cooldown_seconds must be an integer 0-86400"))
             assertTrue(result.errors.contains("memory_model_recall_trace_retention must be an integer 1-5000"))
+            assertTrue(result.errors.contains("memory_tag_graph_max_expanded_terms must be an integer 0-128"))
             assertEquals(0.1, Config.memoryDecayRate)
             assertEquals(6, Config.memoryRecallMaxNodes)
             assertEquals(40, Config.memoryDeepRecallMaxCandidates)
@@ -151,6 +163,7 @@ class ConfigApiTest {
             assertEquals(3, Config.memoryModelRecallFailureThreshold)
             assertEquals(300, Config.memoryModelRecallCooldownSeconds)
             assertEquals(200, Config.memoryModelRecallTraceRetention)
+            assertEquals(16, Config.memoryTagGraphMaxExpandedTerms)
         }
     }
 
@@ -214,6 +227,11 @@ class ConfigApiTest {
                 put("memory_model_recall_failure_threshold", 5)
                 put("memory_model_recall_cooldown_seconds", 120)
                 put("memory_model_recall_trace_retention", 321)
+                put("memory_local_recall_enhanced_enabled", false)
+                put("memory_tag_graph_enabled", false)
+                put("memory_tag_graph_max_expanded_terms", 7)
+                put("memory_timeline_recall_enabled", false)
+                put("memory_summary_sanitize_internal_prompts", false)
                 put("memory_recall_max_nodes", 8)
                 put("memory_deep_recall_enabled", false)
                 put("memory_deep_recall_max_candidates", 24)
@@ -253,6 +271,11 @@ class ConfigApiTest {
             assertEquals(5, Config.memoryModelRecallFailureThreshold)
             assertEquals(120, Config.memoryModelRecallCooldownSeconds)
             assertEquals(321, Config.memoryModelRecallTraceRetention)
+            assertFalse(Config.memoryLocalRecallEnhancedEnabled)
+            assertFalse(Config.memoryTagGraphEnabled)
+            assertEquals(7, Config.memoryTagGraphMaxExpandedTerms)
+            assertFalse(Config.memoryTimelineRecallEnabled)
+            assertFalse(Config.memorySummarySanitizeInternalPrompts)
             assertEquals(8, Config.memoryRecallMaxNodes)
             assertFalse(Config.memoryDeepRecallEnabled)
             assertEquals(24, Config.memoryDeepRecallMaxCandidates)
