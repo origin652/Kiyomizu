@@ -47,6 +47,16 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// ui.html uses @UI_ASSET_VERSION@ on static URLs so CDN/browser caches bust on release.
+tasks.processResources {
+    filesMatching("ui.html") {
+        filter(
+            org.apache.tools.ant.filters.ReplaceTokens::class,
+            "tokens" to mapOf("UI_ASSET_VERSION" to project.version.toString()),
+        )
+    }
+}
+
 tasks.register<Jar>("fatJar") {
     group = "build"
     description = "Assembles a self-contained executable jar."
