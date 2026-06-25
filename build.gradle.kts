@@ -48,11 +48,26 @@ tasks.test {
 }
 
 // ui.html uses @UI_ASSET_VERSION@ on static URLs so CDN/browser caches bust on release.
+// Use the git short SHA so the URL changes whenever the working tree is committed; falls
+// back to the project version when not in a git repo. This avoids serving stale CSS/JS
+// from browser/CDN caches after a deploy — a fixed version string would let old assets
+// persist indefinitely.
+val uiAssetVersion: String = try {
+    val sha = providers.exec {
+        commandLine("git", "rev-parse", "--short", "HEAD")
+    }.standardOutput.asText.get().trim()
+    if (sha.isNotEmpty()) sha else project.version.toString()
+} catch (e: Exception) {
+    project.version.toString()
+}
 tasks.processResources {
+    // Track the SHA as an up-to-date input so a new commit re-runs the filter even when
+    // ui.html itself is unchanged (the @UI_ASSET_VERSION@ placeholder is constant).
+    inputs.property("uiAssetVersion", uiAssetVersion)
     filesMatching("ui.html") {
         filter(
             org.apache.tools.ant.filters.ReplaceTokens::class,
-            "tokens" to mapOf("UI_ASSET_VERSION" to project.version.toString()),
+            "tokens" to mapOf("UI_ASSET_VERSION" to uiAssetVersion),
         )
     }
 }
