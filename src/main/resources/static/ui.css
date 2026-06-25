@@ -536,6 +536,7 @@ input[disabled], textarea[disabled], select[disabled] {
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--sp-3);
+  max-width: 420px;
 }
 
 .security-fields label { font-size: var(--fs-sm); }
@@ -656,8 +657,10 @@ input[disabled], textarea[disabled], select[disabled] {
 
 .auth-panel-status {
   display: none;
-  width: 100%;
-  margin-top: var(--sp-3);
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  margin-top: 0;
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-md);
   border: 1px solid transparent;
@@ -921,23 +924,30 @@ input[disabled], textarea[disabled], select[disabled] {
 
 .auth-panel {
   display: none;
+  flex-direction: column;
   align-items: stretch;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
   padding: var(--sp-5);
   background: var(--surface-1);
   border: 1px solid var(--accent-border);
   box-shadow: var(--shadow-2);
   border-radius: var(--r-xl);
   margin-bottom: var(--sp-6);
+  max-width: 1180px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .auth-panel.visible { display: flex; }
 
 .auth-panel-copy {
-  flex: 1;
+  flex: 0 1 auto;
   display: flex;
   align-items: flex-start;
   gap: var(--sp-3);
+  min-width: 0;
 }
 
 .auth-panel-icon {
@@ -972,31 +982,38 @@ input[disabled], textarea[disabled], select[disabled] {
 }
 
 .auth-panel-actions {
-  width: min(100%, 520px);
+  width: 100%;
+  max-width: 420px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--sp-3);
   align-items: center;
 }
 
-.auth-panel-actions .password-shell { min-width: 0; }
+.auth-panel-actions .password-shell {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.auth-panel-actions .password-shell input[type=text] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 
 .auth-panel .setup-only { display: none; }
 .auth-panel.setup .setup-only { display: block; }
 .auth-panel.setup .auth-panel-actions {
+  max-width: 520px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
 
 @media (max-width: 900px) {
-  .auth-panel,
-  .auth-panel.visible,
-  .auth-panel-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .auth-panel-copy { flex-direction: row; }
   .auth-panel-actions,
-  .auth-panel.setup .auth-panel-actions { grid-template-columns: 1fr; }
+  .auth-panel.setup .auth-panel-actions {
+    max-width: 100%;
+    grid-template-columns: 1fr;
+  }
   .auth-primary-button { width: 100%; }
 }
 
