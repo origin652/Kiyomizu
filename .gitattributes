@@ -1,0 +1,17 @@
+# Normalize all text files to LF in the repository.
+# On checkout, git still converts to the platform's native EOL when
+# core.autocrlf is true (Windows -> CRLF); this only fixes what is stored.
+* text=auto eol=lf
+
+# Binary files — never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.jar binary
+*.class binary
+
+# Windows batch scripts: leave their stored EOL untouched (no eol rule),
+# so renormalize does not churn them. They still work on Windows either way.
+*.bat -text
