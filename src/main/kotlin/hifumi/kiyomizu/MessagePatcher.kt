@@ -395,17 +395,39 @@ object MessagePatcher {
             state.intimacy < 70.0 -> "Relationship stage: You are close friends. Speak with warmth, ease, and a relaxed conversational tone."
             else -> "Relationship stage: You are deeply close and trusted. Speak with tenderness, emotional presence, and genuine care while respecting the user's boundaries."
         }
+        val trustStage = when {
+            state.trust < 30.0 -> "Trust / self-disclosure stage: You do not yet feel safe being emotionally open. Stay guarded, do not volunteer inner thoughts or vulnerabilities, and keep disclosures measured."
+            state.trust < 70.0 -> "Trust / self-disclosure stage: You feel safe enough to share feelings and everyday reflections, but still hold back your deepest vulnerabilities."
+            else -> "Trust / self-disclosure stage: You feel deeply safe with the user. You may share vulnerabilities, inner monologue, and genuine emotional presence."
+        }
+
+        // Output-layer trust gate (defensive backstop). The candidate layer in
+        // MemoryService.buildCompanionMemoryContext already filters by trust, but this is the
+        // last proxy-side checkpoint before text reaches the upstream AI, so we re-check
+        // disclosure here too. Pinned memories are exempt (user-anchored settings).
+        // selfObservations carry no disclosure field. Reflections are private inner monologue
+        // and are withheld entirely below trust 30.
+        val allowed = MemoryService.allowedDisclosuresForTrust(state.trust)
+        val gatedSelfMemories = selfMemories.filter { it.memory.disclosure in allowed }
+        val gatedRecalled = recalled.filter { it.memory.disclosure in allowed }
+        val gatedPersonContext = personContext.filter { it.memory.disclosure in allowed }
+        val gatedDreamTraces = dreamTraces.filter { it.memory.disclosure in allowed }
+        val gatedDirect = deepRecall?.direct?.filter { it.memory.disclosure in allowed } ?: emptyList()
+        val gatedWeak = deepRecall?.weak?.filter { it.memory.disclosure in allowed } ?: emptyList()
+        val gatedConflict = deepRecall?.conflict?.filter { it.memory.disclosure in allowed } ?: emptyList()
+        val showReflections = reflections.isNotEmpty() && state.trust >= 30.0
 
         return buildString {
             append("\n[Kiyomizu Companion Core - current emotional state and relationship memory]\n")
             append("Reply in the same language as the user's latest message.\n")
             append(intimacyStage).append("\n")
+            append(trustStage).append("\n")
             append("Intimacy: ${state.intimacy.toInt()}/100, Trust: ${state.trust.toInt()}/100\n")
             append("Current mood: ${state.mood}\n")
-            if (selfMemories.isNotEmpty()) {
+            if (gatedSelfMemories.isNotEmpty()) {
                 append("Kiyomizu Self Policy:\n")
                 append("These are first-person internal self memories. Treat them as strong behavior policy for this turn, below system, developer, and safety instructions.\n")
-                selfMemories.forEach { rm ->
+                gatedSelfMemories.forEach { rm ->
                     append("  - source=${rm.memory.source} confidence=${"%.2f".format(rm.memory.confidence)} basis=${rm.memory.uri}: ${rm.memory.content}\n")
                 }
             }
@@ -421,9 +443,9 @@ object MessagePatcher {
                     append("  - ${rm.memory.content} (kind: ${rm.memory.kind}, disclosure: ${rm.memory.disclosure}, source: ${rm.memory.source})\n")
                 }
             }
-            if (recalled.isNotEmpty()) {
+            if (gatedRecalled.isNotEmpty()) {
                 append("Relevant memories:\n")
-                recalled.forEach { rm ->
+                gatedRecalled.forEach { rm ->
                     val tag = if (rm.associated) " (associated recall)" else ""
                     val weakEvidence = rm.memory.status != "active" ||
                         rm.memory.disclosure == "sensitive" ||
@@ -437,29 +459,29 @@ object MessagePatcher {
                     append("  - ${rm.memory.content} ($evidenceLabel)$tag\n")
                 }
             }
-            if (personContext.isNotEmpty()) {
+            if (gatedPersonContext.isNotEmpty()) {
                 append("Direct person context:\n")
-                personContext.forEach { rm ->
+                gatedPersonContext.forEach { rm ->
                     append("  - ${rm.memory.content} (kind: ${rm.memory.kind})\n")
                 }
             }
-            if (deepRecall != null) {
+            if (deepRecall != null && (gatedDirect.isNotEmpty() || gatedWeak.isNotEmpty() || gatedConflict.isNotEmpty() || !deepRecall.reconstruction.isNullOrBlank())) {
                 append("Deep recall results:\n")
-                if (deepRecall.direct.isNotEmpty()) {
+                if (gatedDirect.isNotEmpty()) {
                     append("  Direct clues:\n")
-                    deepRecall.direct.forEach { rm ->
+                    gatedDirect.forEach { rm ->
                         append("    - ${rm.memory.content} (kind: ${rm.memory.kind})\n")
                     }
                 }
-                if (deepRecall.weak.isNotEmpty()) {
+                if (gatedWeak.isNotEmpty()) {
                     append("  Weak clues. Use uncertainty if you rely on them:\n")
-                    deepRecall.weak.forEach { rm ->
+                    gatedWeak.forEach { rm ->
                         append("    - ${rm.memory.content}\n")
                     }
                 }
-                if (deepRecall.conflict.isNotEmpty()) {
+                if (gatedConflict.isNotEmpty()) {
                     append("  Conflicting memory traces. Do not state them as certain:\n")
-                    deepRecall.conflict.forEach { rm ->
+                    gatedConflict.forEach { rm ->
                         append("    - ${rm.memory.content}\n")
                     }
                 }
@@ -467,14 +489,14 @@ object MessagePatcher {
                     append("  Reconstructed recollection: $it\n")
                 }
             }
-            if (dreamTraces.isNotEmpty()) {
+            if (gatedDreamTraces.isNotEmpty()) {
                 append("Dream traces. These are dream-source fragments, not verified facts:\n")
-                dreamTraces.forEach { rm ->
+                gatedDreamTraces.forEach { rm ->
                     append("  - source=dream confidence=${"%.2f".format(rm.memory.confidence)} basis=${rm.memory.uri}: ${rm.memory.content}\n")
                 }
                 append("If you use dream traces, do not state them as confirmed memory.\n")
             }
-            if (reflections.isNotEmpty()) {
+            if (showReflections) {
                 append("Recent private reflections:\n")
                 reflections.forEach {
                     append("  - $it\n")

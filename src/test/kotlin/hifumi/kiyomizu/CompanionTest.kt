@@ -55,6 +55,8 @@ class CompanionTest {
         Config.memoryDecayRate = 0.1
         Config.memoryThreshold = 0.1
         Config.intimacyDecayRate = 0.5
+        Config.trustDownScale = 1.5
+        Config.trustUpScale = 0.8
         Config.memoryDecayTauHours = 360.0
         Config.memorySalienceK = 1.0
         Config.memoryRecallMaxNodes = 6
@@ -715,6 +717,217 @@ class CompanionTest {
         assertTrue(tailText.contains("Kiyomizu Companion Core"))
         assertTrue(tailText.contains("The user prefers tea."))
         assertTrue(tailText.endsWith("Do you remember my tea preference?"))
+        // trust=50 falls into the middle self-disclosure stage.
+        assertTrue(tailText.contains("feel safe enough to share feelings"))
+    }
+
+    @Test
+    fun companionPromptInjectsGuardedTrustStageAtLowTrust() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertNode(
+            uri = "preference://food/drink/tea",
+            kind = "preference",
+            content = "The user prefers tea.",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        val original = listOf(
+            buildJsonObject { put("role", "user"); put("content", "Do you remember my tea preference?") }
+        )
+        val patched = MessagePatcher.injectCompanionPrompt(original)
+        val tailText = MessagePatcher.extractTextContent(patched.last()["content"])
+        assertTrue(tailText.contains("do not yet feel safe"), "low trust should inject guarded stage")
+        assertTrue(!tailText.contains("feel deeply safe"), "low trust should not inject open stage")
+    }
+
+    @Test
+    fun companionPromptInjectsOpenTrustStageAtHighTrust() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 90.0, "neutral")
+        insertNode(
+            uri = "preference://food/drink/tea",
+            kind = "preference",
+            content = "The user prefers tea.",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        val original = listOf(
+            buildJsonObject { put("role", "user"); put("content", "Do you remember my tea preference?") }
+        )
+        val patched = MessagePatcher.injectCompanionPrompt(original)
+        val tailText = MessagePatcher.extractTextContent(patched.last()["content"])
+        assertTrue(tailText.contains("feel deeply safe"), "high trust should inject open stage")
+        assertTrue(!tailText.contains("hold back your deepest vulnerabilities"), "high trust should not inject mid stage")
+    }
+
+    @Test
+    fun companionPromptTrustStageBoundaryAt30() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        // trust=30.0 falls into the [30,70) branch (< 70.0).
+        DatabaseService.updateRelationshipState(50.0, 30.0, "neutral")
+        insertNode(
+            uri = "preference://food/drink/tea",
+            kind = "preference",
+            content = "The user prefers tea.",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        val original = listOf(
+            buildJsonObject { put("role", "user"); put("content", "Do you remember my tea preference?") }
+        )
+        val patched = MessagePatcher.injectCompanionPrompt(original)
+        val tailText = MessagePatcher.extractTextContent(patched.last()["content"])
+        assertTrue(tailText.contains("feel safe enough to share"), "trust=30 should land in middle stage")
+        assertTrue(!tailText.contains("do not yet feel safe"), "trust=30 should not land in guarded stage")
+    }
+
+    // ---- Trust-gated disclosure filtering (candidate + output layers) ----
+
+    private fun insertFourDisclosureTeaNodes() {
+        insertNode(uri = "preference://tea/hint", kind = "preference", content = "hint-tier tea note", keywords = listOf("tea"), triggerPhrases = listOf("tea"), disclosure = "hint", personUri = "person://user/primary")
+        insertNode(uri = "preference://tea/private", kind = "preference", content = "private-tier tea note", keywords = listOf("tea"), triggerPhrases = listOf("tea"), disclosure = "private", personUri = "person://user/primary")
+        insertNode(uri = "preference://tea/quote", kind = "preference", content = "quote-tier tea note", keywords = listOf("tea"), triggerPhrases = listOf("tea"), disclosure = "quote_allowed", personUri = "person://user/primary")
+        insertNode(uri = "preference://tea/sensitive", kind = "preference", content = "sensitive-tier tea note", keywords = listOf("tea"), triggerPhrases = listOf("tea"), disclosure = "sensitive", personUri = "person://user/primary")
+    }
+
+    private suspend fun recalledUris(query: String) =
+        MemoryService.buildCompanionMemoryContext(query).recalled.map { it.memory.uri }.toSet()
+
+    @Test
+    fun lowTrustRecallFiltersSensitiveAndPrivateNodes() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertFourDisclosureTeaNodes()
+        val uris = recalledUris("tea")
+        assertTrue(uris.contains("preference://tea/hint"), "hint should be recalled at low trust")
+        assertTrue(!uris.contains("preference://tea/private"), "private should be filtered at low trust")
+        assertTrue(!uris.contains("preference://tea/quote"), "quote_allowed should be filtered at low trust")
+        assertTrue(!uris.contains("preference://tea/sensitive"), "sensitive should be filtered at low trust")
+    }
+
+    @Test
+    fun midTrustRecallAllowsHintPrivateQuoteButNotSensitive() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        insertFourDisclosureTeaNodes()
+        val uris = recalledUris("tea")
+        assertTrue(uris.contains("preference://tea/hint"))
+        assertTrue(uris.contains("preference://tea/private"))
+        assertTrue(uris.contains("preference://tea/quote"))
+        assertTrue(!uris.contains("preference://tea/sensitive"), "sensitive should be filtered at mid trust")
+    }
+
+    @Test
+    fun highTrustRecallAllowsAllDisclosuresIncludingSensitive() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 90.0, "neutral")
+        insertFourDisclosureTeaNodes()
+        val uris = recalledUris("tea")
+        assertTrue(uris.contains("preference://tea/hint"))
+        assertTrue(uris.contains("preference://tea/private"))
+        assertTrue(uris.contains("preference://tea/quote"))
+        assertTrue(uris.contains("preference://tea/sensitive"), "sensitive should be recalled at high trust")
+    }
+
+    @Test
+    fun trustDisclosureBoundaryAt30And70() {
+        // 30 lands in middle tier (<70), 70 lands in high tier (else).
+        assertEquals(setOf("hint"), MemoryService.allowedDisclosuresForTrust(29.0))
+        assertEquals(setOf("hint", "private", "quote_allowed"), MemoryService.allowedDisclosuresForTrust(30.0))
+        assertEquals(setOf("hint", "private", "quote_allowed"), MemoryService.allowedDisclosuresForTrust(69.0))
+        assertEquals(setOf("hint", "private", "quote_allowed", "sensitive"), MemoryService.allowedDisclosuresForTrust(70.0))
+    }
+
+    @Test
+    fun pinnedMemoriesExemptFromTrustFilter() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        val pinnedId = insertNode(
+            uri = "preference://tea/pinned-sensitive",
+            kind = "preference",
+            content = "pinned sensitive tea note",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            disclosure = "sensitive",
+            personUri = "person://user/primary",
+            status = "active"
+        )
+        setPinned(pinnedId, pinned = true)
+        val pinned = MemoryService.buildCompanionMemoryContext("tea").pinnedMemories
+        assertTrue(pinned.any { it.memory.uri == "preference://tea/pinned-sensitive" }, "pinned sensitive node must be exempt from trust filter")
+    }
+
+    @Test
+    fun outputLayerDropsDisallowedDisclosureEvenIfCandidateLeaked() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertNode(
+            uri = "preference://tea/sensitive",
+            kind = "preference",
+            content = "SECRET-tea-leak",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            disclosure = "sensitive",
+            personUri = "person://user/primary"
+        )
+        val original = listOf(
+            buildJsonObject { put("role", "user"); put("content", "tell me about tea") }
+        )
+        val tailText = MessagePatcher.extractTextContent(MessagePatcher.injectCompanionPrompt(original).last()["content"])
+        assertTrue(!tailText.contains("SECRET-tea-leak"), "output layer must withhold sensitive content at low trust")
+    }
+
+    @Test
+    fun reflectionsHiddenBelowTrust30() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.insertReflection("a private reflection line")
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        val original = listOf(buildJsonObject { put("role", "user"); put("content", "hi") })
+        val lowTail = MessagePatcher.extractTextContent(MessagePatcher.injectCompanionPrompt(original).last()["content"])
+        assertTrue(!lowTail.contains("Recent private reflections"), "reflections should be hidden below trust 30")
+
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        val highTail = MessagePatcher.extractTextContent(MessagePatcher.injectCompanionPrompt(original).last()["content"])
+        assertTrue(highTail.contains("Recent private reflections"), "reflections should show at trust >= 30")
+    }
+
+    @Test
+    fun explicitRecallDoesNotBypassTrustDisclosureFilter() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertNode(
+            uri = "preference://tea/sensitive",
+            kind = "preference",
+            content = "SECRET-tea-explicit",
+            keywords = listOf("tea"),
+            triggerPhrases = listOf("tea"),
+            disclosure = "sensitive",
+            personUri = "person://user/primary"
+        )
+        // Explicit assistant-recollection request would normally allow sensitive; trust gate must still hold.
+        val original = listOf(buildJsonObject { put("role", "user"); put("content", "Do you remember what I told you about tea?") })
+        val tailText = MessagePatcher.extractTextContent(MessagePatcher.injectCompanionPrompt(original).last()["content"])
+        assertTrue(!tailText.contains("SECRET-tea-explicit"), "low trust must withhold sensitive even on explicit recall")
     }
 
     @Test
@@ -770,6 +983,9 @@ class CompanionTest {
     fun relationshipDeltaUpdatesAccumulate() {
         resetDbFiles()
         resetConfig()
+        // Disable asymmetric trust scaling so this test asserts raw accumulation.
+        Config.trustDownScale = 1.0
+        Config.trustUpScale = 1.0
         DatabaseService.initDatabase()
         DatabaseService.updateRelationshipState(40.0, 50.0, "neutral")
 
@@ -780,6 +996,69 @@ class CompanionTest {
         assertEquals(47.5, state.intimacy, 1e-5)
         assertEquals(43.0, state.trust, 1e-5)
         assertEquals("caring", state.mood)
+    }
+
+    @Test
+    fun trustDeltaAsymmetricScalingDownScalesByConfig() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        // Default trustDownScale = 1.5 → -10 * 1.5 = -15 → trust = 35.0
+        DatabaseService.applyRelationshipDelta(0.0, -10.0, "neutral")
+        assertEquals(35.0, DatabaseService.getRelationshipState().trust, 1e-5)
+
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        Config.trustDownScale = 2.0
+        DatabaseService.applyRelationshipDelta(0.0, -10.0, "neutral")
+        assertEquals(30.0, DatabaseService.getRelationshipState().trust, 1e-5)
+    }
+
+    @Test
+    fun trustDeltaAsymmetricScalingUpScalesByConfig() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        // Default trustUpScale = 0.8 → +10 * 0.8 = +8 → trust = 58.0
+        DatabaseService.applyRelationshipDelta(0.0, 10.0, "neutral")
+        assertEquals(58.0, DatabaseService.getRelationshipState().trust, 1e-5)
+
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        Config.trustUpScale = 1.0
+        DatabaseService.applyRelationshipDelta(0.0, 10.0, "neutral")
+        assertEquals(60.0, DatabaseService.getRelationshipState().trust, 1e-5)
+    }
+
+    @Test
+    fun trustDeltaClampsAtZeroAndHundred() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(50.0, 5.0, "neutral")
+        // -100 * 1.5 = -150, clamp to 0
+        DatabaseService.applyRelationshipDelta(0.0, -100.0, "neutral")
+        assertEquals(0.0, DatabaseService.getRelationshipState().trust, 1e-5)
+
+        DatabaseService.updateRelationshipState(50.0, 95.0, "neutral")
+        // +100 * 0.8 = +80, clamp to 100
+        DatabaseService.applyRelationshipDelta(0.0, 100.0, "neutral")
+        assertEquals(100.0, DatabaseService.getRelationshipState().trust, 1e-5)
+    }
+
+    @Test
+    fun intimacyDeltaNotScaledByTrustKnobs() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.trustDownScale = 5.0
+        Config.trustUpScale = 0.1
+        DatabaseService.updateRelationshipState(40.0, 50.0, "neutral")
+        // intimacy delta is not touched by trust scaling knobs.
+        DatabaseService.applyRelationshipDelta(10.0, 0.0, "neutral")
+        val state = DatabaseService.getRelationshipState()
+        assertEquals(50.0, state.intimacy, 1e-5)
+        assertEquals(50.0, state.trust, 1e-5)
     }
 
     @Test

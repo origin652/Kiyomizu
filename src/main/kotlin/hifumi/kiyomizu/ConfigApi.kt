@@ -36,6 +36,8 @@ object ConfigApi {
             put("memory_max_strength", Config.memoryMaxStrength)
             put("memory_initial_strength", Config.memoryInitialStrength)
             put("intimacy_decay_rate", Config.intimacyDecayRate)
+            put("trust_down_scale", Config.trustDownScale)
+            put("trust_up_scale", Config.trustUpScale)
             put("memory_decay_tau_hours", Config.memoryDecayTauHours)
             put("memory_salience_k", Config.memorySalienceK)
             put("memory_recall_max_nodes", Config.memoryRecallMaxNodes)
@@ -117,6 +119,8 @@ object ConfigApi {
         var nextMemoryMaxStrength = Config.memoryMaxStrength
         var nextMemoryInitialStrength = Config.memoryInitialStrength
         var nextIntimacyDecayRate = Config.intimacyDecayRate
+        var nextTrustDownScale = Config.trustDownScale
+        var nextTrustUpScale = Config.trustUpScale
         var nextMemoryDecayTauHours = Config.memoryDecayTauHours
         var nextMemorySalienceK = Config.memorySalienceK
         var nextMemoryRecallMaxNodes = Config.memoryRecallMaxNodes
@@ -274,6 +278,20 @@ object ConfigApi {
                 nextIntimacyDecayRate = it
             } else {
                 errors.add("intimacy_decay_rate must be between 0.0 and 10.0")
+            }
+        }
+        body.readDouble("trust_down_scale", errors) {
+            if (it in 0.1..5.0) {
+                nextTrustDownScale = it
+            } else {
+                errors.add("trust_down_scale must be between 0.1 and 5.0")
+            }
+        }
+        body.readDouble("trust_up_scale", errors) {
+            if (it in 0.1..5.0) {
+                nextTrustUpScale = it
+            } else {
+                errors.add("trust_up_scale must be between 0.1 and 5.0")
             }
         }
         body.readDouble("memory_decay_tau_hours", errors) {
@@ -629,6 +647,8 @@ object ConfigApi {
             memoryMaxStrength = nextMemoryMaxStrength,
             memoryInitialStrength = nextMemoryInitialStrength,
             intimacyDecayRate = nextIntimacyDecayRate,
+            trustDownScale = nextTrustDownScale,
+            trustUpScale = nextTrustUpScale,
             memoryDecayTauHours = nextMemoryDecayTauHours,
             memorySalienceK = nextMemorySalienceK,
             memoryRecallMaxNodes = nextMemoryRecallMaxNodes,

@@ -34,6 +34,8 @@ function applyConfigData(d) {
   f.memory_initial_strength.value = d.memory_initial_strength !== undefined ? d.memory_initial_strength : 0.8;
   f.memory_max_strength.value = d.memory_max_strength !== undefined ? d.memory_max_strength : 1.0;
   f.intimacy_decay_rate.value = d.intimacy_decay_rate !== undefined ? d.intimacy_decay_rate : 0.5;
+  f.trust_down_scale.value = d.trust_down_scale !== undefined ? d.trust_down_scale : 1.5;
+  f.trust_up_scale.value = d.trust_up_scale !== undefined ? d.trust_up_scale : 0.8;
   f.memory_decay_tau_hours.value = d.memory_decay_tau_hours !== undefined ? d.memory_decay_tau_hours : 360;
   f.memory_salience_k.value = d.memory_salience_k !== undefined ? d.memory_salience_k : 1.0;
   f.memory_recall_max_nodes.value = d.memory_recall_max_nodes !== undefined ? d.memory_recall_max_nodes : 6;
@@ -122,6 +124,8 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_initial_strength: Number(f.memory_initial_strength.value),
     memory_max_strength: Number(f.memory_max_strength.value),
     intimacy_decay_rate: Number(f.intimacy_decay_rate.value),
+    trust_down_scale: Number(f.trust_down_scale.value),
+    trust_up_scale: Number(f.trust_up_scale.value),
     memory_decay_tau_hours: Number(f.memory_decay_tau_hours.value),
     memory_salience_k: Number(f.memory_salience_k.value),
     memory_recall_max_nodes: Number(f.memory_recall_max_nodes.value),

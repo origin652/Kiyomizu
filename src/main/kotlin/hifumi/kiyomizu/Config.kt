@@ -66,6 +66,10 @@ object Config {
             - person_uri should point to the most relevant person for that node when clear.
             - project_uri should be set only when the current exchange clearly belongs to a named project or task.
             - Set explicit_remember=true only when the user clearly asks Kiyomizu to remember or not forget something.
+            - intimacy_delta and trust_delta have different semantics and must not mirror each other:
+              - intimacy = how close the relationship feels (accumulates slowly with time spent and positive interaction). Typical +0.5 to +2.0 per turn. Idle exchanges do not raise intimacy. Drop only for strongly hostile exchanges.
+              - trust = whether Kiyomizu dares to rely on the user (rises slowly with consistency and kept promises; falls sharply when the user breaks promises, is dismissive, contradicts earlier statements, or is untrustworthy). Typical rise +0.5 to +1.5; typical drop -2 to -8 when violated. A single broken promise can outweigh many positive turns.
+              - Never set both deltas equal by default; evaluate each independently against the exchange.
             Return a single JSON object with this exact shape:
             {
               "observations": [
@@ -118,6 +122,8 @@ object Config {
     private val memoryMaxStrengthRef = AtomicReference(System.getenv("MEMORY_MAX_STRENGTH")?.toDoubleOrNull() ?: 1.0)
     private val memoryInitialStrengthRef = AtomicReference(System.getenv("MEMORY_INITIAL_STRENGTH")?.toDoubleOrNull() ?: 0.8)
     private val intimacyDecayRateRef = AtomicReference(System.getenv("INTIMACY_DECAY_RATE")?.toDoubleOrNull() ?: 0.5)
+    private val trustDownScaleRef = AtomicReference(System.getenv("TRUST_DOWN_SCALE")?.toDoubleOrNull() ?: 1.5)
+    private val trustUpScaleRef = AtomicReference(System.getenv("TRUST_UP_SCALE")?.toDoubleOrNull() ?: 0.8)
     private val memoryDecayTauHoursRef = AtomicReference(System.getenv("MEMORY_DECAY_TAU_HOURS")?.toDoubleOrNull() ?: 360.0)
     private val memorySalienceKRef = AtomicReference(System.getenv("MEMORY_SALIENCE_K")?.toDoubleOrNull() ?: 1.0)
 
@@ -320,6 +326,14 @@ object Config {
     var intimacyDecayRate: Double
         get() = intimacyDecayRateRef.get()
         set(value) { intimacyDecayRateRef.set(value) }
+
+    var trustDownScale: Double
+        get() = trustDownScaleRef.get()
+        set(value) { trustDownScaleRef.set(value) }
+
+    var trustUpScale: Double
+        get() = trustUpScaleRef.get()
+        set(value) { trustUpScaleRef.set(value) }
 
     var memoryDecayTauHours: Double
         get() = memoryDecayTauHoursRef.get()
@@ -634,6 +648,8 @@ object Config {
         val memoryMaxStrength: Double,
         val memoryInitialStrength: Double,
         val intimacyDecayRate: Double,
+        val trustDownScale: Double = 1.5,
+        val trustUpScale: Double = 0.8,
         val memoryDecayTauHours: Double,
         val memorySalienceK: Double,
         val memoryRecallMaxNodes: Int,
@@ -707,6 +723,8 @@ object Config {
                 put("memory_max_strength", memoryMaxStrength)
                 put("memory_initial_strength", memoryInitialStrength)
                 put("intimacy_decay_rate", intimacyDecayRate)
+                put("trust_down_scale", trustDownScale)
+                put("trust_up_scale", trustUpScale)
                 put("memory_decay_tau_hours", memoryDecayTauHours)
                 put("memory_salience_k", memorySalienceK)
                 put("memory_recall_max_nodes", memoryRecallMaxNodes)
@@ -783,6 +801,8 @@ object Config {
             memoryMaxStrength = memoryMaxStrength,
             memoryInitialStrength = memoryInitialStrength,
             intimacyDecayRate = intimacyDecayRate,
+            trustDownScale = trustDownScale,
+            trustUpScale = trustUpScale,
             memoryDecayTauHours = memoryDecayTauHours,
             memorySalienceK = memorySalienceK,
             memoryRecallMaxNodes = memoryRecallMaxNodes,
@@ -857,6 +877,8 @@ object Config {
         memoryMaxStrength = snapshot.memoryMaxStrength
         memoryInitialStrength = snapshot.memoryInitialStrength
         intimacyDecayRate = snapshot.intimacyDecayRate
+        trustDownScale = snapshot.trustDownScale
+        trustUpScale = snapshot.trustUpScale
         memoryDecayTauHours = snapshot.memoryDecayTauHours
         memorySalienceK = snapshot.memorySalienceK
         memoryRecallMaxNodes = snapshot.memoryRecallMaxNodes
@@ -942,6 +964,8 @@ object Config {
                     memoryMaxStrength = body.doubleValue("memory_max_strength") ?: memoryMaxStrength,
                     memoryInitialStrength = body.doubleValue("memory_initial_strength") ?: memoryInitialStrength,
                     intimacyDecayRate = body.doubleValue("intimacy_decay_rate") ?: intimacyDecayRate,
+                    trustDownScale = body.doubleValue("trust_down_scale") ?: trustDownScale,
+                    trustUpScale = body.doubleValue("trust_up_scale") ?: trustUpScale,
                     memoryDecayTauHours = body.doubleValue("memory_decay_tau_hours") ?: memoryDecayTauHours,
                     memorySalienceK = body.doubleValue("memory_salience_k") ?: memorySalienceK,
                     memoryRecallMaxNodes = body.intValue("memory_recall_max_nodes")

@@ -878,6 +878,14 @@ object DatabaseService {
 
     fun applyRelationshipDelta(intimacyDelta: Double, trustDelta: Double, mood: String) {
         val now = Instant.now().epochSecond
+        // Asymmetric trust scaling: trust falls faster than it rises. A broken promise
+        // (negative delta) is amplified by trustDownScale; a kept one (positive delta) is
+        // dampened by trustUpScale. intimacy is not scaled. Clamp stays in SQL.
+        val scaledTrustDelta = if (trustDelta < 0) {
+            trustDelta * Config.trustDownScale
+        } else {
+            trustDelta * Config.trustUpScale
+        }
         getConnection().use { conn ->
             conn.prepareStatement("""
                 UPDATE relationship_state
@@ -889,7 +897,7 @@ object DatabaseService {
                 WHERE id = 1
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, intimacyDelta)
-                pstmt.setDouble(2, trustDelta)
+                pstmt.setDouble(2, scaledTrustDelta)
                 pstmt.setString(3, mood)
                 pstmt.setLong(4, now)
                 pstmt.setLong(5, now)

@@ -91,6 +91,21 @@ object MemoryService {
         }
     }
 
+    /**
+     * Trust-gated disclosure mapping. The proxy owns filtering (upstream AI only sees
+     * what we inject), so whether a memory's disclosure level is allowed this turn is
+     * decided here by the current global trust, not by a soft "do not reveal" prompt.
+     * Thresholds mirror the trust self-disclosure stages in MessagePatcher (<30 / <70 / else).
+     */
+    fun allowedDisclosuresForTrust(trust: Double): Set<String> = when {
+        trust < 30.0 -> setOf("hint")
+        trust < 70.0 -> setOf("hint", "private", "quote_allowed")
+        else -> setOf("hint", "private", "quote_allowed", "sensitive")
+    }
+
+    fun isDisclosureAllowed(disclosure: String, trust: Double): Boolean =
+        disclosure in allowedDisclosuresForTrust(trust)
+
     data class RecalledMemory(
         val memory: DatabaseService.MemoryNodeRecord,
         val score: Double,
@@ -5063,12 +5078,26 @@ object MemoryService {
             DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString(), fallbackInjectedIds)
         }
         val pinnedMemories = selectPinnedMemories(userQuery)
+        // Trust-gated disclosure filter (proxy-side, hard). Pinned memories are exempt — the
+        // user explicitly anchored them as durable settings, so they stay regardless of trust.
+        // selfObservations carry no disclosure field and are governed by their own status logic.
+        val trust = DatabaseService.getRelationshipState().trust
+        val allowed = allowedDisclosuresForTrust(trust)
+        fun List<RecalledMemory>.trustFiltered() = filter { it.memory.disclosure in allowed }
+        val filteredDeepRecall = deepRecallResult?.let {
+            DeepRecallResult(
+                direct = it.direct.trustFiltered(),
+                weak = it.weak.trustFiltered(),
+                conflict = it.conflict.trustFiltered(),
+                reconstruction = it.reconstruction
+            )
+        }
         return CompanionMemoryContext(
-            recalled = recalled,
-            personContext = personContext,
-            deepRecall = deepRecallResult,
-            dreamTraces = dreamTraces,
-            selfMemories = selfMemories,
+            recalled = recalled.trustFiltered(),
+            personContext = personContext.trustFiltered(),
+            deepRecall = filteredDeepRecall,
+            dreamTraces = dreamTraces.trustFiltered(),
+            selfMemories = selfMemories.trustFiltered(),
             selfObservations = selfObservations,
             pinnedMemories = pinnedMemories
         )

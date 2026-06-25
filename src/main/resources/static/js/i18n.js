@@ -75,6 +75,8 @@ const STRINGS = {
     compInitialStrengthLabel: '初始记忆强度 (0-1)',
     compMaxStrengthLabel: '最大记忆强度 (0-1)',
     compIntimacyDecayLabel: '亲密度下降速度 / 24h',
+    compTrustDownScaleLabel: '信任下跌放大系数 (0.1-5)',
+    compTrustUpScaleLabel: '信任上涨缩放系数 (0.1-5)',
     compRecallMaxLabel: '普通召回节点上限 (0-20)',
     compTauLabel: '艾宾浩斯遗忘 τ（小时）',
     compSalienceKLabel: '情感显著度系数 k (0-10)',
@@ -295,6 +297,8 @@ const STRINGS = {
     compInitialStrengthLabel: 'Initial Strength (0-1)',
     compMaxStrengthLabel: 'Max Strength (0-1)',
     compIntimacyDecayLabel: 'Intimacy Decay Rate / 24h',
+    compTrustDownScaleLabel: 'Trust Drop Scale (0.1-5)',
+    compTrustUpScaleLabel: 'Trust Rise Scale (0.1-5)',
     compRecallMaxLabel: 'Recall Max Nodes (0-20)',
     compTauLabel: 'Ebbinghaus Decay τ (hours)',
     compSalienceKLabel: 'Affect Salience k (0-10)',
@@ -515,6 +519,8 @@ const STRINGS = {
     compInitialStrengthLabel: '初期記憶強度 (0〜1)',
     compMaxStrengthLabel: '最大記憶強度 (0〜1)',
     compIntimacyDecayLabel: '疎遠化スピード (親密度低下/24h)',
+    compTrustDownScaleLabel: '信頼低下倍率 (0.1-5)',
+    compTrustUpScaleLabel: '信頼上昇倍率 (0.1-5)',
     compRecallMaxLabel: '通常想起ノード上限 (0-20)',
     compTauLabel: 'エビングハウス忘却 τ（時間）',
     compSalienceKLabel: '感情顕著度係数 k (0-10)',
@@ -786,6 +792,8 @@ function applyLang(lang) {
   setText('t-comp-initial-strength-label', s.compInitialStrengthLabel || 'Initial Strength (0-1)', 'memory_initial_strength');
   setText('t-comp-max-strength-label', s.compMaxStrengthLabel || 'Max Strength (0-1)', 'memory_max_strength');
   setText('t-comp-intimacy-decay-label', s.compIntimacyDecayLabel || 'Intimacy Decay Rate / 24h', 'intimacy_decay_rate');
+  setText('t-comp-trust-down-scale-label', s.compTrustDownScaleLabel || 'Trust Drop Scale (0.1-5)', 'trust_down_scale');
+  setText('t-comp-trust-up-scale-label', s.compTrustUpScaleLabel || 'Trust Rise Scale (0.1-5)', 'trust_up_scale');
   setText('t-comp-recall-max-label', s.compRecallMaxLabel || 'Recall Max Nodes (0-20)', 'memory_recall_max_nodes');
   setText('t-comp-tau-label', s.compTauLabel || 'Ebbinghaus Decay τ (hours)', 'memory_decay_tau_hours');
   setText('t-comp-salience-k-label', s.compSalienceKLabel || 'Affect Salience k (0-10)', 'memory_salience_k');
