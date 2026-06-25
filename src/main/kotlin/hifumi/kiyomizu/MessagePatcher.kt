@@ -485,7 +485,7 @@ object MessagePatcher {
         }
         val state = DatabaseService.getRelationshipState()
         val reflections = DatabaseService.getRecentReflections(3)
-        return buildCompanionPrompt(
+        val base = buildCompanionPrompt(
             state,
             context.recalled,
             context.personContext,
@@ -495,6 +495,11 @@ object MessagePatcher {
             context.selfObservations,
             reflections
         )
+        // Topic consumption is proxy-side and read-only: if a topic-switch signal is detected,
+        // claim the oldest unused topic (FIFO), mark it used, and inject its text here. The
+        // upstream AI sees only the appended text and cannot operate on the topic store.
+        val topic = MemoryService.maybeConsumeTopicForQuery(userQuery)
+        return if (topic != null) base + MemoryService.topicPromptBlock(topic) else base
     }
 
     private suspend fun injectCompanionIntoConversation(

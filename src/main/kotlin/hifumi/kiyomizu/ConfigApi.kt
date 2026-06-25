@@ -78,6 +78,15 @@ object ConfigApi {
             put("memory_tag_graph_max_expanded_terms", Config.memoryTagGraphMaxExpandedTerms)
             put("memory_timeline_recall_enabled", Config.memoryTimelineRecallEnabled)
             put("memory_summary_sanitize_internal_prompts", Config.memorySummarySanitizeInternalPrompts)
+            put("memory_topic_enabled", Config.memoryTopicEnabled)
+            put("memory_topic_unused_slot_cap", Config.memoryTopicUnusedSlotCap)
+            put("memory_topic_candidate_pool", Config.memoryTopicCandidatePool)
+            put("memory_topic_lru_window", Config.memoryTopicLruWindow)
+            put("memory_topic_used_retention_days", Config.memoryTopicUsedRetentionDays)
+            put("memory_topic_daily_limit", Config.memoryTopicDailyLimit)
+            put("memory_topic_switch_keywords", Config.memoryTopicSwitchKeywords)
+            put("memory_topic_cold_rounds", Config.memoryTopicColdRounds)
+            put("memory_topic_switch_judge_prompt", Config.memoryTopicSwitchJudgePrompt)
             put("config_password_changeable", ConfigAuth.isChangeable())
         }
     }
@@ -148,6 +157,15 @@ object ConfigApi {
         var nextMemoryTagGraphMaxExpandedTerms = Config.memoryTagGraphMaxExpandedTerms
         var nextMemoryTimelineRecallEnabled = Config.memoryTimelineRecallEnabled
         var nextMemorySummarySanitizeInternalPrompts = Config.memorySummarySanitizeInternalPrompts
+        var nextMemoryTopicEnabled = Config.memoryTopicEnabled
+        var nextMemoryTopicUnusedSlotCap = Config.memoryTopicUnusedSlotCap
+        var nextMemoryTopicCandidatePool = Config.memoryTopicCandidatePool
+        var nextMemoryTopicLruWindow = Config.memoryTopicLruWindow
+        var nextMemoryTopicUsedRetentionDays = Config.memoryTopicUsedRetentionDays
+        var nextMemoryTopicDailyLimit = Config.memoryTopicDailyLimit
+        var nextMemoryTopicSwitchKeywords = Config.memoryTopicSwitchKeywords
+        var nextMemoryTopicColdRounds = Config.memoryTopicColdRounds
+        var nextMemoryTopicSwitchJudgePrompt = Config.memoryTopicSwitchJudgePrompt
 
         var nextMemorySummaryKey = Config.memorySummaryKey
         var nextMemoryRecallModelKey = Config.memoryRecallModelKey
@@ -493,6 +511,34 @@ object ConfigApi {
             nextMemorySummarySanitizeInternalPrompts = it
         }
 
+        body.readBoolean("memory_topic_enabled", errors) {
+            nextMemoryTopicEnabled = it
+        }
+        body.readInt("memory_topic_unused_slot_cap", errors) {
+            if (it in 0..64) nextMemoryTopicUnusedSlotCap = it else errors.add("memory_topic_unused_slot_cap must be an integer 0-64")
+        }
+        body.readInt("memory_topic_candidate_pool", errors) {
+            if (it in 2..200) nextMemoryTopicCandidatePool = it else errors.add("memory_topic_candidate_pool must be an integer 2-200")
+        }
+        body.readInt("memory_topic_lru_window", errors) {
+            if (it in 0..200) nextMemoryTopicLruWindow = it else errors.add("memory_topic_lru_window must be an integer 0-200")
+        }
+        body.readInt("memory_topic_used_retention_days", errors) {
+            if (it in 1..3650) nextMemoryTopicUsedRetentionDays = it else errors.add("memory_topic_used_retention_days must be an integer 1-3650")
+        }
+        body.readInt("memory_topic_daily_limit", errors) {
+            if (it in 0..48) nextMemoryTopicDailyLimit = it else errors.add("memory_topic_daily_limit must be an integer 0-48")
+        }
+        body.readString("memory_topic_switch_keywords", errors) {
+            nextMemoryTopicSwitchKeywords = it
+        }
+        body.readInt("memory_topic_cold_rounds", errors) {
+            if (it in 1..20) nextMemoryTopicColdRounds = it else errors.add("memory_topic_cold_rounds must be an integer 1-20")
+        }
+        body.readString("memory_topic_switch_judge_prompt", errors) {
+            nextMemoryTopicSwitchJudgePrompt = it
+        }
+
         body.readString("memory_summary_key", errors) {
             replaceSummaryKey = it
         }
@@ -619,7 +665,16 @@ object ConfigApi {
             memoryTagGraphEnabled = nextMemoryTagGraphEnabled,
             memoryTagGraphMaxExpandedTerms = nextMemoryTagGraphMaxExpandedTerms,
             memoryTimelineRecallEnabled = nextMemoryTimelineRecallEnabled,
-            memorySummarySanitizeInternalPrompts = nextMemorySummarySanitizeInternalPrompts
+            memorySummarySanitizeInternalPrompts = nextMemorySummarySanitizeInternalPrompts,
+            memoryTopicEnabled = nextMemoryTopicEnabled,
+            memoryTopicUnusedSlotCap = nextMemoryTopicUnusedSlotCap,
+            memoryTopicCandidatePool = nextMemoryTopicCandidatePool,
+            memoryTopicLruWindow = nextMemoryTopicLruWindow,
+            memoryTopicUsedRetentionDays = nextMemoryTopicUsedRetentionDays,
+            memoryTopicDailyLimit = nextMemoryTopicDailyLimit,
+            memoryTopicSwitchKeywords = nextMemoryTopicSwitchKeywords,
+            memoryTopicColdRounds = nextMemoryTopicColdRounds,
+            memoryTopicSwitchJudgePrompt = nextMemoryTopicSwitchJudgePrompt
         )
 
         try {

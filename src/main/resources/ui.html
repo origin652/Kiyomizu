@@ -357,6 +357,32 @@
             <div class="reflections-list" id="reflections-list">
               <div class="empty" id="t-no-reflections">No reflections yet.</div>
             </div>
+
+            <!-- 话题 (Topics): proxy-side chat-starter pool. Read-only; upstream AI cannot operate. -->
+            <div class="panel-title-row">
+              <div class="panel-title">
+                <span id="t-topics-label">Topics</span>
+                <span class="companion-meta" id="topics-count-line">—</span>
+              </div>
+              <div class="panel-title-actions">
+                <button class="btn btn-ghost" onclick="loadTopics()" id="t-topics-refresh">Refresh topics</button>
+                <button class="btn btn-ghost" onclick="generateTopics()" id="t-topics-generate">Generate topics</button>
+              </div>
+            </div>
+            <div class="memory-queue-grid">
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-topics-unused-label">Unused pool</div>
+                <div class="memory-queue-list" id="topics-unused-list">
+                  <div class="empty" id="t-no-topics-unused">No unused topics. The pool fills after dream runs.</div>
+                </div>
+              </div>
+              <div class="memory-queue-panel">
+                <div class="eyebrow" id="t-topics-used-label">Used history</div>
+                <div class="memory-queue-list" id="topics-used-list">
+                  <div class="empty" id="t-no-topics-used">No used topics yet.</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -913,6 +939,55 @@
                   <label id="t-comp-recycle-retention-label">
                     Recycle Retention Days (1-3650)
                     <input type="number" name="memory_recycle_retention_days" min="1" max="3650" step="1">
+                  </label>
+
+                  <!-- 话题 (Topics) configuration -->
+                  <label class="label-inline" id="t-comp-topic-toggle-label">
+                    <span>Enable Topics</span>
+                    <input type="checkbox" name="memory_topic_enabled" class="cb-accent">
+                  </label>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-topic-slot-label">
+                      Unused Topic Slot Cap (0-64)
+                      <input type="number" name="memory_topic_unused_slot_cap" min="0" max="64" step="1">
+                    </label>
+                    <label id="t-comp-topic-pool-label">
+                      Candidate Pool Size (2-200)
+                      <input type="number" name="memory_topic_candidate_pool" min="2" max="200" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-topic-lru-label">
+                      Node LRU Window (0-200)
+                      <input type="number" name="memory_topic_lru_window" min="0" max="200" step="1">
+                    </label>
+                    <label id="t-comp-topic-cold-label">
+                      Cold Rounds (1-20)
+                      <input type="number" name="memory_topic_cold_rounds" min="1" max="20" step="1">
+                    </label>
+                  </div>
+
+                  <div class="companion-num-grid field-pair-grid">
+                    <label id="t-comp-topic-used-retention-label">
+                      Used Topic Retention Days (1-3650)
+                      <input type="number" name="memory_topic_used_retention_days" min="1" max="3650" step="1">
+                    </label>
+                    <label id="t-comp-topic-daily-label">
+                      Topics Per Day (0-48)
+                      <input type="number" name="memory_topic_daily_limit" min="0" max="48" step="1">
+                    </label>
+                  </div>
+
+                  <label id="t-comp-topic-keywords-label">
+                    Topic Switch Keywords (semicolon-separated)
+                    <input type="text" name="memory_topic_switch_keywords">
+                  </label>
+
+                  <label id="t-comp-topic-judge-prompt-label">
+                    Topic Switch Judge Prompt
+                    <textarea name="memory_topic_switch_judge_prompt" rows="5"></textarea>
                   </label>
 
                   <label id="t-comp-summary-prompt-label">

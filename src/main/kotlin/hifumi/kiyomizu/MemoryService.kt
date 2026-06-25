@@ -295,6 +295,10 @@ object MemoryService {
                     DatabaseService.decayIntimacy(Config.intimacyDecayRate)
                     DatabaseService.expireMemoryObservations()
                     DatabaseService.compressExpiredRecycleBin()
+                    // Purge topics whose used-retention window has expired.
+                    if (Config.memoryTopicEnabled) {
+                        DatabaseService.purgeExpiredTopics()
+                    }
 
                     val state = DatabaseService.getRelationshipState()
                     val now = Instant.now().epochSecond
@@ -322,11 +326,286 @@ object MemoryService {
                     if (!ranModelMaintenance && shouldRunAutoMaintenance()) {
                         runAutoMaintenance()
                     }
+                    // Topics piggyback after dream/maintenance: fill the unused pool if it has free slots.
+                    if (Config.memoryTopicEnabled) {
+                        runTopicGeneration()
+                    }
                 } catch (e: Exception) {
                     System.err.println("Error in companion maintenance job: ${e.message}")
                 }
             }
         }
+    }
+
+    // ===========================================================================
+    //  话题 (Topics) — proxy-side chat-starter prompts.
+    //  Generation rides the consolidation job (after dream/maintenance). Consumption
+    //  is signal-driven ("user wants to switch topic") and injects a read-only topic
+    //  into the companion dynamic tail. The upstream AI never operates on topics.
+    // ===========================================================================
+    private val topicSampledUris = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private val recentAssistantTexts = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private val topicGenerationToday = java.util.concurrent.atomic.AtomicInteger(0)
+    private val topicGenerationDayRef = java.util.concurrent.atomic.AtomicReference(currentDayKey())
+
+    private fun currentDayKey(): String {
+        return java.time.LocalDate.now().toString()
+    }
+
+    private fun topicDailyBudgetResetIfNeeded() {
+        val today = currentDayKey()
+        if (topicGenerationDayRef.get() != today) {
+            topicGenerationDayRef.set(today)
+            topicGenerationToday.set(0)
+        }
+    }
+
+    /** Candidate node for topic generation. */
+    internal data class TopicCandidateNode(
+        val node: DatabaseService.MemoryNodeRecord,
+        val bucket: String // "high_strength" | "fresh_uninjected"
+    )
+
+    /** Topic as returned by the consolidation model. */
+    private data class ParsedTopic(
+        val title: String,
+        val leadIn: String,
+        val sourceUris: List<String>
+    )
+
+    /**
+     * Run after dream/maintenance in the consolidation job. Fills the unused topic
+     * pool up to [Config.memoryTopicUnusedSlotCap] by extracting nodes and asking the
+     * summary model to synthesize chat-starter topics.
+     */
+    suspend fun runTopicGeneration(): JsonObject = buildJsonObject {
+        if (!Config.memoryEnabled || !Config.memoryTopicEnabled) {
+            put("enabled", false); put("skipped", "disabled"); return@buildJsonObject
+        }
+        topicDailyBudgetResetIfNeeded()
+        val unusedCount = DatabaseService.countTopics("unused")
+        val cap = Config.memoryTopicUnusedSlotCap
+        val slotsFree = (cap - unusedCount).coerceAtLeast(0)
+        if (slotsFree == 0) {
+            put("enabled", true); put("unused_count", unusedCount); put("generated", 0); put("skipped", "pool_full")
+            return@buildJsonObject
+        }
+        if (Config.memoryTopicDailyLimit > 0 && topicGenerationToday.get() >= Config.memoryTopicDailyLimit) {
+            put("enabled", true); put("generated", 0); put("skipped", "daily_limit"); return@buildJsonObject
+        }
+        val candidates = collectTopicCandidateNodes(Config.memoryTopicCandidatePool)
+        if (candidates.isEmpty()) {
+            put("enabled", true); put("generated", 0); put("skipped", "no_candidates"); return@buildJsonObject
+        }
+        val parsed = generateTopicsFromModel(candidates, slotsFree)
+        var inserted = 0
+        parsed.forEach { topic ->
+            val id = DatabaseService.insertTopic(
+                DatabaseService.TopicDraft(title = topic.title, leadIn = topic.leadIn, sourceUris = topic.sourceUris)
+            )
+            if (id > 0) inserted++
+        }
+        // record sampled uris into the LRU exclusion window so the same nodes aren't re-picked next time
+        if (Config.memoryTopicLruWindow > 0) {
+            candidates.take(Config.memoryTopicLruWindow).forEach { c ->
+                rememberSampledUri(c.node.uri)
+            }
+        }
+        topicGenerationToday.addAndGet(inserted)
+        put("enabled", true)
+        put("candidate_count", candidates.size)
+        put("requested", slotsFree)
+        put("generated", inserted)
+        put("unused_count", DatabaseService.countTopics("unused"))
+    }
+
+    /**
+     * Two-batch collector: half highest-strength active nodes + half recently-created
+     * but not-injected nodes. LRU-excludes uris sampled recently to avoid repetition.
+     * No disclosure filtering (all nodes eligible).
+     */
+    internal fun collectTopicCandidateNodes(poolSize: Int): List<TopicCandidateNode> {
+        val pool = poolSize.coerceAtLeast(2)
+        val half = pool / 2
+        val excluded = topicSampledUris.toSet()
+        val now = Instant.now().epochSecond
+
+        // high-strength batch: order by lazyStrength desc (FSRS-aware recency+strength)
+        val highStrength = DatabaseService.getEmotionallySalientGraphMemoryNodes(limit = pool * 4)
+            .plus(DatabaseService.getRecentGraphMemoryNodes(limit = pool * 4))
+            .distinctBy { it.id }
+            .filter { it.uri !in excluded }
+            .sortedByDescending { lazyStrength(it, now) }
+            .take(half)
+
+        // fresh-but-uninjected batch: recent active nodes not present in recent recall traces
+        val recentTraces = DatabaseService.getRecentModelRecallTraces(limit = Config.memoryTopicColdRounds + 2)
+        val recentlyInjectedUris = recentTraces
+            .flatMap { decodeInjectedNodeIds(it.injectedNodeIds) }
+            .mapNotNull { id -> DatabaseService.getMemoryNodeById(id)?.uri }
+            .toSet()
+        val fresh = DatabaseService.getRecentGraphMemoryNodes(limit = pool * 6)
+            .filter { it.uri !in excluded && it.uri !in recentlyInjectedUris && it.uri !in highStrength.map { n -> n.uri } }
+            .take(pool - half)
+
+        val result = mutableListOf<TopicCandidateNode>()
+        highStrength.forEach { result.add(TopicCandidateNode(it, "high_strength")) }
+        fresh.forEach { result.add(TopicCandidateNode(it, "fresh_uninjected")) }
+        return result.distinctBy { it.node.id }.take(pool)
+    }
+
+    private fun rememberSampledUri(uri: String) {
+        synchronized(topicSampledUris) {
+            topicSampledUris.remove(uri)
+            topicSampledUris.add(uri)
+            val overflow = topicSampledUris.size - Config.memoryTopicLruWindow
+            if (overflow > 0) {
+                repeat(overflow) { if (topicSampledUris.isNotEmpty()) topicSampledUris.removeAt(0) }
+            }
+        }
+    }
+
+    private fun buildTopicPrompt(candidates: List<TopicCandidateNode>, maxTopics: Int): String {
+        return buildString {
+            append("""
+                You are Kiyomizu's private topic-suggestion system. The companion proxy uses your output as
+                chat-starter material for the user — these are NOT facts and NOT memory writes, just
+                conversation-starter ideas drawn from memory notes. The upstream assistant will only see the
+                topic text you produce; it cannot operate on memory.
+
+                From the memory notes below, propose up to $maxTopics distinct conversation-starter topics.
+                Rules:
+                - Each topic = a short title + a one-sentence lead-in the assistant could naturally use to open the topic.
+                - Draw only on the supplied notes. Do not invent facts beyond them.
+                - Favor topics that are concrete, personal, and easy to open conversationally (a past event, a preference, a person, a project thread). Avoid generic small talk.
+                - Make the lead-in warm and natural, in the same language as the note it draws on.
+                - source_uris must list the uri(s) of the note(s) the topic draws from.
+                - Do not repeat the same topic across the batch; vary the subject.
+
+                Return ONLY a JSON object, no markdown:
+                {
+                  "topics": [
+                    { "title": "...", "lead_in": "...", "source_uris": ["..."] }
+                  ]
+                }
+            """.trimIndent())
+            append("\n\nMemory notes:\n")
+            candidates.forEachIndexed { index, c ->
+                val n = c.node
+                append("${index + 1}. uri=${n.uri} kind=${n.kind} bucket=${c.bucket} content=${n.content.replace('\n', ' ')}\n")
+            }
+        }
+    }
+
+    private suspend fun generateTopicsFromModel(
+        candidates: List<TopicCandidateNode>,
+        maxTopics: Int
+    ): List<ParsedTopic> {
+        if (candidates.isEmpty() || maxTopics <= 0) return emptyList()
+        val raw = callSummaryModel(buildTopicPrompt(candidates, maxTopics), requireJson = true) ?: return emptyList()
+        val parsed = try {
+            Json.parseToJsonElement(cleanJsonString(raw)) as? JsonObject
+        } catch (_: Exception) { null } ?: return emptyList()
+        val arr = parsed["topics"] as? JsonArray ?: return emptyList()
+        val uriSet = candidates.map { it.node.uri }.toSet()
+        return arr.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val title = obj["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (title.isEmpty()) return@mapNotNull null
+            val leadIn = obj["lead_in"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val uris = parseStringArray(obj["source_uris"]).filter { it in uriSet }
+            ParsedTopic(title = title.take(200), leadIn = leadIn.take(400), sourceUris = uris)
+        }.take(maxTopics)
+    }
+
+    // ---- Consumption: detect "user wants to switch topic", pick FIFO topic, mark used ----
+
+    /** Record an assistant response for conversation-coldness heuristics. Called after proxy streaming. */
+    fun recordAssistantTurn(text: String) {
+        val trimmed = text.trim().take(600)
+        if (trimmed.isEmpty()) return
+        synchronized(recentAssistantTexts) {
+            recentAssistantTexts.add(trimmed)
+            while (recentAssistantTexts.size > Config.memoryTopicColdRounds + 2) recentAssistantTexts.removeAt(0)
+        }
+    }
+
+    /** Heuristic: the conversation has gone cold — short, low-substance recent assistant turns. */
+    private fun conversationIsCold(): Boolean {
+        val rounds = Config.memoryTopicColdRounds
+        val recent = synchronized(recentAssistantTexts) { recentAssistantTexts.toList() }
+        if (recent.size < rounds) return false
+        val window = recent.takeLast(rounds)
+        val shortCount = window.count { it.length < 60 }
+        return shortCount >= rounds - 1
+    }
+
+    private fun topicSwitchKeywordHit(text: String): Boolean {
+        val keywords = Config.memoryTopicSwitchKeywords.split(';', ',', '\n')
+            .map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (keywords.isEmpty()) return false
+        val lower = text.lowercase()
+        return keywords.any { lower.contains(it) }
+    }
+
+    private suspend fun judgeWantsTopicSwitch(userQuery: String): Boolean {
+        val prompt = Config.memoryTopicSwitchJudgePrompt + "\n\nUser message:\n" + userQuery.take(1000)
+        val raw = callSummaryModel(prompt, requireJson = true) ?: return false
+        val obj = try { Json.parseToJsonElement(cleanJsonString(raw)) as? JsonObject } catch (_: Exception) { null } ?: return false
+        return (obj["want_topic_switch"] as? JsonPrimitive)?.booleanOrNull == true
+    }
+
+    /**
+     * Called from the companion prompt builder. If a topic-switch signal is detected and
+     * the unused pool is non-empty, claims the oldest unused topic (FIFO), marks it used
+     * immediately, and returns its read-only text for injection. Returns null otherwise.
+     * All side effects are proxy-side; the upstream AI only sees the returned text.
+     */
+    suspend fun maybeConsumeTopicForQuery(userQuery: String): DatabaseService.TopicRecord? {
+        if (!Config.memoryEnabled || !Config.memoryTopicEnabled) return null
+        if (userQuery.isBlank()) return null
+        val suspected = topicSwitchKeywordHit(userQuery) || conversationIsCold()
+        if (!suspected) return null
+        if (!judgeWantsTopicSwitch(userQuery)) return null
+        if (DatabaseService.countTopics("unused") == 0) return null
+        return DatabaseService.claimOldestUnusedTopic(Config.memoryTopicUsedRetentionDays)
+    }
+
+    /** Read-only topic text block for the companion dynamic tail. */
+    fun topicPromptBlock(topic: DatabaseService.TopicRecord): String {
+        return buildString {
+            append("[Optional conversation topic — for reference only, do not force]\n")
+            append("Topic: ${topic.title}\n")
+            if (topic.leadIn.isNotBlank()) append("Lead-in: ${topic.leadIn}\n")
+            append("You may naturally bring this up if it fits; otherwise ignore it.\n")
+        }
+    }
+
+    /** JSON view of the topic pool for the UI/API. */
+    fun topicsStateJson(): JsonObject = buildJsonObject {
+        val unused = DatabaseService.listTopics("unused", 200)
+        val used = DatabaseService.listTopics("used", 100)
+        put("enabled", Config.memoryEnabled && Config.memoryTopicEnabled)
+        put("unused_slot_cap", Config.memoryTopicUnusedSlotCap)
+        put("unused_count", unused.size)
+        put("used_count", used.size)
+        put("unused", buildJsonArray {
+            unused.forEach { t -> add(topicToJson(t)) }
+        })
+        put("used", buildJsonArray {
+            used.forEach { t -> add(topicToJson(t)) }
+        })
+    }
+
+    internal fun topicToJson(t: DatabaseService.TopicRecord): JsonObject = buildJsonObject {
+        put("id", t.id)
+        put("title", t.title)
+        put("lead_in", t.leadIn)
+        put("source_uris", buildJsonArray { t.sourceUris.forEach { add(JsonPrimitive(it)) } })
+        put("status", t.status)
+        put("generated_at", t.generatedAt)
+        if (t.usedAt != null) put("used_at", t.usedAt)
+        if (t.purgeAfter != null) put("purge_after", t.purgeAfter)
     }
 
     fun lastConsolidationSummary(): JsonObject = buildJsonObject {

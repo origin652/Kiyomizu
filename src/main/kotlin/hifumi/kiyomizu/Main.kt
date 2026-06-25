@@ -810,6 +810,48 @@ fun main() {
                 }.toString(), ContentType.Application.Json)
             }
 
+            // ---- 话题 (Topics) -------------------------------------------------------
+            get("/api/companion/topics") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+                if (!requireConfigAuth(call)) return@get
+                call.respondText(MemoryService.topicsStateJson().toString(), ContentType.Application.Json)
+            }
+
+            post("/api/companion/topics/generate") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                if (!Config.memoryEnabled || !Config.memoryTopicEnabled) {
+                    call.respondText(
+                        buildJsonObject { put("error", "topics are disabled") }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
+                val result = MemoryService.runTopicGeneration()
+                call.respondText(result.toString(), ContentType.Application.Json)
+            }
+
+            delete("/api/companion/topics/{id}") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@delete }
+                if (!requireConfigAuth(call)) return@delete
+                val id = call.parameters["id"]?.toIntOrNull()
+                if (id == null) {
+                    call.respondText(
+                        buildJsonObject { put("error", "invalid id") }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@delete
+                }
+                val ok = DatabaseService.deleteTopic(id)
+                call.respondText(
+                    buildJsonObject { put("ok", ok) }.toString(),
+                    ContentType.Application.Json,
+                    if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound
+                )
+            }
+
             post("/api/companion/dream/dry-run") {
                 if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
                 if (!requireConfigAuth(call)) return@post
@@ -1224,6 +1266,8 @@ private fun Route.fallbackProxyRoute() {
                             val compiledText = compileResponseText(captured, isSse)
                             if (compiledText.isNotEmpty()) {
                                 MemoryService.extractAndSaveMemoriesAsync(path, originalJson, compiledText)
+                                // Feed the assistant turn to the topic-consumption coldness heuristic.
+                                MemoryService.recordAssistantTurn(compiledText)
                             }
                         }.onFailure { e ->
                             System.err.println("Failed to schedule memory extraction: ${e.javaClass.simpleName}: ${e.message ?: "unknown error"}")

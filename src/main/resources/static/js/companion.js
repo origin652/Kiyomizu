@@ -72,6 +72,7 @@ async function loadCompanionState() {
   await loadModelRecallDebug(d.model_recall_diagnostics);
   await loadMemoryQueues();
   await loadSelfMemory();
+  await loadTopics();
 }
 function renderDreamRunMessage(message, kind = 'info') {
   const store = Alpine.store('dream');
@@ -294,4 +295,92 @@ function renderSelfList(containerId, emptyText, rows, renderMeta, actionsBuilder
     }
     list.appendChild(item);
   });
+}
+
+// ---- 话题 (Topics): proxy-side chat-starter pool ----
+async function loadTopics() {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/topics');
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus((s.error || 'Error: ') + (d.error || 'Failed to load topics'), 'err');
+      return;
+    }
+    const line = document.getElementById('topics-count-line');
+    if (line) line.textContent = `${d.unused_count ?? 0}/${d.unused_slot_cap ?? 0} unused · ${d.used_count ?? 0} used`;
+    renderTopicList('topics-unused-list', 't-no-topics-unused', 'No unused topics. The pool fills after dream runs.', d.unused || [], true);
+    renderTopicList('topics-used-list', 't-no-topics-used', 'No used topics yet.', d.used || [], false);
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e.message || 'Failed to load topics'), 'err');
+  }
+}
+
+function renderTopicList(containerId, emptyId, emptyText, rows, allowDelete) {
+  const list = document.getElementById(containerId);
+  if (!list) return;
+  list.textContent = '';
+  if (!rows || rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = emptyText;
+    list.appendChild(empty);
+    return;
+  }
+  rows.forEach(row => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const content = document.createElement('div');
+    content.textContent = row.title || '—';
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    const gen = row.generated_at ? new Date(row.generated_at * 1000).toLocaleString() : '';
+    const used = row.used_at ? ` · used ${new Date(row.used_at * 1000).toLocaleString()}` : '';
+    meta.textContent = `${row.status}${gen ? ' · ' + gen : ''}${used}${row.lead_in ? ' · ' + row.lead_in : ''}`;
+    item.appendChild(content);
+    item.appendChild(meta);
+    if (allowDelete) {
+      const wrap = document.createElement('div');
+      wrap.className = 'memory-queue-actions';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost';
+      btn.textContent = 'Delete';
+      btn.onclick = () => deleteTopic(row.id);
+      wrap.appendChild(btn);
+      item.appendChild(wrap);
+    }
+    list.appendChild(item);
+  });
+}
+
+async function generateTopics() {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/topics/generate', { method: 'POST' });
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus((s.error || 'Error: ') + (d.error || 'Failed to generate topics'), 'err');
+      return;
+    }
+    setStatus(`Topics: generated ${d.generated ?? 0} (${d.skipped ? 'skipped: ' + d.skipped : 'ok'})`, 'success', 6000);
+    await loadTopics();
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e.message || 'Failed to generate topics'), 'err');
+  }
+}
+
+async function deleteTopic(id) {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/topics/' + encodeURIComponent(id), { method: 'DELETE' });
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) {
+      setStatus((s.error || 'Error: ') + (d.error || 'Failed to delete topic'), 'err');
+      return;
+    }
+    await loadTopics();
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e.message || 'Failed to delete topic'), 'err');
+  }
 }

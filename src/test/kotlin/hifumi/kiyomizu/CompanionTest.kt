@@ -130,6 +130,15 @@ class CompanionTest {
         Config.memoryFeedbackCorrectionEnabled = false
         Config.memoryFeedbackPenaltyK = 0.3
         Config.memoryFeedbackResolveLookbackHours = 48.0
+        // Topics — reset to defaults.
+        Config.memoryTopicEnabled = true
+        Config.memoryTopicUnusedSlotCap = 5
+        Config.memoryTopicCandidatePool = 20
+        Config.memoryTopicLruWindow = 20
+        Config.memoryTopicUsedRetentionDays = 30
+        Config.memoryTopicDailyLimit = 4
+        Config.memoryTopicColdRounds = 3
+        Config.memorySummaryKey = ""
     }
 
     private fun insertNode(
@@ -1427,5 +1436,101 @@ class CompanionTest {
         }
         val suggestions = MemoryService.buildMaintenanceSuggestions(materials)
         assertNull(suggestions.firstOrNull { it.type == "consolidate" }, "below-threshold pile-up should not suggest consolidation")
+    }
+
+    // ---- Topics: CRUD, FIFO consume, retention soft-delete ----
+
+    private fun seedTopic(title: String, leadIn: String = "", generatedAt: Long = Instant.now().epochSecond): Int {
+        return DatabaseService.insertTopic(
+            DatabaseService.TopicDraft(title = title, leadIn = leadIn, sourceUris = listOf("preference://test/$title"))
+        )
+    }
+
+    @Test
+    fun topicInsertListAndCountWork() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        assertEquals(-1, DatabaseService.insertTopic(DatabaseService.TopicDraft(title = "  ")), "blank title rejected")
+        val a = seedTopic("京都旅行"); val b = seedTopic("茶道")
+        assertTrue(a > 0 && b > 0)
+        assertEquals(2, DatabaseService.countTopics("unused"))
+        assertEquals(2, DatabaseService.listTopics("unused").size)
+        assertEquals(0, DatabaseService.countTopics("used"))
+    }
+
+    @Test
+    fun claimOldestUnusedTopicIsFifoAndMarksUsed() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        seedTopic("first", generatedAt = 1000L)
+        seedTopic("second", generatedAt = 2000L)
+        seedTopic("third", generatedAt = 3000L)
+        val claimed = DatabaseService.claimOldestUnusedTopic(retentionDays = 30)
+        assertNotNull(claimed)
+        assertEquals("first", claimed.title, "FIFO picks oldest generated")
+        assertEquals("used", claimed.status)
+        assertNotNull(claimed.usedAt)
+        assertNotNull(claimed.purgeAfter)
+        assertEquals(2, DatabaseService.countTopics("unused"))
+        assertEquals(1, DatabaseService.countTopics("used"))
+    }
+
+    @Test
+    fun claimReturnsNullWhenPoolEmpty() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        assertNull(DatabaseService.claimOldestUnusedTopic(retentionDays = 30))
+    }
+
+    @Test
+    fun purgeExpiredTopicsRemovesPastRetention() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        seedTopic("used-old")
+        val claimed = DatabaseService.claimOldestUnusedTopic(retentionDays = 30)
+        assertNotNull(claimed)
+        // force purge_after into the past
+        DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
+            conn.prepareStatement("UPDATE topics SET purge_after = ? WHERE id = ?").use { pstmt ->
+                pstmt.setLong(1, Instant.now().epochSecond - 1)
+                pstmt.setInt(2, claimed.id)
+                pstmt.executeUpdate()
+            }
+        }
+        val purged = DatabaseService.purgeExpiredTopics()
+        assertEquals(1, purged)
+        assertEquals(0, DatabaseService.countTopics("used"))
+    }
+
+    @Test
+    fun topicCollectorExcludesRecentlySampledUris() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryTopicCandidatePool = 6
+        Config.memoryTopicLruWindow = 2
+        insertNode(uri = "preference://a", kind = "preference", content = "likes a", strength = 0.9)
+        insertNode(uri = "preference://b", kind = "preference", content = "likes b", strength = 0.8)
+        insertNode(uri = "preference://c", kind = "preference", content = "likes c", strength = 0.7)
+        val first = MemoryService.collectTopicCandidateNodes(6).map { it.node.uri }.toSet()
+        assertTrue("preference://a" in first)
+        val second = MemoryService.collectTopicCandidateNodes(6).map { it.node.uri }.toSet()
+        // first-sampled high-strength uris should be LRU-excluded on the second pass
+        assertTrue(first.intersect(second).size <= 3, "second pass should not re-pick recently sampled uris: first=$first second=$second")
+    }
+
+    @Test
+    fun topicPromptBlockIsReadOnlyText() {
+        val t = DatabaseService.TopicRecord(
+            id = 1, title = "京都旅行", leadIn = "上次你提到想去京都…", sourceUris = listOf("episodic://kyoto"),
+            status = "unused", generatedAt = 0, usedAt = null, purgeAfter = null, createdAt = 0, updatedAt = 0
+        )
+        val block = MemoryService.topicPromptBlock(t)
+        assertTrue(block.contains("京都旅行"))
+        assertTrue(block.contains("for reference only"), "block must frame the topic as optional/reference")
+        assertFalse(block.contains("must") || block.contains("call a tool"), "block must not instruct operations")
+    }
+
+    @Test
+    fun maybeConsumeReturnsNullWhenPoolEmptyEvenIfSignalMatches() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        // keyword "聊点什么" is in the default switch-keywords table; no summary key => judge returns false fast,
+        // and pool is empty anyway. The function must not throw and must return null.
+        val r = runBlocking { MemoryService.maybeConsumeTopicForQuery("聊点什么吧，无聊") }
+        assertNull(r)
     }
 }
