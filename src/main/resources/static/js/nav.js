@@ -36,15 +36,18 @@ function initCollapsibles() {
     else if (saved === '1') col.classList.add('is-open');
   });
 }
+function closeNavDrawer() {
+  const rail = document.querySelector('.nav-rail');
+  if (rail) rail.classList.remove('is-open');
+  const toggle = document.getElementById('nav-toggle');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+}
 function initNav() {
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
       renderPane(btn.dataset.nav);
-      // Collapse the mobile menu after a selection.
-      const rail = document.querySelector('.nav-rail');
-      if (rail) rail.classList.remove('is-open');
-      const toggle = document.getElementById('nav-toggle');
-      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+      // Collapse the mobile drawer after a selection.
+      closeNavDrawer();
     });
   });
   const toggle = document.getElementById('nav-toggle');
@@ -56,6 +59,13 @@ function initNav() {
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
+  // Close the side drawer when the scrim is tapped.
+  const scrim = document.getElementById('nav-scrim');
+  if (scrim) scrim.addEventListener('click', closeNavDrawer);
+  // Close on Escape for keyboard users.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeNavDrawer();
+  });
   let saved;
   try { saved = localStorage.getItem('kiyomizu-nav'); } catch (e) {}
   const panes = Array.from(document.querySelectorAll('.pane')).map(p => p.dataset.pane);

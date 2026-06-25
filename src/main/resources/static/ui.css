@@ -1467,23 +1467,26 @@ input[disabled], textarea[disabled], select[disabled] {
   .app-body {
     grid-template-columns: 1fr;
   }
+  /* Mobile: the rail becomes a thin top bar holding only the hamburger button.
+     The actual nav items slide in from the left as a side drawer. */
   .nav-rail {
     position: static;
     height: auto;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
     overflow: visible;
     border-right: none;
     border-bottom: 1px solid var(--border-default);
     padding: var(--sp-2) var(--sp-3);
     gap: var(--sp-1);
   }
-  /* Collapsible mobile menu: a toggle button reveals the items vertically. */
+  /* Hamburger button in the top bar — compact, not full width. */
   .nav-toggle {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: var(--sp-3);
-    width: 100%;
-    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+    width: auto;
+    padding: var(--sp-2) var(--sp-3);
     border-radius: var(--r-md);
     border: 1px solid var(--border-default);
     background: var(--surface-1);
@@ -1496,17 +1499,51 @@ input[disabled], textarea[disabled], select[disabled] {
   }
   .nav-toggle:hover { background: var(--surface-2); }
   .nav-toggle svg { flex: 0 0 auto; }
+  /* Side drawer: fixed off-canvas on the left, slides in when open. */
   .nav-rail-items {
-    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 84vw);
+    max-width: 84vw;
+    display: flex;
     flex-direction: column;
     gap: var(--sp-1);
-    margin-top: var(--sp-2);
+    margin: 0;
+    padding: var(--sp-5) var(--sp-3);
+    background: var(--surface-1);
+    border-right: 1px solid var(--border-default);
+    box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.28));
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform var(--t-base, 180ms) ease;
+    z-index: 1200;
+    visibility: hidden;
   }
-  .nav-rail.is-open .nav-rail-items { display: flex; }
+  .nav-rail.is-open .nav-rail-items {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  /* Scrim that dims the page behind the open drawer; click to close. */
+  .nav-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--t-base, 180ms) ease, visibility 0s linear var(--t-base, 180ms);
+    z-index: 1150;
+  }
+  .nav-rail.is-open .nav-scrim {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--t-base, 180ms) ease, visibility 0s linear 0s;
+  }
   .nav-item {
     white-space: nowrap;
     flex: 0 0 auto;
-    min-height: 40px;
+    min-height: 44px;
   }
   .content { padding: var(--sp-5); }
 }
