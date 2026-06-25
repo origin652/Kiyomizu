@@ -111,7 +111,8 @@ object MemoryService {
         val deepRecall: DeepRecallResult? = null,
         val dreamTraces: List<RecalledMemory> = emptyList(),
         val selfMemories: List<RecalledMemory> = emptyList(),
-        val selfObservations: List<DatabaseService.MemoryObservationRecord> = emptyList()
+        val selfObservations: List<DatabaseService.MemoryObservationRecord> = emptyList(),
+        val pinnedMemories: List<RecalledMemory> = emptyList()
     )
 
     private data class SummaryNodePayload(
@@ -1033,6 +1034,7 @@ object MemoryService {
             if (denying) {
                 for (nodeId in ids) {
                     DatabaseService.getMemoryNodeById(nodeId)?.let { node ->
+                        if (node.pinned) return@let // pinned nodes are immune to recall-feedback penalty
                         val penalized = (node.stability * penaltyFactor).coerceAtLeast(min)
                         if (penalized < node.stability) {
                             DatabaseService.updateMemoryNodeStability(nodeId, penalized)
@@ -1055,6 +1057,7 @@ object MemoryService {
     fun applyLazyStrengthDecay(now: Long = Instant.now().epochSecond) {
         val nodes = DatabaseService.getActiveGraphMemoryNodesForDecay()
         for (node in nodes) {
+            if (node.pinned) continue // pinned nodes are exempt from strength decay
             val decayed = lazyStrength(node, now).coerceIn(0.0, Config.memoryMaxStrength)
             if (decayed >= node.strength) continue // not decayed (e.g. just accessed); skip
             DatabaseService.updateMemoryNodeStrength(node.id, decayed, now)
@@ -1074,6 +1077,7 @@ object MemoryService {
         val cycleStart = now - (Config.memoryDecayIntervalHours * 3600L)
         val nodes = DatabaseService.getActiveGraphMemoryNodesForDecay()
         for (node in nodes) {
+            if (node.pinned) continue // pinned nodes are exempt from stability regression
             if (node.lastAccessedAt >= cycleStart) continue // recalled this cycle — keep stability
             val regressed = (node.stability * (1.0 - rate)).coerceAtLeast(min)
             if (regressed < node.stability) {
@@ -1415,6 +1419,7 @@ object MemoryService {
         if (draft.kind != "working_memory") return null
         val maxSlots = Config.memoryWorkingMemorySlotsPerProject.coerceAtLeast(1)
         val slots = DatabaseService.getActiveWorkingMemoryNodes(draft.projectUri, limit = max(maxSlots * 4, 12))
+            .filter { !it.pinned } // never displace a pinned working-memory node's content
         if (slots.isEmpty()) return null
 
         val scored = slots.map { it to workingMemorySlotScore(draft, it) }
@@ -1492,7 +1497,11 @@ object MemoryService {
             projectUri = mergedProjectUri,
             status = existing.status,
             source = incoming.source.ifBlank { existing.source },
-            rawEvidence = incoming.rawEvidence ?: existing.rawEvidence
+            rawEvidence = incoming.rawEvidence ?: existing.rawEvidence,
+            // Pin flags are union (only-increase-never-decrease): a merge must never
+            // silently un-pin a node. Pin is only removed by explicit manual toggle.
+            pinned = existing.pinned || incoming.pinned,
+            alwaysInject = existing.alwaysInject || incoming.alwaysInject
         )
     }
 
@@ -1986,7 +1995,7 @@ object MemoryService {
         if (!isAggressiveMaintenance()) return emptyList()
         val suggestions = mutableListOf<MaintenanceSuggestion>()
         val nodes = materials.mapNotNull { it.node }
-            .filter { it.status == "active" && it.disclosure != "sensitive" && !isSelfNode(it) }
+            .filter { it.status == "active" && it.disclosure != "sensitive" && !isSelfNode(it) && !it.pinned }
         val groups = nodes.groupBy { node ->
             listOf(node.kind, node.personUri.orEmpty(), node.projectUri.orEmpty(), node.scopeHint.orEmpty()).joinToString("|")
         }
@@ -2392,7 +2401,7 @@ object MemoryService {
                         DatabaseService.getMemoryNodeByUri(normalizeUri(it, "working_memory", it))
                     }?.takeIf { it.status == "active" }
                     val unsafePersonMerge = source?.personUri != null && target?.personUri != null && source.personUri != target.personUri
-                    if (source == null || target == null || source.id == target.id || source.disclosure == "sensitive" || unsafePersonMerge || isSelfNode(source) || isSelfNode(target)) {
+                    if (source == null || target == null || source.id == target.id || source.disclosure == "sensitive" || unsafePersonMerge || isSelfNode(source) || isSelfNode(target) || source.pinned || target.pinned) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, source?.id, op.sourceUri, op.type, op.reason ?: "unsafe or missing merge nodes", if (dryRun) "dry_run" else "skipped", target?.id, target?.uri ?: op.targetUri)
                     } else if (dryRun) {
@@ -2417,7 +2426,7 @@ object MemoryService {
                         continue@operationLoop
                     }
                     val node = materialNodeByUri(op.sourceUri, nodeByUri)
-                    if (node == null || node.disclosure == "sensitive" || isSelfNode(node)) {
+                    if (node == null || node.disclosure == "sensitive" || isSelfNode(node) || node.pinned) {
                         skipped += 1
                         DatabaseService.insertDreamRunItem(dreamRunId, null, op.sourceUri, op.type, op.reason ?: "unsafe or missing source node", if (dryRun) "dry_run" else "skipped")
                     } else if (dryRun) {
@@ -2467,7 +2476,14 @@ object MemoryService {
                     } else {
                         val existing = DatabaseService.getMemoryNodeByUri(draft.uri)
                         val nodeId = if (existing != null) {
-                            DatabaseService.updateMemoryNode(existing.id, draft.copy(status = existing.status))
+                            // Preserve the existing node's pinned/always_inject flags — a consolidation
+                            // op must not silently un-pin a user's stable setting (pin is only removed
+                            // by explicit manual toggle). draft carries pinned=false by default.
+                            DatabaseService.updateMemoryNode(existing.id, draft.copy(
+                                status = existing.status,
+                                pinned = existing.pinned,
+                                alwaysInject = existing.alwaysInject
+                            ))
                             existing.id
                         } else {
                             DatabaseService.insertMemoryNode(draft)
@@ -3004,6 +3020,7 @@ object MemoryService {
 
         conflicts
             .filter { selfSourcePriority(it.source) <= incomingPriority }
+            .filter { !it.pinned } // pinned self nodes are immune to supersession
             .forEach { old ->
                 if (old.status == "active") {
                     DatabaseService.archiveMemoryNodeToRecycle(old, reason, Config.memoryRecycleRetentionDays)
@@ -3098,7 +3115,14 @@ object MemoryService {
     private val EDITABLE_MEMORY_FIELDS = setOf(
         "content", "kind", "disclosure", "priority", "confidence",
         "keywords", "aliases", "entities", "topics", "trigger_phrases",
-        "scope_hint", "person_uri", "project_uri", "status", "source", "raw_evidence"
+        "scope_hint", "person_uri", "project_uri", "status", "source", "raw_evidence",
+        "pinned", "always_inject"
+    )
+
+    /** Accepted kinds for user-created nodes (mirrors the UI MEMORY_KINDS list). */
+    private val USER_MEMORY_KINDS = setOf(
+        "identity", "preference", "relationship", "project_fact",
+        "episodic_event", "working_memory", "self", "material", "person"
     )
 
     fun editMemoryNode(nodeId: Int, patch: JsonObject): DatabaseService.MemoryNodeRecord? {
@@ -3125,6 +3149,10 @@ object MemoryService {
         val nextPersonUri = patch["person_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.personUri
         val nextProjectUri = patch["project_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.projectUri
         val nextRawEvidence = patch["raw_evidence"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it } ?: existing.rawEvidence
+        val nextPinned = patch["pinned"]?.jsonPrimitive?.booleanOrNull ?: existing.pinned
+        // always_inject is a sub-flag of pinned: only meaningful when pinned is true.
+        val nextAlwaysInjectRaw = patch["always_inject"]?.jsonPrimitive?.booleanOrNull ?: existing.alwaysInject
+        val nextAlwaysInject = if (nextPinned) nextAlwaysInjectRaw else false
 
         val normalized = normalizeText(nextContent)
         val searchableText = buildSearchableText(
@@ -3154,12 +3182,82 @@ object MemoryService {
             status = nextStatus,
             source = nextSource,
             rawEvidence = nextRawEvidence,
-            stability = existing.stability
+            stability = existing.stability,
+            pinned = nextPinned,
+            alwaysInject = nextAlwaysInject
         )
         DatabaseService.updateMemoryNode(existing.id, draft)
         DatabaseService.replaceMemorySearchTerms(existing.id, deriveSearchTerms(draft))
         refreshMemoryIndexAfterMutation("mem_edit")
         return DatabaseService.getMemoryNodeById(existing.id)
+    }
+
+    /**
+     * Create a generic graph memory node from a user-supplied payload (POST /api/companion/memories).
+     * URI is derived via [normalizeUri]; on collision the existing node is union-merged (pin flags
+     * only-increase-never-decrease via [mergeNodeDraft]) and its content/list fields updated.
+     * Returns the created/updated node, or null on invalid input (blank content / unknown kind).
+     */
+    fun createMemoryNode(payload: JsonObject): DatabaseService.MemoryNodeRecord? {
+        val content = payload["content"]?.jsonPrimitive?.contentOrNull?.trim()
+        if (content.isNullOrBlank()) return null
+        val kind = payload["kind"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null } ?: "preference"
+        if (kind !in USER_MEMORY_KINDS) return null
+        val pinned = payload["pinned"]?.jsonPrimitive?.booleanOrNull ?: false
+        val alwaysInjectRaw = payload["always_inject"]?.jsonPrimitive?.booleanOrNull ?: false
+        // always_inject is a sub-flag of pinned: force false when not pinned.
+        val alwaysInject = if (pinned) alwaysInjectRaw else false
+        val keywords = payload["keywords"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val aliases = payload["aliases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val entities = payload["entities"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val topics = payload["topics"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val triggers = payload["trigger_phrases"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val disclosure = payload["disclosure"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: "private"
+        val priority = (payload["priority"]?.jsonPrimitive?.doubleOrNull ?: 0.5).coerceIn(0.0, 1.0)
+        val confidence = (payload["confidence"]?.jsonPrimitive?.doubleOrNull ?: 0.5).coerceIn(0.0, 1.0)
+        val scopeHint = payload["scope_hint"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it }
+        val personUri = payload["person_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it }
+        val projectUri = payload["project_uri"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it }
+        val source = payload["source"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: "user"
+        val rawEvidence = payload["raw_evidence"]?.jsonPrimitive?.contentOrNull?.let { if (it.isBlank()) null else it }
+        val uri = normalizeUri(payload["uri"]?.jsonPrimitive?.contentOrNull, kind, content)
+        val draft = DatabaseService.MemoryNodeDraft(
+            uri = uri,
+            kind = kind,
+            content = content,
+            normalizedText = normalizeText(content),
+            searchableText = buildSearchableText(content, keywords, aliases, entities, topics, triggers, uri, scopeHint, personUri, projectUri),
+            keywords = keywords,
+            aliases = aliases,
+            entities = entities,
+            topics = topics,
+            triggerPhrases = triggers,
+            disclosure = disclosure,
+            priority = priority,
+            confidence = confidence,
+            source = source,
+            rawEvidence = rawEvidence,
+            pinned = pinned,
+            alwaysInject = alwaysInject
+        )
+        val existing = DatabaseService.getMemoryNodeByUri(uri)
+        val nodeId = if (existing != null) {
+            // Collision → union-merge. mergeNodeDraft already applies pin-union semantics; the
+            // explicit copy below is belt-and-suspenders in case mergeNodeDraft's pin handling changes.
+            val merged = mergeNodeDraft(existing, draft).copy(
+                pinned = existing.pinned || draft.pinned,
+                alwaysInject = existing.alwaysInject || draft.alwaysInject
+            )
+            DatabaseService.updateMemoryNode(existing.id, merged)
+            DatabaseService.replaceMemorySearchTerms(existing.id, deriveSearchTerms(merged))
+            existing.id
+        } else {
+            val inserted = DatabaseService.insertMemoryNode(draft)
+            DatabaseService.replaceMemorySearchTerms(inserted, deriveSearchTerms(draft))
+            inserted
+        }
+        refreshMemoryIndexAfterMutation("mem_create")
+        return DatabaseService.getMemoryNodeById(nodeId)
     }
 
     fun softDeleteMemoryNode(nodeId: Int, reason: String): Boolean {
@@ -3223,6 +3321,8 @@ object MemoryService {
         put("source", m.source)
         put("raw_evidence", m.rawEvidence ?: "")
         put("stability", m.stability)
+        put("pinned", m.pinned)
+        put("always_inject", m.alwaysInject)
     }
 
     fun exportMemoryBundle(
@@ -3300,7 +3400,14 @@ object MemoryService {
                 status = n["status"]?.jsonPrimitive?.contentOrNull ?: "active",
                 source = n["source"]?.jsonPrimitive?.contentOrNull ?: "import",
                 rawEvidence = n["raw_evidence"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
-                stability = n["stability"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+                stability = n["stability"]?.jsonPrimitive?.doubleOrNull ?: 1.0,
+                // Bundle v1 compat: accept bool or 0/1 int, default false when absent.
+                pinned = n["pinned"]?.jsonPrimitive?.booleanOrNull
+                    ?: (n["pinned"]?.jsonPrimitive?.intOrNull == 1)
+                    ?: false,
+                alwaysInject = n["always_inject"]?.jsonPrimitive?.booleanOrNull
+                    ?: (n["always_inject"]?.jsonPrimitive?.intOrNull == 1)
+                    ?: false
             )
             nodes.add(dbNode)
         }
@@ -4206,7 +4313,7 @@ object MemoryService {
             .take(limit)
             .map { RecalledMemory(it.node, it.score, it.associated, it.channel) }
 
-        (recalled + personContext).forEach { memory ->
+        (recalled + personContext).filter { !it.memory.pinned }.forEach { memory ->
             val (spacing, stabilization) = stabilityMultipliers(memory.memory)
             DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
         }
@@ -4415,7 +4522,7 @@ object MemoryService {
         lastDeepRecallCandidates.set(combined.size)
         lastDeepRecallClues.set(clueCount)
 
-        (result.direct + result.weak + result.conflict).forEach { recalled ->
+        (result.direct + result.weak + result.conflict).filter { !it.memory.pinned }.forEach { recalled ->
             val (spacing, stabilization) = stabilityMultipliers(recalled.memory)
             DatabaseService.updateMemoryNodeAccess(recalled.memory.id, Config.memoryRecoveryAmount * 0.5, Config.memoryMaxStrength, spacing, stabilization)
         }
@@ -4833,11 +4940,11 @@ object MemoryService {
         // a recall-success signal. Only strength/access/stability/timing change — no fusion boost, no model hint
         // flows to local recall. selfMemories are NOT boosted here: they are boosted uniformly at
         // buildCompanionMemoryContext (factor 0.25), so boosting here too would double-count.
-        recalled.forEach {
+        recalled.filter { !it.memory.pinned }.forEach {
             val (spacing, stabilization) = stabilityMultipliers(it.memory)
             DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
         }
-        dreamTraces.forEach {
+        dreamTraces.filter { !it.memory.pinned }.forEach {
             val (spacing, stabilization) = stabilityMultipliers(it.memory)
             DatabaseService.updateMemoryNodeAccess(it.memory.id, Config.memoryRecoveryAmount * 0.35, Config.memoryMaxStrength, spacing, stabilization)
         }
@@ -4928,7 +5035,9 @@ object MemoryService {
             selectSelfMemories(selfContext)
         }
         val selfObservations = selectSelfObservationsForDisclosure(userQuery)
-        selfMemories.forEach { memory ->
+        // Pinned nodes are exempt from reinforcement as well as decay — their strength/stability
+        // are meant to be durable, so access does not mutate them.
+        selfMemories.filter { !it.memory.pinned }.forEach { memory ->
             val (spacing, stabilization) = stabilityMultipliers(memory.memory)
             DatabaseService.updateMemoryNodeAccess(memory.memory.id, Config.memoryRecoveryAmount * 0.25, Config.memoryMaxStrength, spacing, stabilization)
         }
@@ -4953,15 +5062,40 @@ object MemoryService {
             )
             DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString(), fallbackInjectedIds)
         }
+        val pinnedMemories = selectPinnedMemories(userQuery)
         return CompanionMemoryContext(
             recalled = recalled,
             personContext = personContext,
             deepRecall = deepRecallResult,
             dreamTraces = dreamTraces,
             selfMemories = selfMemories,
-            selfObservations = selfObservations
+            selfObservations = selfObservations,
+            pinnedMemories = pinnedMemories
         )
     }
+
+    /**
+     * Pinned / stable user-added settings for the dedicated "设定与锚定记忆" prompt section.
+     * Scores pinned+active nodes by relevance (reuse scoreNode) and takes top-N (cap =
+     * memoryRecallMaxNodes). Nodes with always_inject=1 are included unconditionally,
+     * bypassing the cap. Pinned nodes are never reinforced here (no updateMemoryNodeAccess):
+     * they are exempt from both decay and reinforcement.
+     */
+    private suspend fun selectPinnedMemories(userQuery: String): List<RecalledMemory> {
+        if (!Config.memoryEnabled || !Config.memoryPinnedEnabled) return emptyList()
+        val candidates = DatabaseService.listPinnedActiveMemoryNodes(limit = 200)
+        if (candidates.isEmpty()) return emptyList()
+        val now = Instant.now().epochSecond
+        val context = buildRecallContext(userQuery, deepRecall = false)
+        val scored = candidates.map { RecalledMemory(it, scoreNode(context, it, now), associated = false, channel = "pinned") }
+        val alwaysInject = scored.filter { it.memory.alwaysInject }
+        val topByScore = scored.sortedByDescending { it.score }.take(Config.memoryRecallMaxNodes)
+        return ((alwaysInject + topByScore).distinctBy { it.memory.id }).sortedByDescending { it.score }
+    }
+
+    /** Test-only access to [selectPinnedMemories]. */
+    internal suspend fun selectPinnedMemoriesPublic(userQuery: String): List<RecalledMemory> =
+        selectPinnedMemories(userQuery)
 
     suspend fun recallMemories(userQuery: String): List<RecalledMemory> {
         return buildCompanionMemoryContext(userQuery).recalled

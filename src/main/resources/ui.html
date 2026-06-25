@@ -397,6 +397,7 @@
               <span id="t-memories-panel-title">Memories</span>
             </div>
             <div class="panel-title-actions">
+              <button class="btn btn-secondary" onclick="showCreateMemoryForm()" id="t-memories-create">新建记忆</button>
               <button class="btn btn-secondary" onclick="exportMemories()" id="t-memories-export">Export filtered</button>
               <button class="btn btn-secondary" onclick="document.getElementById('memories-import-input').click()" id="t-memories-import">Import</button>
               <input type="file" id="memories-import-input" accept=".json" class="sr-only" onchange="previewImportMemories(event)">
@@ -435,10 +436,11 @@
                       <th id="t-mem-th-content">Content</th>
                       <th id="t-mem-th-status">Status</th>
                       <th id="t-mem-th-stability">Stability</th>
+                      <th id="t-mem-th-pin">Pin</th>
                     </tr>
                   </thead>
                   <tbody id="memories-tbody">
-                    <tr><td colspan="5" class="empty" id="t-mem-empty">No memories loaded.</td></tr>
+                    <tr><td colspan="6" class="empty" id="t-mem-empty">No memories loaded.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -989,6 +991,12 @@
                   <label id="t-comp-topic-judge-prompt-label">
                     Topic Switch Judge Prompt
                     <textarea name="memory_topic_switch_judge_prompt" rows="5"></textarea>
+                  </label>
+
+                  <!-- 设定与锚定记忆 (Pinned/stable user memory) configuration -->
+                  <label class="label-inline" id="t-comp-pinned-toggle-label">
+                    <span>Enable Pinned/Stable Memory</span>
+                    <input type="checkbox" name="memory_pinned_enabled" class="cb-accent">
                   </label>
 
                   <label id="t-comp-summary-prompt-label">

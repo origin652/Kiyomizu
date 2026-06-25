@@ -387,7 +387,8 @@ object MessagePatcher {
         dreamTraces: List<MemoryService.RecalledMemory>,
         selfMemories: List<MemoryService.RecalledMemory>,
         selfObservations: List<DatabaseService.MemoryObservationRecord>,
-        reflections: List<String>
+        reflections: List<String>,
+        pinnedMemories: List<MemoryService.RecalledMemory> = emptyList()
     ): String {
         val intimacyStage = when {
             state.intimacy < 30.0 -> "Relationship stage: You and the user are still getting to know each other. Be polite, respectful, and emotionally measured."
@@ -412,6 +413,12 @@ object MessagePatcher {
                 append("Unconfirmed self observations for disclosure only. Label each source and uncertainty if you mention them:\n")
                 selfObservations.forEach { obs ->
                     append("  - source=${obs.source} status=${obs.status} confidence=${"%.2f".format(obs.confidence)} basis=${obs.candidateUri ?: "observation:${obs.id}"}: ${obs.content}\n")
+                }
+            }
+            if (pinnedMemories.isNotEmpty()) {
+                append("设定与锚定记忆 (Pinned & anchored memories — stable user settings, treat as durable context):\n")
+                pinnedMemories.forEach { rm ->
+                    append("  - ${rm.memory.content} (kind: ${rm.memory.kind}, disclosure: ${rm.memory.disclosure}, source: ${rm.memory.source})\n")
                 }
             }
             if (recalled.isNotEmpty()) {
@@ -493,7 +500,8 @@ object MessagePatcher {
             context.dreamTraces,
             context.selfMemories,
             context.selfObservations,
-            reflections
+            reflections,
+            context.pinnedMemories
         )
         // Topic consumption is proxy-side and read-only: if a topic-switch signal is detected,
         // claim the oldest unused topic (FIFO), mark it used, and inject its text here. The

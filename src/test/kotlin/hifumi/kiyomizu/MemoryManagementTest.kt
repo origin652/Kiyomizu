@@ -299,4 +299,143 @@ class MemoryManagementTest {
         assertEquals(1, bundle["nodes"]!!.jsonArray.size)
         assertEquals(0, bundle["edges"]!!.jsonArray.size, "edges with an endpoint outside the filter are dropped")
     }
+
+    // ---- Pinned / stable user memory ----
+
+    private fun setPinned(nodeId: Int, pinned: Boolean, alwaysInject: Boolean = false) {
+        java.sql.DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
+            conn.prepareStatement(
+                "UPDATE memory_nodes SET pinned = ?, always_inject = ? WHERE id = ?"
+            ).use { ps ->
+                ps.setInt(1, if (pinned) 1 else 0)
+                ps.setInt(2, if (alwaysInject) 1 else 0)
+                ps.setInt(3, nodeId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    @Test
+    fun pinnedNodeSurvivesDecayJob() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val pinnedId = seedNode(uri = "preference://pinned", content = "stable setting", strength = 0.05)
+        val controlId = seedNode(uri = "preference://control", content = "throwaway", strength = 0.05)
+        setPinned(pinnedId, pinned = true)
+        stampRuntimeState(pinnedId, stability = 4.0, accessCount = 0, strength = 0.05)
+        stampRuntimeState(controlId, stability = 4.0, accessCount = 0, strength = 0.05)
+
+        // Drive the same steps the decay job runs (MemoryService.startDecayJob body).
+        MemoryService.regressStability()
+        MemoryService.applyLazyStrengthDecay()
+        DatabaseService.decayGraphMemoryNodes(Config.memoryThreshold)
+
+        val pinned = DatabaseService.getMemoryNodeById(pinnedId)!!
+        assertEquals("active", pinned.status, "pinned node must not be archived by threshold decay")
+        assertEquals(4.0, pinned.stability, "pinned node stability must not regress")
+        assertEquals(0.05, pinned.strength, "pinned node strength must not decay")
+        assertFalse(DatabaseService.listRecycleBin(20).any { it.uri == "preference://pinned" })
+
+        val control = DatabaseService.getMemoryNodeById(controlId)!!
+        assertEquals("archived", control.status, "non-pinned weak node must be archived")
+    }
+
+    @Test
+    fun createApiCreatesNodeAndCollisionUnionMergesPin() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        // New node with pinned=true.
+        val created = MemoryService.createMemoryNode(buildJsonObject {
+            put("content", "I prefer concise replies")
+            put("kind", "preference")
+            put("pinned", true)
+            put("always_inject", true)
+        })
+        assertNotNull(created)
+        assertTrue(created.pinned, "created node should be pinned")
+        assertTrue(created.alwaysInject, "created node should be always-inject")
+
+        // Same URI (normalizeUri derives from kind+content), pinned=false this time -> pin must stay (union).
+        val merged = MemoryService.createMemoryNode(buildJsonObject {
+            put("content", "I prefer concise replies")
+            put("kind", "preference")
+            put("pinned", false)
+        })
+        assertNotNull(merged)
+        assertEquals(created.id, merged.id, "collision should merge into the existing node")
+        assertTrue(merged.pinned, "pin must survive a colliding rebuild (union, only-increase)")
+        assertTrue(merged.alwaysInject, "always_inject must survive a colliding rebuild (union)")
+
+        // Non-pinned existing node + incoming pinned -> merged becomes pinned.
+        // Use the URI normalizeUri("preference", "other setting") would produce so the create call collides.
+        val otherId = seedNode(uri = "preference://auto/other-setting", content = "other setting")
+        setPinned(otherId, pinned = false)
+        val promoted = MemoryService.createMemoryNode(buildJsonObject {
+            put("content", "other setting")
+            put("kind", "preference")
+            put("pinned", true)
+            put("always_inject", true)
+        })
+        assertNotNull(promoted)
+        assertEquals(otherId, promoted.id)
+        assertTrue(promoted.pinned && promoted.alwaysInject, "merge must promote pin via union")
+    }
+
+    @Test
+    fun patchTogglesPinAndSubFlagRule() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val id = seedNode(uri = "preference://patch", content = "to pin")
+        // PATCH pinned=true.
+        val pinned = MemoryService.editMemoryNode(id, buildJsonObject { put("pinned", true) })!!
+        assertTrue(pinned.pinned)
+        // PATCH always_inject=true without re-sending pinned -> pinned retained, always_inject true.
+        val inj = MemoryService.editMemoryNode(id, buildJsonObject { put("always_inject", true) })!!
+        assertTrue(inj.pinned, "pinned must be retained when not in the patch")
+        assertTrue(inj.alwaysInject)
+        // PATCH pinned=false -> sub-flag must zero out.
+        val unpinned = MemoryService.editMemoryNode(id, buildJsonObject { put("pinned", false) })!!
+        assertFalse(unpinned.pinned)
+        assertFalse(unpinned.alwaysInject, "always_inject must reset to false when pinned is false")
+    }
+
+    @Test
+    fun importExportRoundTripsPinFlags() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+
+        val a = seedNode(uri = "preference://p", content = "pinned setting")
+        setPinned(a, pinned = true, alwaysInject = true)
+        val b = seedNode(uri = "preference://n", content = "normal setting")
+
+        val bundle = MemoryService.exportMemoryBundle(null, null, null, null, null)
+        val nodeP = bundle["nodes"]!!.jsonArray.first { it.jsonObject["uri"]!!.jsonPrimitive.content == "preference://p" }.jsonObject
+        assertEquals(true, nodeP["pinned"]!!.jsonPrimitive.contentOrNull!!.toBooleanStrict())
+        assertEquals(true, nodeP["always_inject"]!!.jsonPrimitive.contentOrNull!!.toBooleanStrict())
+
+        // Import into a clean graph preserves the pin flags.
+        DatabaseService.replaceMemoryGraph(MemoryService.parseMemoryBundle(bundle)!!.nodes, emptyList())
+        val newP = DatabaseService.getMemoryNodeByUri("preference://p")!!
+        assertTrue(newP.pinned && newP.alwaysInject, "pin flags must survive import round-trip")
+        val newN = DatabaseService.getMemoryNodeByUri("preference://n")!!
+        assertFalse(newN.pinned)
+
+        // A bundle WITHOUT pinned/always_inject fields (v1 compat) imports as false.
+        val strippedNodes = bundle["nodes"]!!.jsonArray.map { el ->
+            val o = el.jsonObject
+            JsonObject(o.toMap() - "pinned" - "always_inject")
+        }
+        val strippedBundle = JsonObject(bundle.toMap() + ("nodes" to buildJsonArray { strippedNodes.forEach { add(it) } }))
+        DatabaseService.replaceMemoryGraph(MemoryService.parseMemoryBundle(strippedBundle)!!.nodes, emptyList())
+        val compatP = DatabaseService.getMemoryNodeByUri("preference://p")!!
+        assertFalse(compatP.pinned, "missing pin fields must default to false (v1 compat)")
+        assertFalse(compatP.alwaysInject)
+    }
 }

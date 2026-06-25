@@ -1533,4 +1533,57 @@ class CompanionTest {
         val r = runBlocking { MemoryService.maybeConsumeTopicForQuery("聊点什么吧，无聊") }
         assertNull(r)
     }
+
+    // ---- Pinned / stable user memory ----
+
+    private fun setPinned(nodeId: Int, pinned: Boolean, alwaysInject: Boolean = false) {
+        DriverManager.getConnection("jdbc:sqlite:$testDbPath").use { conn ->
+            conn.prepareStatement(
+                "UPDATE memory_nodes SET pinned = ?, always_inject = ? WHERE id = ?"
+            ).use { ps ->
+                ps.setInt(1, if (pinned) 1 else 0)
+                ps.setInt(2, if (alwaysInject) 1 else 0)
+                ps.setInt(3, nodeId)
+                ps.executeUpdate()
+            }
+        }
+    }
+
+    @Test
+    fun pinnedNodeNotPenalizedByRecallFeedback() {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackPenaltyK = 0.3
+        val id = insertNode(uri = "preference://pinned/setting", kind = "preference", content = "The user wants terse answers.", keywords = listOf("terse"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        setPinned(id, pinned = true)
+        DatabaseService.insertModelRecallTrace(
+            query = "answer style", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        MemoryService.resolvePreviousRecallFeedback("不对，不是这个")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(4.0, after.stability, 1e-9, "pinned node must be immune to recall-feedback penalty")
+    }
+
+    @Test
+    fun alwaysInjectNodeAlwaysSelectedRegardlessOfScore() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryPinnedEnabled = true
+        Config.memoryRecallMaxNodes = 1 // tight cap so only the top scorer would normally fit
+        // High-relevance pinned node (overlaps query) — would be selected anyway.
+        val hot = insertNode(uri = "preference://pinned/coffee", kind = "preference", content = "The user loves coffee.", keywords = listOf("coffee"), strength = 1.0)
+        setPinned(hot, pinned = true)
+        // Zero-overlap pinned node with always_inject — must still be selected despite the cap.
+        val cold = insertNode(uri = "preference://pinned/anchored", kind = "preference", content = "Anchored setting with no query overlap.", keywords = listOf("zzz_unrelated"), strength = 1.0)
+        setPinned(cold, pinned = true, alwaysInject = true)
+
+        val selected = MemoryService.selectPinnedMemoriesPublic("coffee")
+        val uris = selected.map { it.memory.uri }.toSet()
+        assertTrue(uris.contains("preference://pinned/anchored"), "always_inject node must bypass the top-N cap")
+        assertTrue(uris.contains("preference://pinned/coffee"), "top-scoring pinned node must be selected")
+    }
 }

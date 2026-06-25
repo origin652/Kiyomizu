@@ -64,6 +64,7 @@ function applyConfigData(d) {
   f.memory_dream_dry_run_daily_limit.value = d.memory_dream_dry_run_daily_limit !== undefined ? d.memory_dream_dry_run_daily_limit : 3;
   f.memory_recycle_retention_days.value = d.memory_recycle_retention_days !== undefined ? d.memory_recycle_retention_days : 30;
   f.memory_topic_enabled.checked = d.memory_topic_enabled || false;
+  f.memory_pinned_enabled.checked = d.memory_pinned_enabled !== undefined ? d.memory_pinned_enabled : true;
   f.memory_topic_unused_slot_cap.value = d.memory_topic_unused_slot_cap !== undefined ? d.memory_topic_unused_slot_cap : 5;
   f.memory_topic_candidate_pool.value = d.memory_topic_candidate_pool !== undefined ? d.memory_topic_candidate_pool : 20;
   f.memory_topic_lru_window.value = d.memory_topic_lru_window !== undefined ? d.memory_topic_lru_window : 20;
@@ -151,6 +152,7 @@ function buildConfigPayload(includeManualOnlyFields = true) {
     memory_dream_dry_run_daily_limit: Number(f.memory_dream_dry_run_daily_limit.value),
     memory_recycle_retention_days: Number(f.memory_recycle_retention_days.value),
     memory_topic_enabled: f.memory_topic_enabled.checked,
+    memory_pinned_enabled: f.memory_pinned_enabled.checked,
     memory_topic_unused_slot_cap: Number(f.memory_topic_unused_slot_cap.value),
     memory_topic_candidate_pool: Number(f.memory_topic_candidate_pool.value),
     memory_topic_lru_window: Number(f.memory_topic_lru_window.value),

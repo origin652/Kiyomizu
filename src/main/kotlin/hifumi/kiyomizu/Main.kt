@@ -460,14 +460,33 @@ fun main() {
                                 put("updated_at", m.updatedAt)
                                 put("last_accessed_at", m.lastAccessedAt)
                                 put("stability", m.stability)
+                                put("pinned", m.pinned)
+                                put("always_inject", m.alwaysInject)
                             })
                         }
                     })
                 }.toString(), ContentType.Application.Json)
             }
 
-            // ---- Memory graph: edit / delete / neighbors / export / import ----
+            // ---- Memory graph: create / edit / delete / neighbors / export / import ----
             // Literal sub-paths must be declared before {id} wildcard.
+
+            post("/api/companion/memories") {
+                if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@post }
+                if (!requireConfigAuth(call)) return@post
+                val bodyText = receiveTextLimited(call, Config.maxConfigRequestBytes) ?: return@post
+                val body = try { Json.parseToJsonElement(bodyText) as? JsonObject } catch (e: Exception) { null }
+                if (body == null) {
+                    call.respondText(buildJsonObject { put("error", "body must be a JSON object") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val node = MemoryService.createMemoryNode(body)
+                if (node == null) {
+                    call.respondText(buildJsonObject { put("error", "invalid memory payload (content blank or unknown kind)") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+                } else {
+                    call.respondText(buildJsonObject { put("memory", MemoryService.memoryNodeBundleJson(node)) }.toString(), ContentType.Application.Json)
+                }
+            }
 
             get("/api/companion/memories/export") {
                 if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }

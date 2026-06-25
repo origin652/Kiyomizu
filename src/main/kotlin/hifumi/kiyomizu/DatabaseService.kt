@@ -710,6 +710,21 @@ object DatabaseService {
                 stmt.execute("ALTER TABLE memory_nodes ADD COLUMN stability REAL NOT NULL DEFAULT 1.0")
             }
         }
+
+        // Pinned / stable user memory: a pinned node is exempt from all automatic
+        // decay/archive/delete paths (guarded in MemoryService). always_inject is a
+        // sub-flag of pinned — when true the node is injected into the upstream
+        // prompt unconditionally, bypassing the top-N relevance cap.
+        if ("pinned" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_nodes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        if ("always_inject" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_nodes ADD COLUMN always_inject INTEGER NOT NULL DEFAULT 0")
+            }
+        }
     }
 
     private fun ensureModelRecallTracesSchema(conn: Connection) {
@@ -1200,7 +1215,9 @@ object DatabaseService {
         val status: String,
         val source: String,
         val rawEvidence: String?,
-        val stability: Double = 1.0
+        val stability: Double = 1.0,
+        val pinned: Boolean = false,
+        val alwaysInject: Boolean = false
     )
 
     data class MemoryNodeDraft(
@@ -1226,7 +1243,9 @@ object DatabaseService {
         val status: String = "active",
         val source: String = "conversation",
         val rawEvidence: String? = null,
-        val stability: Double = 1.0
+        val stability: Double = 1.0,
+        val pinned: Boolean = false,
+        val alwaysInject: Boolean = false
     )
 
     data class MemoryEdgeRecord(
@@ -1519,7 +1538,9 @@ object DatabaseService {
             status = rs.getString("status") ?: "active",
             source = rs.getString("source"),
             rawEvidence = rs.getString("raw_evidence"),
-            stability = rs.getDouble("stability").takeIf { rs.getObject("stability") != null } ?: 1.0
+            stability = rs.getDouble("stability").takeIf { rs.getObject("stability") != null } ?: 1.0,
+            pinned = rs.getInt("pinned") == 1,
+            alwaysInject = rs.getInt("always_inject") == 1
         )
     }
 
@@ -1661,8 +1682,8 @@ object DatabaseService {
                     uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
                     trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
                     scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
-                    status, source, raw_evidence, stability
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    status, source, raw_evidence, stability, pinned, always_inject
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
                 pstmt.setString(2, draft.kind)
@@ -1690,6 +1711,8 @@ object DatabaseService {
                 pstmt.setString(24, draft.source)
                 pstmt.setNullableString(25, draft.rawEvidence)
                 pstmt.setDouble(26, draft.stability)
+                pstmt.setInt(27, if (draft.pinned) 1 else 0)
+                pstmt.setInt(28, if (draft.alwaysInject) 1 else 0)
                 pstmt.executeUpdate()
             }
             conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
@@ -1714,7 +1737,7 @@ object DatabaseService {
                     aliases = ?, entities = ?, topics = ?, trigger_phrases = ?, disclosure = ?, priority = ?,
                     confidence = ?, strength = ?, emotion_valence = ?, emotion_arousal = ?, scope_hint = ?,
                     person_uri = ?, project_uri = ?, updated_at = ?, status = ?, source = ?, raw_evidence = ?,
-                    stability = ?
+                    stability = ?, pinned = ?, always_inject = ?
                 WHERE id = ?
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, draft.uri)
@@ -1741,7 +1764,9 @@ object DatabaseService {
                 pstmt.setString(22, draft.source)
                 pstmt.setNullableString(23, draft.rawEvidence)
                 pstmt.setDouble(24, draft.stability)
-                pstmt.setInt(25, nodeId)
+                pstmt.setInt(25, if (draft.pinned) 1 else 0)
+                pstmt.setInt(26, if (draft.alwaysInject) 1 else 0)
+                pstmt.setInt(27, nodeId)
                 pstmt.executeUpdate()
             }
         }
@@ -2704,8 +2729,8 @@ object DatabaseService {
                     uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
                     trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
                     scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
-                    status, source, raw_evidence, stability
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, source, raw_evidence, stability, pinned, always_inject
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()).use { pstmt ->
                 pstmt.setString(1, record.uri)
                 pstmt.setString(2, record.kind)
@@ -2734,6 +2759,8 @@ object DatabaseService {
                 pstmt.setString(25, record.source)
                 pstmt.setNullableString(26, record.rawEvidence)
                 pstmt.setDouble(27, record.stability)
+                pstmt.setInt(28, if (record.pinned) 1 else 0)
+                pstmt.setInt(29, if (record.alwaysInject) 1 else 0)
                 pstmt.executeUpdate()
             }
             conn.prepareStatement("SELECT last_insert_rowid()").use { pstmt ->
@@ -2772,7 +2799,9 @@ object DatabaseService {
             status = record.status,
             source = record.source,
             rawEvidence = record.rawEvidence,
-            stability = record.stability
+            stability = record.stability,
+            pinned = record.pinned,
+            alwaysInject = record.alwaysInject
         )
     }
 
@@ -2808,8 +2837,8 @@ object DatabaseService {
                             uri, kind, content, normalized_text, searchable_text, keywords, aliases, entities, topics,
                             trigger_phrases, disclosure, priority, confidence, strength, emotion_valence, emotion_arousal,
                             scope_hint, person_uri, project_uri, created_at, updated_at, last_accessed_at, access_count,
-                            status, source, raw_evidence, stability
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            status, source, raw_evidence, stability, pinned, always_inject
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent())
                     insertNode.use { pstmt ->
                         pstmt.setString(1, record.uri)
@@ -2839,6 +2868,8 @@ object DatabaseService {
                         pstmt.setString(25, record.source)
                         pstmt.setNullableString(26, record.rawEvidence)
                         pstmt.setDouble(27, record.stability)
+                        pstmt.setInt(28, if (record.pinned) 1 else 0)
+                        pstmt.setInt(29, if (record.alwaysInject) 1 else 0)
                         pstmt.executeUpdate()
                     }
                     conn.prepareStatement("SELECT last_insert_rowid()").use { idStmt ->
@@ -3597,6 +3628,7 @@ object DatabaseService {
                 SELECT * FROM memory_nodes
                 WHERE status = 'active'
                   AND strength < ?
+                  AND pinned = 0
                   AND uri NOT LIKE 'self://%'
                   AND COALESCE(person_uri, '') != 'person://self/kiyomizu'
             """.trimIndent()).use { pstmt ->
@@ -3612,6 +3644,28 @@ object DatabaseService {
                 retentionDays = Config.memoryRecycleRetentionDays
             )
         }
+    }
+
+    /**
+     * All active pinned nodes, highest priority first. Feeds the dedicated
+     * "设定与锚定记忆" prompt section in selectPinnedMemories. Pinned nodes are
+     * exempt from decay/archive, so this set is the durable user-curated settings.
+     */
+    fun listPinnedActiveMemoryNodes(limit: Int): List<MemoryNodeRecord> {
+        val list = mutableListOf<MemoryNodeRecord>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT * FROM memory_nodes
+                WHERE status = 'active' AND pinned = 1
+                ORDER BY priority DESC, updated_at DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setInt(1, limit.coerceAtLeast(1))
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readMemoryNode(rs))
+            }
+        }
+        return list
     }
 
     fun listMemoryNodes(

@@ -79,6 +79,7 @@ object ConfigApi {
             put("memory_timeline_recall_enabled", Config.memoryTimelineRecallEnabled)
             put("memory_summary_sanitize_internal_prompts", Config.memorySummarySanitizeInternalPrompts)
             put("memory_topic_enabled", Config.memoryTopicEnabled)
+            put("memory_pinned_enabled", Config.memoryPinnedEnabled)
             put("memory_topic_unused_slot_cap", Config.memoryTopicUnusedSlotCap)
             put("memory_topic_candidate_pool", Config.memoryTopicCandidatePool)
             put("memory_topic_lru_window", Config.memoryTopicLruWindow)
@@ -158,6 +159,7 @@ object ConfigApi {
         var nextMemoryTimelineRecallEnabled = Config.memoryTimelineRecallEnabled
         var nextMemorySummarySanitizeInternalPrompts = Config.memorySummarySanitizeInternalPrompts
         var nextMemoryTopicEnabled = Config.memoryTopicEnabled
+        var nextMemoryPinnedEnabled = Config.memoryPinnedEnabled
         var nextMemoryTopicUnusedSlotCap = Config.memoryTopicUnusedSlotCap
         var nextMemoryTopicCandidatePool = Config.memoryTopicCandidatePool
         var nextMemoryTopicLruWindow = Config.memoryTopicLruWindow
@@ -514,6 +516,9 @@ object ConfigApi {
         body.readBoolean("memory_topic_enabled", errors) {
             nextMemoryTopicEnabled = it
         }
+        body.readBoolean("memory_pinned_enabled", errors) {
+            nextMemoryPinnedEnabled = it
+        }
         body.readInt("memory_topic_unused_slot_cap", errors) {
             if (it in 0..64) nextMemoryTopicUnusedSlotCap = it else errors.add("memory_topic_unused_slot_cap must be an integer 0-64")
         }
@@ -667,6 +672,7 @@ object ConfigApi {
             memoryTimelineRecallEnabled = nextMemoryTimelineRecallEnabled,
             memorySummarySanitizeInternalPrompts = nextMemorySummarySanitizeInternalPrompts,
             memoryTopicEnabled = nextMemoryTopicEnabled,
+            memoryPinnedEnabled = nextMemoryPinnedEnabled,
             memoryTopicUnusedSlotCap = nextMemoryTopicUnusedSlotCap,
             memoryTopicCandidatePool = nextMemoryTopicCandidatePool,
             memoryTopicLruWindow = nextMemoryTopicLruWindow,

@@ -60,14 +60,14 @@ async function loadMemories() {
 function renderMemoriesError(status) {
   const tb = document.getElementById('memories-tbody');
   if (!tb) return;
-  tb.innerHTML = `<tr><td colspan="5" class="empty">Load failed (HTTP ${status}).</td></tr>`;
+  tb.innerHTML = `<tr><td colspan="6" class="empty">Load failed (HTTP ${status}).</td></tr>`;
 }
 
 function renderMemoriesTable(memories) {
   const tb = document.getElementById('memories-tbody');
   if (!tb) return;
   if (!memories.length) {
-    tb.innerHTML = `<tr><td colspan="5" class="empty">${memStr('memEmpty', 'No memories loaded.')}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="6" class="empty">${memStr('memEmpty', 'No memories loaded.')}</td></tr>`;
     return;
   }
   tb.innerHTML = memories.map(m => {
@@ -75,14 +75,37 @@ function renderMemoriesTable(memories) {
     const content = escapeHtml((m.content || '').slice(0, 120));
     const uri = escapeHtml(m.uri || '');
     const stable = typeof m.stability === 'number' ? m.stability.toFixed(2) : '—';
+    const pinIcon = m.pinned ? '📌' : '';
+    const pinTitle = m.pinned
+      ? (m.always_inject ? 'pinned + always-inject' : 'pinned (click to unpin)')
+      : 'click to pin';
     return `<tr class="mem-row${sel}" data-id="${m.id}" onclick="selectMemory(${m.id})">
       <td class="mem-col-uri" title="${uri}">${uri}</td>
       <td>${escapeHtml(m.kind || '')}</td>
       <td class="mem-col-content">${content}</td>
       <td>${escapeHtml(m.status || '')}</td>
       <td>${stable}</td>
+      <td class="mem-col-pin" title="${pinTitle}"><span class="mem-pin-toggle" onclick="event.stopPropagation(); togglePin(${m.id}, ${m.pinned ? 'true' : 'false'})">${pinIcon}</span></td>
     </tr>`;
   }).join('');
+}
+
+async function togglePin(id, currentlyPinned) {
+  const r = await fetchConfig('/api/companion/memories/' + id, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pinned: !currentlyPinned })
+  });
+  const data = await r.json();
+  if (r.ok) {
+    await loadMemories();
+    if (memoriesState.selectedId === id) {
+      memoriesState.selectedNode = data.memory;
+      renderMemoryDetail();
+    }
+  } else {
+    setMemoriesStatus(data.error || 'Pin toggle failed');
+  }
 }
 
 function renderMemoriesPager() {
@@ -159,6 +182,8 @@ function renderMemoryDetail() {
       <label>Topics<input type="text" id="mem-edit-topics" value="${escapeHtml(list(m.topics))}"></label>
       <label>Trigger phrases<input type="text" id="mem-edit-triggers" value="${escapeHtml(list(m.trigger_phrases))}"></label>
       <label>Raw evidence<textarea id="mem-edit-raw" rows="2">${escapeHtml(m.raw_evidence || '')}</textarea></label>
+      <label class="label-inline"><span>Pinned (设定/锚定)</span><input type="checkbox" id="mem-edit-pinned" ${m.pinned ? 'checked' : ''} onchange="document.getElementById('mem-edit-always-inject').disabled = !this.checked"></label>
+      <label class="label-inline"><span>Always inject</span><input type="checkbox" id="mem-edit-always-inject" ${m.always_inject ? 'checked' : ''} ${m.pinned ? '' : 'disabled'}></label>
       <div class="mem-readonly">
         <div><span>stability</span><strong>${typeof m.stability === 'number' ? m.stability.toFixed(2) : '—'}</strong> (read-only)</div>
         <div><span>strength</span><strong>${typeof m.strength === 'number' ? m.strength.toFixed(2) : '—'}</strong></div>
@@ -243,7 +268,9 @@ function collectMemoryEdit() {
     entities: csv('mem-edit-entities'),
     topics: csv('mem-edit-topics'),
     trigger_phrases: csv('mem-edit-triggers'),
-    raw_evidence: val('mem-edit-raw')
+    raw_evidence: val('mem-edit-raw'),
+    pinned: document.getElementById('mem-edit-pinned')?.checked || false,
+    always_inject: document.getElementById('mem-edit-always-inject')?.checked || false
   };
 }
 
@@ -267,7 +294,11 @@ async function saveMemoryEdit() {
 
 async function softDeleteMemory() {
   if (!memoriesState.selectedId) return;
-  if (!confirm('Soft-delete this memory? (restorable, becomes archived)')) return;
+  const isPinned = memoriesState.selectedNode && memoriesState.selectedNode.pinned;
+  const msg = isPinned
+    ? '这是钉住的设定，确定要删除吗？ / This is a pinned setting — soft-delete it (archived, restorable)?'
+    : 'Soft-delete this memory? (restorable, becomes archived)';
+  if (!confirm(msg)) return;
   const r = await fetchConfig('/api/companion/memories/' + memoriesState.selectedId, {
     method: 'DELETE',
     headers: { 'content-type': 'application/json' },
@@ -290,7 +321,11 @@ async function restoreMemory() {
 
 async function purgeMemory() {
   if (!memoriesState.selectedId) return;
-  if (!confirm('Permanently purge this memory and its incident edges? This cannot be undone.')) return;
+  const isPinned = memoriesState.selectedNode && memoriesState.selectedNode.pinned;
+  const msg = isPinned
+    ? '这是钉住的设定，确定要永久清除吗？此操作不可撤销。 / This is a pinned setting — permanently purge it? This cannot be undone.'
+    : 'Permanently purge this memory and its incident edges? This cannot be undone.';
+  if (!confirm(msg)) return;
   const r = await fetchConfig('/api/companion/memories/' + memoriesState.selectedId + '/purge', { method: 'POST' });
   const data = await r.json();
   setMemoriesStatus(data.ok ? 'Purged.' : (data.error || 'Purge failed'));
@@ -349,6 +384,93 @@ function previewImportMemories(event) {
     }
   };
   reader.readAsText(file);
+}
+
+// --- create ---
+function showCreateMemoryForm() {
+  const d = document.getElementById('memories-detail');
+  if (!d) return;
+  memoriesState.selectedId = null;
+  memoriesState.selectedNode = null;
+  memoriesState.neighbors = null;
+  document.querySelectorAll('.mem-row').forEach(r => r.classList.remove('is-selected'));
+  const kindOpts = MEMORY_KINDS.map(k => `<option value="${k}">${k}</option>`).join('');
+  d.innerHTML = `
+    <div class="mem-detail-head">
+      <div class="mem-detail-uri">新建记忆 / New memory</div>
+      <div class="mem-detail-actions">
+        <button class="btn btn-ghost" onclick="createMemory()">Create</button>
+        <button class="btn btn-ghost" onclick="loadMemories(); renderMemoryDetailEmpty();">Cancel</button>
+      </div>
+    </div>
+    <div class="mem-edit-grid">
+      <label>Content<textarea id="mem-create-content" rows="3"></textarea></label>
+      <label>Kind<select id="mem-create-kind">${kindOpts}</select></label>
+      <label>Disclosure<input type="text" id="mem-create-disclosure" value="private"></label>
+      <label>Priority<input type="number" step="0.01" min="0" max="1" id="mem-create-priority" value="0.5"></label>
+      <label>Confidence<input type="number" step="0.01" min="0" max="1" id="mem-create-confidence" value="0.5"></label>
+      <label>Person URI<input type="text" id="mem-create-person" value=""></label>
+      <label>Project URI<input type="text" id="mem-create-project" value=""></label>
+      <label>Scope hint<input type="text" id="mem-create-scope" value=""></label>
+      <label>Source<input type="text" id="mem-create-source" value="user"></label>
+      <label>Keywords (comma-separated)<input type="text" id="mem-create-keywords" value=""></label>
+      <label>Aliases (comma-separated)<input type="text" id="mem-create-aliases" value=""></label>
+      <label>Entities (comma-separated)<input type="text" id="mem-create-entities" value=""></label>
+      <label>Topics (comma-separated)<input type="text" id="mem-create-topics" value=""></label>
+      <label>Trigger phrases (comma-separated)<input type="text" id="mem-create-triggers" value=""></label>
+      <label>Raw evidence<textarea id="mem-create-raw" rows="2"></textarea></label>
+      <label class="label-inline"><span>Pinned (设定/锚定)</span><input type="checkbox" id="mem-create-pinned" onchange="document.getElementById('mem-create-always-inject').disabled = !this.checked"></label>
+      <label class="label-inline"><span>Always inject</span><input type="checkbox" id="mem-create-always-inject" disabled></label>
+    </div>
+  `;
+}
+
+function renderMemoryDetailEmpty() {
+  const d = document.getElementById('memories-detail');
+  if (d) d.innerHTML = `<div class="empty">${memStr('memDetailEmpty', 'Select a memory to edit.')}</div>`;
+}
+
+function collectMemoryCreate() {
+  const csv = (id) => (document.getElementById(id)?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const pinned = document.getElementById('mem-create-pinned')?.checked || false;
+  const alwaysInject = pinned && (document.getElementById('mem-create-always-inject')?.checked || false);
+  return {
+    content: val('mem-create-content'),
+    kind: val('mem-create-kind') || 'preference',
+    disclosure: val('mem-create-disclosure') || 'private',
+    priority: num('mem-create-priority'),
+    confidence: num('mem-create-confidence'),
+    person_uri: val('mem-create-person'),
+    project_uri: val('mem-create-project'),
+    scope_hint: val('mem-create-scope'),
+    source: val('mem-create-source') || 'user',
+    keywords: csv('mem-create-keywords'),
+    aliases: csv('mem-create-aliases'),
+    entities: csv('mem-create-entities'),
+    topics: csv('mem-create-topics'),
+    trigger_phrases: csv('mem-create-triggers'),
+    raw_evidence: val('mem-create-raw'),
+    pinned,
+    always_inject: alwaysInject
+  };
+}
+
+async function createMemory() {
+  const body = collectMemoryCreate();
+  if (!body.content) { setMemoriesStatus('Content is required.'); return; }
+  const r = await fetchConfig('/api/companion/memories', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await r.json();
+  if (r.ok && data.memory) {
+    setMemoriesStatus('Created.');
+    await loadMemories();
+    selectMemory(data.memory.id);
+  } else {
+    setMemoriesStatus((data && data.error) || 'Create failed (HTTP ' + r.status + ')');
+  }
 }
 
 // --- helpers ---
