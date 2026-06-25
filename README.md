@@ -87,6 +87,18 @@ docker compose up --build
 
 For public or LAN binds, keep `KIYOMIZU_ALLOW_UNAUTHENTICATED_PROXY=0` and put TLS in front of the service.
 
+### Reverse proxy + public domain (loopback bind)
+
+A common VPS layout: Kiyomizu listens on `127.0.0.1:8787`, Nginx terminates HTTPS for `https://your.domain.example`, and a local upstream (for example CPA at `http://127.0.0.1:8317`) sits on the same host.
+
+In that setup:
+
+1. Set `HOST=127.0.0.1` and `KIYOMIZU_ALLOW_PRIVATE_UPSTREAMS=1` when the upstream is HTTP on loopback.
+2. Set `KIYOMIZU_ALLOW_BROWSER_CORS=1` so the browser UI can call the API when opened via your public hostname (loopback bind disables CORS by default).
+3. Set **`KIYOMIZU_CORS_ALLOWED_HOSTS`** to the hostname(s) users type in the browser, comma-separated (host only or full `https://…` URLs are accepted). Example: `KIYOMIZU_CORS_ALLOWED_HOSTS=your.domain.example`. Without this, CORS only allows `localhost` / `127.0.0.1` and cross-origin requests from your public site will fail.
+
+Example Compose file for Linux host networking: [docker-compose.host-local.yml](docker-compose.host-local.yml) (`network_mode: host`, `HOST=127.0.0.1`, private upstream and CORS env vars wired).
+
 ## Build And Test
 
 ```sh
@@ -117,6 +129,7 @@ You can override that path with `KIYOMIZU_DB_FILE` or the JVM property `-Dkiyomi
 | `KIYOMIZU_ALLOW_REMOTE_PASSWORD_SETUP` | `0` | Allows first-run password setup on a public bind. Prefer `KIYOMIZU_CONFIG_PASSWORD` instead |
 | `KIYOMIZU_ALLOW_PRIVATE_UPSTREAMS` | `0` | Allows `http`, localhost, private IPs, and metadata-like hosts for upstream/memory URLs. Keep this off on VPS unless you truly need a local model router |
 | `KIYOMIZU_ALLOW_BROWSER_CORS` | auto-local | Enables browser CORS when public-bound. By default CORS is local-bind only |
+| `KIYOMIZU_CORS_ALLOWED_HOSTS` | empty | Comma-separated hostnames (or `https://host/…` URLs) allowed in CORS when the UI is served via a reverse proxy on a public domain while Kiyomizu binds loopback. Always includes `localhost` and `127.0.0.1` |
 | `KIYOMIZU_MAX_PROXY_REQUEST_BYTES` | `26214400` | Maximum proxied request body size |
 | `KIYOMIZU_MAX_CONFIG_REQUEST_BYTES` | `131072` | Maximum config/password request body size |
 | `KIYOMIZU_VERBOSE_HEALTH` | `0` | Makes `/health` include config details. Default is only `ok` |

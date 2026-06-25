@@ -10,8 +10,9 @@ import io.ktor.server.request.path
 fun Application.installKiyomizuPlugins() {
     if (Security.shouldAllowBrowserCors()) {
         install(CORS) {
-            allowHost("localhost")
-            allowHost("127.0.0.1")
+            Security.corsAllowedHosts().forEach { host ->
+                allowHost(host)
+            }
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
             allowHeader("http-referer")

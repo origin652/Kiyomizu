@@ -23,6 +23,39 @@ object Security {
         return allowBrowserCorsOverride || !isPubliclyBound()
     }
 
+    /**
+     * Hostnames permitted in browser CORS (plus loopback defaults).
+     * Set KIYOMIZU_CORS_ALLOWED_HOSTS when the UI is opened via a public HTTPS reverse proxy
+     * while Kiyomizu still binds 127.0.0.1.
+     */
+    fun corsAllowedHosts(): List<String> {
+        val fromEnv = parseCorsAllowedHostsEnv(System.getenv("KIYOMIZU_CORS_ALLOWED_HOSTS"))
+        return (listOf("localhost", "127.0.0.1") + fromEnv).distinct()
+    }
+
+    internal fun parseCorsAllowedHostsEnv(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return raw.split(',')
+            .mapNotNull { token -> normalizeCorsHostToken(token) }
+            .distinct()
+    }
+
+    private fun normalizeCorsHostToken(token: String): String? {
+        var value = token.trim()
+        if (value.isEmpty()) return null
+        if (value.contains("://")) {
+            val uri = runCatching { URI(value).normalize() }.getOrNull() ?: return null
+            value = uri.host ?: return null
+        } else if (value.contains("/")) {
+            val uri = runCatching { URI("https://$value").normalize() }.getOrNull() ?: return null
+            value = uri.host ?: return null
+        }
+        value = value.lowercase().removeSurrounding("[", "]")
+        val hostOnly = value.substringBefore(':').trim()
+        if (hostOnly.isEmpty()) return null
+        return hostOnly
+    }
+
     fun isRemotePasswordSetupAllowed(): Boolean {
         return allowRemotePasswordSetup || !isPubliclyBound()
     }
