@@ -215,6 +215,24 @@ const STRINGS = {
     navLogs: '请求日志',
     navConfig: '配置',
     navMemories: '记忆管理',
+    memoriesPanelTitle: '记忆管理',
+    memoriesCreate: '新建记忆',
+    memoriesExport: '导出筛选结果',
+    memoriesImport: '导入',
+    memoriesRefresh: '刷新',
+    memoriesFilterQ: '搜索内容 / URI…',
+    memoriesFilterUri: 'URI 前缀…',
+    memThUri: 'URI',
+    memThKind: '类型',
+    memThContent: '内容',
+    memThStatus: '状态',
+    memThStability: '稳定性',
+    memThPin: '钉住',
+    memEmpty: '暂无记忆。',
+    memPrev: '上一页',
+    memNext: '下一页',
+    memDetailSectionLabel: '编辑记忆',
+    memDetailEmpty: '选择一条记忆进行编辑。',
     navMenu: '菜单',
     secBasicTitle: '基本设置',
     secClaudeTitle: 'Claude 缓存',
@@ -437,6 +455,24 @@ const STRINGS = {
     navLogs: 'Request Logs',
     navConfig: 'Configuration',
     navMemories: 'Memories',
+    memoriesPanelTitle: 'Memories',
+    memoriesCreate: 'New memory',
+    memoriesExport: 'Export filtered',
+    memoriesImport: 'Import',
+    memoriesRefresh: 'Refresh',
+    memoriesFilterQ: 'Search content / URI…',
+    memoriesFilterUri: 'URI prefix…',
+    memThUri: 'URI',
+    memThKind: 'Kind',
+    memThContent: 'Content',
+    memThStatus: 'Status',
+    memThStability: 'Stability',
+    memThPin: 'Pin',
+    memEmpty: 'No memories loaded.',
+    memPrev: 'Prev',
+    memNext: 'Next',
+    memDetailSectionLabel: 'Edit memory',
+    memDetailEmpty: 'Select a memory to edit.',
     navMenu: 'Menu',
     secBasicTitle: 'Basic Settings',
     secClaudeTitle: 'Claude Cache',
@@ -659,6 +695,24 @@ const STRINGS = {
     navLogs: 'リクエストログ',
     navConfig: '設定',
     navMemories: '記憶管理',
+    memoriesPanelTitle: '記憶管理',
+    memoriesCreate: '新規記憶',
+    memoriesExport: 'フィルタ結果をエクスポート',
+    memoriesImport: 'インポート',
+    memoriesRefresh: '更新',
+    memoriesFilterQ: '内容 / URI を検索…',
+    memoriesFilterUri: 'URI プレフィックス…',
+    memThUri: 'URI',
+    memThKind: '種類',
+    memThContent: '内容',
+    memThStatus: '状態',
+    memThStability: '安定性',
+    memThPin: 'ピン',
+    memEmpty: '記憶がありません。',
+    memPrev: '前へ',
+    memNext: '次へ',
+    memDetailSectionLabel: '記憶を編集',
+    memDetailEmpty: '編集する記憶を選択してください。',
     navMenu: 'メニュー',
     secBasicTitle: '基本設定',
     secClaudeTitle: 'Claude キャッシュ',
@@ -948,6 +1002,36 @@ function applyLang(lang) {
     const el = document.getElementById(id);
     if (el) el.textContent = s[keys[i]] || el.textContent;
   });
+
+  const memoriesPanelTitle = document.getElementById('t-memories-panel-title');
+  if (memoriesPanelTitle) memoriesPanelTitle.textContent = s.memoriesPanelTitle || memoriesPanelTitle.textContent;
+  const memoriesCreate = document.getElementById('t-memories-create');
+  if (memoriesCreate) memoriesCreate.textContent = s.memoriesCreate || memoriesCreate.textContent;
+  const memoriesExport = document.getElementById('t-memories-export');
+  if (memoriesExport) memoriesExport.textContent = s.memoriesExport || memoriesExport.textContent;
+  const memoriesImport = document.getElementById('t-memories-import');
+  if (memoriesImport) memoriesImport.textContent = s.memoriesImport || memoriesImport.textContent;
+  const memoriesRefresh = document.getElementById('t-memories-refresh');
+  if (memoriesRefresh) memoriesRefresh.textContent = s.memoriesRefresh || memoriesRefresh.textContent;
+  const memFilterQ = document.getElementById('memories-filter-q');
+  if (memFilterQ) memFilterQ.placeholder = s.memoriesFilterQ || memFilterQ.placeholder;
+  const memFilterUri = document.getElementById('memories-filter-uri');
+  if (memFilterUri) memFilterUri.placeholder = s.memoriesFilterUri || memFilterUri.placeholder;
+  ['t-mem-th-uri','t-mem-th-kind','t-mem-th-content','t-mem-th-status','t-mem-th-stability','t-mem-th-pin'].forEach((id, i) => {
+    const keys = ['memThUri','memThKind','memThContent','memThStatus','memThStability','memThPin'];
+    const el = document.getElementById(id);
+    if (el) el.textContent = s[keys[i]] || el.textContent;
+  });
+  const memEmpty = document.getElementById('t-mem-empty');
+  if (memEmpty) memEmpty.textContent = s.memEmpty || memEmpty.textContent;
+  const memPrev = document.getElementById('t-mem-prev');
+  if (memPrev) memPrev.textContent = s.memPrev || memPrev.textContent;
+  const memNext = document.getElementById('t-mem-next');
+  if (memNext) memNext.textContent = s.memNext || memNext.textContent;
+  const memDetailSection = document.getElementById('t-mem-detail-section-label');
+  if (memDetailSection) memDetailSection.textContent = s.memDetailSectionLabel || memDetailSection.textContent;
+  const memDetailEmpty = document.getElementById('t-mem-detail-empty');
+  if (memDetailEmpty) memDetailEmpty.textContent = s.memDetailEmpty || memDetailEmpty.textContent;
 
   // Nav + section titles
   const navIds = ['t-nav-status','t-nav-cache','t-nav-companion','t-nav-logs','t-nav-memories','t-nav-config'];
