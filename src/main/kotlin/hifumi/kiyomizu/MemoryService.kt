@@ -1738,8 +1738,22 @@ object MemoryService {
     """.trimIndent()
 
     private fun sanitizeHistoryForMemorySummary(history: String): String {
-        if (!Config.memorySummarySanitizeInternalPrompts) return history
+        // 4a-A: always strip Kiyomizu Companion Core injection blocks, regardless of the
+        // memorySummarySanitizeInternalPrompts toggle. This is not optional hygiene — it
+        // prevents our own injected context (or an AI echo of it) from being fed back into
+        // the summarization model and stored as a memory node, which would create a
+        // recall → re-inject → re-echo feedback loop. Matches the block emitted by
+        // MessagePatcher.buildCompanionPrompt, from the [Kiyomizu Companion Core header
+        // through the [End Kiyomizu Companion Core close marker. DOTALL so it spans the
+        // newline-delimited block; non-greedy so a truncated block without a close marker
+        // is still removed up to the next marker or end of string.
         var sanitized = history
+            // Closed block: [Kiyomizu Companion Core ... [End Kiyomizu Companion Core ...]
+            .replace(Regex("""\[Kiyomizu Companion Core[\s\S]*?\[End Kiyomizu Companion Core[^\]]*\]"""), " ")
+            // Unclosed/truncated block (no end marker): drop from the marker to end of string.
+            .replace(Regex("""\[Kiyomizu Companion Core[\s\S]*$"""), " ")
+        if (!Config.memorySummarySanitizeInternalPrompts) return sanitized
+        sanitized = sanitized
             .replace(Regex("""<<<\[?TOOL_REQUEST\]?>>>[\s\S]*?<<<\[?END_TOOL_REQUEST\]?>>>""", RegexOption.IGNORE_CASE), " ")
             .replace(Regex("""\{\{.*?\}\}|\[\[.*?\]\]|<<.*?>>|《《.*?》》""", setOf(RegexOption.DOT_MATCHES_ALL)), " ")
             .replace(Regex("""\[系统通知\][\s\S]*?\[系统通知结束\]"""), " ")

@@ -354,9 +354,12 @@ class ProxyTest {
         val patched = patch("/v1/chat/completions", request)
         val messages = patched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject }
         assertNotNull(messages)
+        // 3c: companion context is appended as a standalone user message after the tail,
+        // so the user's real message is unchanged and the injected block is the last item.
+        assertEquals(5, messages.size)
+        assertTrue(MessagePatcher.extractTextContent(messages[3]["content"]).endsWith("Newest question."))
         val tailText = MessagePatcher.extractTextContent(messages.last()["content"])
         assertTrue(tailText.contains("Kiyomizu Companion Core"))
-        assertTrue(tailText.endsWith("Newest question."))
 
         Config.memoryEnabled = false
         resetDbFiles()

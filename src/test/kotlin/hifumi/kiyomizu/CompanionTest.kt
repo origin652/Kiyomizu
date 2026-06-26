@@ -714,14 +714,16 @@ class CompanionTest {
         )
 
         val patched = MessagePatcher.injectCompanionPrompt(original)
-        assertEquals(4, patched.size)
+        // 3c: injected block is a standalone appended user message; the user's real
+        // tail message is preserved unchanged at index 3, injection at index 4.
+        assertEquals(5, patched.size)
         assertEquals("You are helpful.", MessagePatcher.extractTextContent(patched[0]["content"]))
         assertEquals("Stable user context.", MessagePatcher.extractTextContent(patched[1]["content"]))
         assertEquals("Stable answer.", MessagePatcher.extractTextContent(patched[2]["content"]))
-        val tailText = MessagePatcher.extractTextContent(patched[3]["content"])
+        assertTrue(MessagePatcher.extractTextContent(patched[3]["content"]).endsWith("Do you remember my tea preference?"))
+        val tailText = MessagePatcher.extractTextContent(patched[4]["content"])
         assertTrue(tailText.contains("Kiyomizu Companion Core"))
         assertTrue(tailText.contains("The user prefers tea."))
-        assertTrue(tailText.endsWith("Do you remember my tea preference?"))
         // trust=50 falls into the middle self-disclosure stage.
         assertTrue(tailText.contains("feel safe enough to share feelings"))
     }
@@ -1161,13 +1163,16 @@ class CompanionTest {
         )
 
         val patched = MessagePatcher.injectCompanionPrompt(original)
-        assertEquals(3, patched.size)
-        val tailContent = patched.last()["content"] as JsonArray
-        assertEquals(2, tailContent.size)
-        assertEquals("text", tailContent[0].jsonObject["type"]?.jsonPrimitive?.content)
-        assertTrue(
-            tailContent[0].jsonObject["text"]?.jsonPrimitive?.content?.contains("Kiyomizu Companion Core") == true
-        )
+        // 3c: injection is appended as a standalone user message with string content;
+        // the user's array-content message is preserved unchanged at index 2.
+        assertEquals(4, patched.size)
+        val userArrayContent = patched[2]["content"] as JsonArray
+        assertEquals(1, userArrayContent.size)
+        assertEquals("text", userArrayContent[0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("Do you remember tea?", userArrayContent[0].jsonObject["text"]?.jsonPrimitive?.content)
+        val injectedContent = patched.last()["content"]?.jsonPrimitive?.content
+        assertNotNull(injectedContent)
+        assertTrue(injectedContent!!.contains("Kiyomizu Companion Core"))
     }
 
     @Test
