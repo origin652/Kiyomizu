@@ -132,7 +132,8 @@ class CompanionTest {
         Config.memoryFeedbackCorrectionEnabled = false
         Config.memoryFeedbackPenaltyK = 0.3
         Config.memoryFeedbackResolveLookbackHours = 48.0
-        // Topics — reset to defaults.
+        Config.memoryFeedbackRewardEnabled = false
+        Config.memoryFeedbackRewardK = 0.35
         Config.memoryTopicEnabled = true
         Config.memoryTopicUnusedSlotCap = 5
         Config.memoryTopicCandidatePool = 20
@@ -1630,6 +1631,132 @@ class CompanionTest {
         assertNull(trace.resolvedAt, "disabled feedback must leave traces pending (守零)")
     }
 
+    // ---- B-档 graded feedback: positive reward (档③ extension) ----
+
+    private fun gradeTrace(id: Int): Int? =
+        DatabaseService.getRecentModelRecallTraces(10).first { it.id == id }.feedbackGrade
+
+    @Test
+    fun confirmationRewardsStabilityAndGradesPositive() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackRewardEnabled = true
+        Config.memoryFeedbackRewardK = 0.35
+        Config.memoryMaxStrength = 1.0
+        Config.memoryRecoveryAmount = 0.3
+        val id = insertNode(uri = "preference://food/drink/coffee", kind = "preference", content = "The user likes coffee.", keywords = listOf("coffee"), strength = 0.5)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val before = DatabaseService.getMemoryNodeById(id)!!
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what coffee", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        assertTrue(MemoryService.detectMemoryConfirmation("对没错就是它"), "confirmation phrase should be detected when reward enabled")
+        MemoryService.resolvePreviousRecallFeedback("对没错就是它")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        // rewardStrength = rewardK * recoveryAmount = 0.35 * 0.3 = 0.105, fed through updateMemoryNodeAccess'
+        // stability growth multiplicands (spacing/stabilization). Either way: confirmation must NOT
+        // penalize, and must raise stability strictly above the (non-penalized) baseline.
+        assertTrue(after.stability > before.stability, "confirmation should boost stability, got ${before.stability}→${after.stability}")
+        assertEquals(1, gradeTrace(traceId), "trace should be graded +1 (confirm)")
+        val trace = DatabaseService.getRecentModelRecallTraces(10).first { it.id == traceId }
+        assertNotNull(trace.resolvedAt, "confirmed trace should be resolved")
+    }
+
+    @Test
+    fun denialWinsOverConfirmation() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackRewardEnabled = true
+        Config.memoryFeedbackPenaltyK = 0.5
+        val id = insertNode(uri = "identity://user/name3", kind = "identity", content = "The user's name is Cy.", keywords = listOf("name"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what name", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        // A message that matches both an "is wrong" pattern and a "right" token => treated as denial.
+        MemoryService.resolvePreviousRecallFeedback("不对，对的就是它——其实我记错了")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(2.0, after.stability, 1e-9, "denial should win: 4.0*0.5=2.0, not boosted")
+        assertEquals(-1, gradeTrace(traceId), "grade should be -1 (deny) when both patterns match")
+    }
+
+    @Test
+    fun rewardDisabledByDefaultLeavesNeutral() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        // memoryFeedbackRewardEnabled defaults false.
+        val id = insertNode(uri = "preference://food/drink/green", kind = "preference", content = "The user likes green tea.", keywords = listOf("green"), strength = 1.0)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what tea", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        assertFalse(MemoryService.detectMemoryConfirmation("对就是它"), "confirmation must short-circuit when reward disabled")
+        MemoryService.resolvePreviousRecallFeedback("对就是它")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(4.0, after.stability, 1e-9, "reward disabled => no boost, no penalty on neutral message")
+        assertEquals(0, gradeTrace(traceId), "grade should be 0 (neutral) when reward disabled")
+    }
+
+    @Test
+    fun confirmedPinnedNodeNotMutated() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackRewardEnabled = true
+        val id = insertNode(uri = "preference://food/drink/pinned", kind = "preference", content = "pinned pref.", keywords = listOf("pinned"), strength = 1.0)
+        setPinned(id, pinned = true)
+        val before = DatabaseService.getMemoryNodeById(id)!!
+        val traceId = DatabaseService.insertModelRecallTrace(
+            query = "what", indexVersion = "v1", planJson = null, candidateCount = 1,
+            injectedCount = 1, filteredSummary = null, fallbackReason = null, error = null, durationMs = 10,
+            debugJson = "{}", injectedNodeIds = MemoryService.encodeInjectedNodeIds(listOf(id))
+        )
+        MemoryService.resolvePreviousRecallFeedback("对没错")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        assertEquals(before.stability, after.stability, 1e-9, "pinned node must be immune to confirm reward")
+        assertEquals(1, gradeTrace(traceId), "trace still graded +1 even though pinned node skipped")
+    }
+
+    // ---- edge detail GET (task #2 plumbing) ----
+
+    @Test
+    fun edgeDetailRoundTrips() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        val a = insertNode(uri = "preference://edge/a", kind = "preference", content = "a", keywords = listOf("a"), strength = 1.0)
+        val b = insertNode(uri = "identity://edge/b", kind = "identity", content = "b", keywords = listOf("b"), strength = 1.0)
+        DatabaseService.upsertMemoryEdge(DatabaseService.MemoryEdgeDraft(a, b, "about_person", 0.75))
+        val all = DatabaseService.listAllMemoryEdges()
+        assertTrue(all.isNotEmpty(), "edge should be persisted")
+        val edge = all.first()
+        val fetched = MemoryService.memoryEdgeDetail(edge.id)
+        assertNotNull(fetched, "edge detail should return the edge")
+        assertEquals("about_person", fetched.relation)
+        assertEquals(0.75, fetched.weight, 1e-9)
+        assertEquals(a, fetched.fromNodeId)
+        assertEquals(b, fetched.toNodeId)
+        assertNull(MemoryService.memoryEdgeDetail(999999), "missing edge should return null")
+    }
+
     // ---- Round 2: working_memory consolidation rule (档④) ----
 
     @Test
@@ -1864,5 +1991,40 @@ class CompanionTest {
         val uris = selected.map { it.memory.uri }.toSet()
         assertTrue(uris.contains("preference://pinned/anchored"), "always_inject node must bypass the top-N cap")
         assertTrue(uris.contains("preference://pinned/coffee"), "top-scoring pinned node must be selected")
+    }
+
+    // ---- B-档 graded feedback: pure-local path now also produces a gradeable trace (盲点补齐) ----
+
+    @Test
+    fun pureLocalRecallCreatesGradeableTraceAndFeedbackApplies() = runBlocking {
+        resetDbFiles(); resetConfig(); DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryModelRecallEnabled = false // pure-local path: tryModelRecall returns null, no trace otherwise
+        Config.memoryFeedbackCorrectionEnabled = true
+        Config.memoryFeedbackRewardEnabled = true
+        Config.memoryFeedbackRewardK = 0.35
+        Config.memoryPinnedEnabled = true
+        // A pinned+always_inject node so the local stack definitely injects it regardless of query score.
+        val id = insertNode(uri = "preference://local/coffee", kind = "preference", content = "The user loves coffee.", keywords = listOf("coffee"), strength = 1.0)
+        setPinned(id, pinned = true, alwaysInject = true)
+        DatabaseService.updateMemoryNodeStability(id, 4.0)
+
+        val ctx = MemoryService.buildCompanionMemoryContext("coffee")
+        val pinnedIds = ctx.pinnedMemories.map { it.memory.id }.toSet()
+        assertTrue(pinnedIds.contains(id), "pinned node must be injected by the local path")
+
+        val trace = DatabaseService.getRecentModelRecallTraces(10).firstOrNull { it.fallbackReason == "local_recall_only" }
+        assertNotNull(trace, "pure-local path must create a local_recall_only trace row")
+        val injected = MemoryService.decodeInjectedNodeIds(trace.injectedNodeIds)
+        assertTrue(injected.contains(id), "local trace injected_node_ids must include the injected node id")
+
+        // Confirm this round's injected memory: feedback should grade the local trace +1 and boost.
+        val before = DatabaseService.getMemoryNodeById(id)!!
+        MemoryService.resolvePreviousRecallFeedback("对没错就是咖啡")
+        val after = DatabaseService.getMemoryNodeById(id)!!
+        // pinned nodes are exempt from the reward boost, so stability stays — but the trace must still
+        // be graded +1, proving the local trace is wired into the feedback loop.
+        assertEquals(1, gradeTrace(trace.id), "local trace must be graded +1 on confirmation")
+        assertEquals(before.stability, after.stability, 1e-9, "pinned node stays exempt from reward boost")
     }
 }

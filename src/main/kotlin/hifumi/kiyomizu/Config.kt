@@ -174,6 +174,19 @@ object Config {
     )
     private val memoryFeedbackPenaltyKRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_PENALTY_K")?.toDoubleOrNull() ?: 0.3)
     private val memoryFeedbackResolveLookbackHoursRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_RESOLVE_LOOKBACK_HOURS")?.toDoubleOrNull() ?: 48.0)
+    // B-档 graded feedback (extension of the binary denial loop): besides penalizing nodes the user
+    // denied, also reward nodes the user confirmed as useful. Both signals are conservative keyword
+    // heuristics (no NLU) and default-off as a group via memoryFeedbackCorrectionEnabled — gate the
+    // confirmation reward with its own flag so it can stay off even when denial is on. rewardK maps a
+    // +1 confirmation to an updateMemoryNodeAccess boost normalized against recoveryAmount (same growth
+    // injection point as every other recall boost), so a confirmation behaves like a small extra recall.
+    private val memoryFeedbackRewardEnabledRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_REWARD_ENABLED") == "1")
+    private val memoryFeedbackConfirmPatternsRef = AtomicReference(
+        System.getenv("MEMORY_FEEDBACK_CONFIRM_PATTERNS")
+            ?.takeIf { it.isNotBlank() }
+            ?: "对;没错;就是这样;谢谢你记;你记得对;对的就是;right;exactly;that's right;thanks for remembering;you remembered"
+    )
+    private val memoryFeedbackRewardKRef = AtomicReference(System.getenv("MEMORY_FEEDBACK_REWARD_K")?.toDoubleOrNull() ?: 0.35)
 
     private val memoryRecallMaxNodesRef = AtomicInteger(System.getenv("MEMORY_RECALL_MAX_NODES")?.toIntOrNull() ?: 6)
     private val memoryDeepRecallEnabledRef = AtomicReference(System.getenv("MEMORY_DEEP_RECALL_ENABLED") != "0")
@@ -432,6 +445,15 @@ object Config {
     var memoryFeedbackResolveLookbackHours: Double
         get() = memoryFeedbackResolveLookbackHoursRef.get()
         set(value) { memoryFeedbackResolveLookbackHoursRef.set(value) }
+    var memoryFeedbackRewardEnabled: Boolean
+        get() = memoryFeedbackRewardEnabledRef.get()
+        set(value) { memoryFeedbackRewardEnabledRef.set(value) }
+    var memoryFeedbackConfirmPatterns: String
+        get() = memoryFeedbackConfirmPatternsRef.get()
+        set(value) { memoryFeedbackConfirmPatternsRef.set(value) }
+    var memoryFeedbackRewardK: Double
+        get() = memoryFeedbackRewardKRef.get()
+        set(value) { memoryFeedbackRewardKRef.set(value) }
 
     var memoryRecallMaxNodes: Int
         get() = memoryRecallMaxNodesRef.get()

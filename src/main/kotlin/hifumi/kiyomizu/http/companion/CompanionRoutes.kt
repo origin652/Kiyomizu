@@ -207,10 +207,33 @@ fun Route.installCompanionRoutes() {
     }
     
     get("/api/companion/memories/edges/{edgeId}") {
-    // (Reserved) edge detail not required; kept out for now.
     if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
     if (!requireConfigAuth(call)) return@get
-    call.respondText(buildJsonObject { put("error", "not implemented") }.toString(), ContentType.Application.Json, HttpStatusCode.NotImplemented)
+    val edgeId = call.parameters["edgeId"]?.toIntOrNull()
+    if (edgeId == null) {
+    call.respondText(buildJsonObject { put("error", "invalid edge id") }.toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+    return@get
+    }
+    val edge = MemoryService.memoryEdgeDetail(edgeId)
+    if (edge == null) {
+    call.respondText(buildJsonObject { put("error", "edge not found") }.toString(), ContentType.Application.Json, HttpStatusCode.NotFound)
+    } else {
+    val fromNode = DatabaseService.getMemoryNodeById(edge.fromNodeId)
+    val toNode = DatabaseService.getMemoryNodeById(edge.toNodeId)
+    call.respondText(buildJsonObject {
+    put("edge", buildJsonObject {
+    put("id", edge.id)
+    put("from_id", edge.fromNodeId)
+    put("to_id", edge.toNodeId)
+    put("from_uri", fromNode?.uri ?: "")
+    put("to_uri", toNode?.uri ?: "")
+    put("relation", edge.relation)
+    put("weight", edge.weight)
+    put("created_at", edge.createdAt)
+    put("updated_at", edge.updatedAt)
+    })
+    }.toString(), ContentType.Application.Json)
+    }
     }
     
     get("/api/companion/memories/{id}") {

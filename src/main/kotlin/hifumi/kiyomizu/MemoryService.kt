@@ -1016,6 +1016,24 @@ object MemoryService {
             .any { pattern -> text.contains(pattern) }
     }
 
+    /**
+     * B-档 graded feedback — positive signal: detect whether the user's current message *confirms*
+     * that something the companion recalled last round was useful/correct. Conservative keyword
+     * heuristic only (no NLU), gated independently from the denial signal via
+     * Config.memoryFeedbackRewardEnabled so it can stay off even when denial is on. Denial always
+     * wins over confirmation when both somehow match (a contradictory message is treated as a denial).
+     */
+    internal fun detectMemoryConfirmation(userText: String): Boolean {
+        if (!Config.memoryFeedbackCorrectionEnabled) return false
+        if (!Config.memoryFeedbackRewardEnabled) return false
+        val text = userText.lowercase()
+        return Config.memoryFeedbackConfirmPatterns
+            .split(';')
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .any { pattern -> text.contains(pattern) }
+    }
+
     /** Serialize a collection of node ids into a JSON array string for memory_model_recall_traces.injected_node_ids. */
     internal fun encodeInjectedNodeIds(ids: Collection<Int>): String {
         return ids.joinToString(prefix = "[", postfix = "]", separator = ",")
@@ -1042,22 +1060,46 @@ object MemoryService {
         val pending = DatabaseService.getPendingRecallTraces(lookback)
         if (pending.isEmpty()) return
         val denying = detectMemoryCorrection(userQuery)
+        // Denial wins over confirmation: a message that looks both ways is treated as a correction.
+        val confirming = !denying && detectMemoryConfirmation(userQuery)
+        val grade = when {
+            denying -> -1
+            confirming -> 1
+            else -> 0
+        }
         val penaltyFactor = (1.0 - Config.memoryFeedbackPenaltyK).coerceIn(0.0, 1.0)
         val min = Config.memoryStabilityMin
+        val rewardStrength = (Config.memoryFeedbackRewardK * Config.memoryRecoveryAmount).coerceIn(0.0, Config.memoryRecoveryAmount * 4.0)
         for (trace in pending) {
             val ids = decodeInjectedNodeIds(trace.injectedNodeIds)
-            if (denying) {
-                for (nodeId in ids) {
-                    DatabaseService.getMemoryNodeById(nodeId)?.let { node ->
-                        if (node.pinned) return@let // pinned nodes are immune to recall-feedback penalty
-                        val penalized = (node.stability * penaltyFactor).coerceAtLeast(min)
-                        if (penalized < node.stability) {
-                            DatabaseService.updateMemoryNodeStability(nodeId, penalized)
+            if (ids.isNotEmpty()) {
+                when (grade) {
+                    -1 -> {
+                        for (nodeId in ids) {
+                            DatabaseService.getMemoryNodeById(nodeId)?.let { node ->
+                                if (node.pinned) return@let // pinned nodes are immune to recall-feedback penalty
+                                val penalized = (node.stability * penaltyFactor).coerceAtLeast(min)
+                                if (penalized < node.stability) {
+                                    DatabaseService.updateMemoryNodeStability(nodeId, penalized)
+                                }
+                            }
                         }
                     }
+                    1 -> {
+                        // Confirmed-useful: a small extra recall boost through the same growth injection
+                        // point (updateMemoryNodeAccess) every other recall uses. Pinned nodes are
+                        // exempt — their strength/stability are durable and not to be mutated by feedback.
+                        for (nodeId in ids) {
+                            val node = DatabaseService.getMemoryNodeById(nodeId) ?: continue
+                            if (node.pinned) continue
+                            val (spacing, stabilization) = stabilityMultipliers(node)
+                            DatabaseService.updateMemoryNodeAccess(nodeId, rewardStrength, Config.memoryMaxStrength, spacing, stabilization)
+                        }
+                    }
+                    else -> { /* neutral: implicit success, no extra boost this round */ }
                 }
             }
-            DatabaseService.resolveRecallTrace(trace.id)
+            DatabaseService.resolveRecallTrace(trace.id, grade)
         }
     }
 
@@ -3301,6 +3343,9 @@ object MemoryService {
         return ok
     }
 
+    /** Edge detail for the graph view: the edge plus the two endpoint node URIs (cheap, read-only). */
+    fun memoryEdgeDetail(edgeId: Int): DatabaseService.MemoryEdgeRecord? = DatabaseService.getMemoryEdgeById(edgeId)
+
     fun getMemoryNodeNeighbors(nodeId: Int, limit: Int = 500): DatabaseService.MemoryNodeNeighbors? {
         val node = DatabaseService.getMemoryNodeById(nodeId) ?: return null
         return DatabaseService.getMemoryNodeNeighbors(node, limit)
@@ -4591,6 +4636,12 @@ object MemoryService {
             put("error", trace.error ?: "")
             put("duration_ms", trace.durationMs)
             put("debug_json", trace.debugJson ?: "")
+            // B-档 graded feedback — expose the linkage so the loop is observable in the UI:
+            // which nodes were injected this round, whether they were resolved, and the verdict grade
+            // (−1 deny / 0 neutral / +1 confirm, or empty while still pending).
+            put("injected_node_ids", encodeInjectedNodeIds(decodeInjectedNodeIds(trace.injectedNodeIds)))
+            put("resolved_at", trace.resolvedAt ?: 0L)
+            put("feedback_grade", trace.feedbackGrade ?: 0)
         }
     }
 
@@ -5076,6 +5127,40 @@ object MemoryService {
                     .toList()
             )
             DatabaseService.updateModelRecallTraceDebugJson(modelRecall.traceId, fallbackDebug.toString(), fallbackInjectedIds)
+        }
+        // Symmetry: when model recall is fully off (tryModelRecall returned null — feature disabled or
+        // model unconfigured), the local stack still injected memories, but no trace row existed for the
+        // feedback loop to grade. Create a "local"-reason trace with the injected node ids so the next
+        // round's confirm/deny verdict applies to the pure-local path too. Feedback stays opt-in via the
+        // same Config.memoryFeedbackCorrectionEnabled gate; this row is inert until that flag is on.
+        if (!useModelRecall && modelRecall == null) {
+            val localInjectedIds = encodeInjectedNodeIds(
+                (recalled.asSequence() + personContext.asSequence() + selfMemories.asSequence() + dreamTraces.asSequence())
+                    .map { it.memory.id }
+                    .distinct()
+                    .toList()
+            )
+            val injectedCount = recalled.size + personContext.size + selfMemories.size + dreamTraces.size
+            val localDebug = buildJsonObject {
+                put("local_injected_uris", buildJsonArray { recalled.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_person_context_uris", buildJsonArray { personContext.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_self_uris", buildJsonArray { selfMemories.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("local_dream_uris", buildJsonArray { dreamTraces.forEach { add(JsonPrimitive(it.memory.uri)) } })
+                put("reason", "local_recall_only")
+            }
+            DatabaseService.insertModelRecallTrace(
+                query = userQuery,
+                indexVersion = indexVersionString(DatabaseService.listMemoryIndexSegments()),
+                planJson = null,
+                candidateCount = 0,
+                injectedCount = injectedCount,
+                filteredSummary = null,
+                fallbackReason = "local_recall_only",
+                error = null,
+                durationMs = 0,
+                debugJson = localDebug.toString(),
+                injectedNodeIds = localInjectedIds
+            )
         }
         val pinnedMemories = selectPinnedMemories(userQuery)
         // Trust-gated disclosure filter (proxy-side, hard). Pinned memories are exempt — the

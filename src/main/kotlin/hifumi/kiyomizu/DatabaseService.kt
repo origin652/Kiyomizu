@@ -752,6 +752,14 @@ object DatabaseService {
                 stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN resolved_at INTEGER")
             }
         }
+        // B-档 graded feedback: the verdict a later round assigned to this trace's injected memories.
+        // NULL = still pending / never graded; -1 = user denied; 0 = neutral; +1 = user confirmed useful.
+        // Existing rows default NULL so behavior is unchanged until a later round actually grades them.
+        if ("feedback_grade" !in columns) {
+            conn.createStatement().use { stmt ->
+                stmt.execute("ALTER TABLE memory_model_recall_traces ADD COLUMN feedback_grade INTEGER")
+            }
+        }
     }
 
     // Topics — back-fill columns for pre-existing `topics` tables (lead_in, purge_after were not in v1).
@@ -1326,7 +1334,8 @@ object DatabaseService {
         val durationMs: Int,
         val debugJson: String?,
         val injectedNodeIds: String? = null,
-        val resolvedAt: Long? = null
+        val resolvedAt: Long? = null,
+        val feedbackGrade: Int? = null
     )
 
     // 话题 — a proxy-side chat-starter prompt. status: "unused" (in pool) / "used" (consumed, retained then purged).
@@ -2682,6 +2691,18 @@ object DatabaseService {
         }
     }
 
+    /** Fetch a single edge by id, for the edge-detail endpoint. */
+    fun getMemoryEdgeById(edgeId: Int): MemoryEdgeRecord? {
+        getConnection().use { conn ->
+            conn.prepareStatement("SELECT * FROM memory_edges WHERE id = ? LIMIT 1").use { pstmt ->
+                pstmt.setInt(1, edgeId)
+                val rs = pstmt.executeQuery()
+                if (rs.next()) return readMemoryEdge(rs)
+            }
+        }
+        return null
+    }
+
     fun purgeMemoryNode(nodeId: Int): Boolean {
         getConnection().use { conn ->
             // foreign_keys is connection-scoped and must be set outside a transaction.
@@ -3955,7 +3976,8 @@ object DatabaseService {
             durationMs = rs.getInt("duration_ms"),
             debugJson = rs.getString("debug_json"),
             injectedNodeIds = rs.getString("injected_node_ids"),
-            resolvedAt = rs.getObject("resolved_at")?.let { (it as Number).toLong() }
+            resolvedAt = rs.getObject("resolved_at")?.let { (it as Number).toLong() },
+            feedbackGrade = rs.getObject("feedback_grade")?.let { (it as Number).toInt() }
         )
     }
 
@@ -4055,12 +4077,18 @@ object DatabaseService {
 
     /** Mark a trace as resolved (confirmed or denied) so it is not re-processed next round. */
     fun resolveRecallTrace(traceId: Int, at: Long = Instant.now().epochSecond) {
+        resolveRecallTrace(traceId, grade = null, at = at)
+    }
+
+    /** Mark a trace resolved and record the feedback verdict (−1 deny / 0 neutral / +1 confirm). */
+    fun resolveRecallTrace(traceId: Int, grade: Int?, at: Long = Instant.now().epochSecond) {
         if (traceId <= 0) return
         getConnection().use { conn ->
-            conn.prepareStatement("UPDATE memory_model_recall_traces SET resolved_at = ? WHERE id = ?")
+            conn.prepareStatement("UPDATE memory_model_recall_traces SET resolved_at = ?, feedback_grade = COALESCE(?, feedback_grade) WHERE id = ?")
                 .use { pstmt ->
                     pstmt.setLong(1, at)
-                    pstmt.setInt(2, traceId)
+                    if (grade != null) pstmt.setInt(2, grade) else pstmt.setNull(2, java.sql.Types.INTEGER)
+                    pstmt.setInt(3, traceId)
                     pstmt.executeUpdate()
                 }
         }
