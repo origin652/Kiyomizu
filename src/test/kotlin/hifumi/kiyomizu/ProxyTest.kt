@@ -433,4 +433,123 @@ class ProxyTest {
         Config.memoryEnabled = false
         resetDbFiles()
     }
+
+    @Test
+    fun streamingChatCompletionsGetsStreamOptionsIncludeUsage() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("model", "glm-5.2")
+            put("stream", true)
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Hi") })
+            })
+        }
+
+        val patched = patch("/v1/chat/completions", request)
+        val streamOptions = patched["stream_options"]?.jsonObject
+        assertNotNull(streamOptions, "streaming OpenAI-compatible request must get stream_options injected")
+        assertEquals(true, streamOptions["include_usage"]?.jsonPrimitive?.booleanOrNull == true)
+        assertEquals(true, patched["stream"]?.jsonPrimitive?.booleanOrNull == true, "stream flag preserved")
+    }
+
+    @Test
+    fun nonStreamingChatCompletionsSkipsStreamOptions() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("model", "glm-5.2")
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Hi") })
+            })
+        }
+
+        val patched = patch("/v1/chat/completions", request)
+        assertTrue("stream_options" !in patched, "non-streaming request must not get stream_options")
+    }
+
+    @Test
+    fun existingStreamOptionsIncludeUsageIsPreserved() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("model", "glm-5.2")
+            put("stream", true)
+            put("stream_options", buildJsonObject { put("include_usage", true) })
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Hi") })
+            })
+        }
+
+        val patched = patch("/v1/chat/completions", request)
+        val streamOptions = patched["stream_options"]?.jsonObject
+        assertNotNull(streamOptions)
+        assertEquals(true, streamOptions["include_usage"]?.jsonPrimitive?.booleanOrNull == true)
+    }
+
+    @Test
+    fun existingStreamOptionsWithoutIncludeUsageGetsIncludeUsageMerged() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("model", "glm-5.2")
+            put("stream", true)
+            put("stream_options", buildJsonObject { put("strict", true) })
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Hi") })
+            })
+        }
+
+        val patched = patch("/v1/chat/completions", request)
+        val streamOptions = patched["stream_options"]?.jsonObject
+        assertNotNull(streamOptions)
+        assertEquals(true, streamOptions["include_usage"]?.jsonPrimitive?.booleanOrNull == true, "include_usage merged in")
+        assertEquals(true, streamOptions["strict"]?.jsonPrimitive?.booleanOrNull == true, "existing stream_options keys preserved")
+    }
+
+    @Test
+    fun anthropicMessagesDoNotGetStreamOptions() {
+        resetConfig()
+        Config.preset = "anthropic"
+        Config.upstream = "https://api.anthropic.com"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("model", "claude-sonnet-4-5")
+            put("stream", true)
+            put("messages", buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", "Hi") })
+            })
+        }
+
+        val patched = patch("/v1/messages", request)
+        assertTrue("stream_options" !in patched, "Anthropic streaming must not receive OpenAI stream_options")
+    }
+
+    @Test
+    fun geminiGenerateContentDoesNotGetStreamOptions() {
+        resetConfig()
+        Config.preset = "custom"
+        Config.memoryEnabled = false
+
+        val request = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("parts", buildJsonArray { add(buildJsonObject { put("text", "Hi") }) })
+                })
+            })
+        }
+
+        val patched = patch("/v1beta/models/gemini-2.5-flash:generateContent", request)
+        assertTrue("stream_options" !in patched, "Gemini must not receive OpenAI stream_options")
+    }
 }

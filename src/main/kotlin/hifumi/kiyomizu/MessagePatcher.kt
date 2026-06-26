@@ -721,23 +721,49 @@ object MessagePatcher {
         val envelope = detectEnvelope(path, body)
         val capabilityProfile = detectCapabilityProfile()
         val capabilityPatched = applyCapabilityPatching(body, envelope, capabilityProfile)
-        if (!Config.memoryEnabled) return capabilityPatched
+        // Request-side整形 (proxy owns mutations): ask OpenAI-compatible streaming upstreams to
+        // emit a usage chunk in their final SSE event. Without this, streaming responses carry no
+        // usage at all and every cache-diagnostic column reads "unknown". Anthropic and Gemini
+        // always report usage in-stream and do not accept this flag, so they are left alone.
+        val withUsage = ensureStreamUsage(capabilityPatched, envelope)
+        if (!Config.memoryEnabled) return withUsage
 
         return when (envelope) {
             RequestEnvelope.OPENAI_CHAT_COMPLETIONS,
             RequestEnvelope.ANTHROPIC_MESSAGES -> {
-                val messages = capabilityPatched["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return capabilityPatched
+                val messages = withUsage["messages"]?.jsonArray?.mapNotNull { it as? JsonObject } ?: return withUsage
                 val withCompanion = injectCompanionPrompt(messages)
                 buildJsonObject {
-                    capabilityPatched.forEach { (k, v) ->
+                    withUsage.forEach { (k, v) ->
                         if (k == "messages") put("messages", JsonArray(withCompanion)) else put(k, v)
                     }
                 }
             }
 
-            RequestEnvelope.OPENAI_RESPONSES -> injectCompanionIntoResponsesInput(capabilityPatched)
-            RequestEnvelope.GEMINI_GENERATE_CONTENT -> injectCompanionIntoGeminiContents(capabilityPatched)
-            RequestEnvelope.UNKNOWN -> capabilityPatched
+            RequestEnvelope.OPENAI_RESPONSES -> injectCompanionIntoResponsesInput(withUsage)
+            RequestEnvelope.GEMINI_GENERATE_CONTENT -> injectCompanionIntoGeminiContents(withUsage)
+            RequestEnvelope.UNKNOWN -> withUsage
+        }
+    }
+
+    /**
+     * For OpenAI-compatible streaming requests, inject `stream_options: { include_usage: true }`
+     * when the client did not already set it. This is the only way OpenAI-compatible SSE upstreams
+     * emit a usage object in the terminal chunk; otherwise usage diagnostics stay "unknown".
+     * Non-streaming requests, Anthropic (messages), and Gemini (contents) are passed through.
+     */
+    private fun ensureStreamUsage(body: JsonObject, envelope: RequestEnvelope): JsonObject {
+        if (envelope != RequestEnvelope.OPENAI_CHAT_COMPLETIONS && envelope != RequestEnvelope.OPENAI_RESPONSES) return body
+        val stream = body["stream"]?.jsonPrimitive?.booleanOrNull ?: return body
+        if (!stream) return body
+        val existing = body["stream_options"] as? JsonObject
+        if (existing != null && existing["include_usage"]?.jsonPrimitive?.booleanOrNull == true) return body
+        return buildJsonObject {
+            body.forEach { (k, v) -> if (k != "stream_options") put(k, v) }
+            put("stream_options", buildJsonObject {
+                existing?.forEach { (k, v) -> put(k, v) }
+                put("include_usage", JsonPrimitive(true))
+            })
         }
     }
 
