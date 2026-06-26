@@ -227,7 +227,14 @@ function renderMemoryGraph() {
     memoriesState.visNetwork = new vis.Network(container, { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) }, {
       nodes: { shape: 'dot', size: 16 },
       edges: { font: { size: 11 }, smooth: false },
-      physics: { stabilization: true }
+      physics: { stabilization: true },
+      interaction: { hover: true }
+    });
+    // Click a node in the neighbor graph → jump to that node as the new selection.
+    memoriesState.visNetwork.on('selectNode', (params) => {
+      const id = params && params.nodes && params.nodes[0];
+      if (id == null || id === memoriesState.selectedId) return;
+      selectMemory(id);
     });
   } catch (e) {
     container.textContent = 'Graph render failed.';
