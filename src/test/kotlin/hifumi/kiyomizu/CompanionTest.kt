@@ -134,6 +134,10 @@ class CompanionTest {
         Config.memoryFeedbackResolveLookbackHours = 48.0
         Config.memoryFeedbackRewardEnabled = false
         Config.memoryFeedbackRewardK = 0.35
+        // dream residue + resonance — env-only, default off.
+        Config.memoryDreamResidueInject = false
+        Config.memoryDreamResidueMaxAgeHours = 24
+        Config.memoryDreamResonanceBonus = false
         Config.memoryTopicEnabled = true
         Config.memoryTopicUnusedSlotCap = 5
         Config.memoryTopicCandidatePool = 20
@@ -2026,5 +2030,222 @@ class CompanionTest {
         // be graded +1, proving the local trace is wired into the feedback loop.
         assertEquals(1, gradeTrace(trace.id), "local trace must be graded +1 on confirmation")
         assertEquals(before.stability, after.stability, 1e-9, "pinned node stays exempt from reward boost")
+    }
+
+    // ---- #4 trust history ----
+    @Test
+    fun applyRelationshipDeltaRecordsTrustHistorySamples() {
+        resetDbFiles()
+        resetConfig()
+        Config.trustDownScale = 1.0
+        Config.trustUpScale = 1.0
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(40.0, 50.0, "neutral")
+        DatabaseService.applyRelationshipDelta(0.0, -10.0, "happy")
+        DatabaseService.applyRelationshipDelta(0.0, 5.0, "caring")
+
+        val samples = DatabaseService.listTrustHistory(0L, 100)
+        assertEquals(3, samples.size, "manual set + 2 deltas → 3 samples")
+        // oldest-first ordering; first is the manual set at 50, last is the +5 delta landing at 45
+        assertEquals(50.0, samples.first().trust, 1e-5)
+        assertEquals("manual", samples.first().source)
+        assertEquals(-10.0, samples[1].delta, 1e-5)
+        assertEquals(40.0, samples[1].trust, 1e-5)
+        assertEquals(45.0, samples.last().trust, 1e-5)
+        assertEquals("delta", samples.last().source)
+    }
+
+    @Test
+    fun listTrustHistoryRespectsSinceFilter() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        DatabaseService.updateRelationshipState(40.0, 50.0, "neutral")
+        val now = System.currentTimeMillis() / 1000
+        val future = now + 10_000
+        assertTrue(DatabaseService.listTrustHistory(future, 100).isEmpty())
+        assertEquals(1, DatabaseService.listTrustHistory(0L, 100).size)
+    }
+
+    // ---- #5 dream residue injection ----
+    private fun insertCompletedDreamRun(journal: String, symbols: List<String> = emptyList(), emotions: List<String> = emptyList()): Int {
+        val runId = DatabaseService.insertDreamRun(
+            DatabaseService.DreamRunDraft(mode = "manual", status = "running")
+        )
+        DatabaseService.updateDreamRun(
+            runId,
+            DatabaseService.DreamRunDraft(
+                mode = "manual",
+                status = "completed",
+                dreamSummary = journal.take(40),
+                dreamJournal = journal,
+                dreamSymbols = symbols,
+                dreamEmotions = emotions
+            )
+        )
+        return runId
+    }
+
+    @Test
+    fun dreamResidueNullWhenDisabled() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = false
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertCompletedDreamRun("A dream of walking through an archive hall at dusk.")
+        val ctx = MemoryService.buildCompanionMemoryContext("hello")
+        assertNull(ctx.dreamResidue, "residue must be null when injection disabled")
+    }
+
+    @Test
+    fun dreamResidueFullJournalAtLowTrust() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertCompletedDreamRun("A dream of walking through an archive hall at dusk.")
+        val ctx = MemoryService.buildCompanionMemoryContext("hello")
+        assertNotNull(ctx.dreamResidue)
+        assertTrue(ctx.dreamResidue!!.contains("archive hall"), "low trust should inject full journal text")
+        assertTrue(ctx.dreamResidue!!.contains("inner dream material"), "residue must be labelled as non-fact")
+    }
+
+    @Test
+    fun dreamResidueOneLineTagsAtMidTrust() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = true
+        DatabaseService.updateRelationshipState(50.0, 50.0, "neutral")
+        insertCompletedDreamRun("A long journal body that should NOT appear at mid trust.", symbols = listOf("archive", "dusk"), emotions = listOf("calm"))
+        val ctx = MemoryService.buildCompanionMemoryContext("hello")
+        assertNotNull(ctx.dreamResidue)
+        assertFalse(ctx.dreamResidue!!.contains("long journal body"), "mid trust should not inject full journal")
+        assertTrue(ctx.dreamResidue!!.contains("archive") || ctx.dreamResidue!!.contains("calm"), "mid trust should inject a tag residue")
+    }
+
+    @Test
+    fun dreamResidueNoneAtHighTrust() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = true
+        DatabaseService.updateRelationshipState(50.0, 90.0, "neutral")
+        insertCompletedDreamRun("A dream of walking through an archive hall at dusk.", symbols = listOf("archive"))
+        val ctx = MemoryService.buildCompanionMemoryContext("hello")
+        assertNull(ctx.dreamResidue, "high trust should suppress residue")
+    }
+
+    @Test
+    fun dreamResidueStaleDreamNotInjected() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = true
+        Config.memoryDreamResidueMaxAgeHours = 0
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertCompletedDreamRun("A dream of an archive hall.")
+        val ctx = MemoryService.buildCompanionMemoryContext("hello")
+        assertNull(ctx.dreamResidue, "stale dream must not bleed in as residue")
+    }
+
+    @Test
+    fun dreamResidueAppearsInInjectedPrompt() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResidueInject = true
+        DatabaseService.updateRelationshipState(50.0, 20.0, "neutral")
+        insertCompletedDreamRun("A dream of walking through an archive hall at dusk.")
+        val original = listOf(buildJsonObject { put("role", "user"); put("content", "hi") })
+        val patched = MessagePatcher.injectCompanionPrompt(original)
+        val tailText = MessagePatcher.extractTextContent(patched.last()["content"])
+        assertTrue(tailText.contains("archive hall"), "residue text must reach the upstream prompt")
+        assertTrue(tailText.contains("inner dream material"), "residue must be flagged as dream material")
+    }
+
+    // ---- #6 dream resonance bonus ----
+    @Test
+    fun dreamResonanceBoostsTopicallyOverlappingNodeInLocalRecall() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResonanceBonus = true
+        insertNode(
+            uri = "preference://drink/coffee",
+            kind = "preference",
+            content = "The user likes coffee in the morning.",
+            keywords = listOf("coffee", "morning"),
+            topics = listOf("archive"),
+            personUri = "person://user/primary"
+        )
+        insertNode(
+            uri = "preference://drink/tea",
+            kind = "preference",
+            content = "The user likes tea in the morning.",
+            keywords = listOf("tea", "morning"),
+            topics = listOf("unrelated"),
+            personUri = "person://user/primary"
+        )
+        insertCompletedDreamRun("A dream of an archive hall.", symbols = listOf("archive"), emotions = listOf("calm"))
+        val recalled = MemoryService.buildCompanionMemoryContext("morning drink").recalled.map { it.memory.uri }
+        assertTrue(recalled.isNotEmpty())
+        assertTrue(recalled.indexOf("preference://drink/coffee") < recalled.indexOf("preference://drink/tea"),
+            "resonance should promote the dream-topically-overlapping node")
+    }
+
+    @Test
+    fun dreamResonanceNoBonusWhenDisabled() = runBlocking {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        Config.memoryEnabled = true
+        Config.memoryDreamResonanceBonus = false
+        insertNode(
+            uri = "preference://drink/coffee",
+            kind = "preference",
+            content = "The user likes coffee in the morning.",
+            keywords = listOf("coffee", "morning"),
+            topics = listOf("archive"),
+            personUri = "person://user/primary"
+        )
+        insertNode(
+            uri = "preference://drink/tea",
+            kind = "preference",
+            content = "The user likes tea in the morning.",
+            keywords = listOf("tea", "morning"),
+            topics = listOf("tea"),
+            personUri = "person://user/primary"
+        )
+        insertCompletedDreamRun("A dream of an archive hall.", symbols = listOf("archive"))
+        val recalled = MemoryService.buildCompanionMemoryContext("morning drink").recalled.map { it.memory.uri }
+        assertTrue(recalled.contains("preference://drink/coffee"))
+        assertTrue(recalled.contains("preference://drink/tea"))
+    }
+
+    // ---- #7 dream diary list ----
+    @Test
+    fun listDreamRunsReturnsOnlyCompletedWithJournalsNewestFirst() {
+        resetDbFiles()
+        resetConfig()
+        DatabaseService.initDatabase()
+        DatabaseService.insertDreamRun(DatabaseService.DreamRunDraft(mode = "manual", status = "running"))
+        val first = insertCompletedDreamRun("First dream journal about the sea.")
+        val second = insertCompletedDreamRun("Second dream journal about the forest.", symbols = listOf("forest"))
+        val runs = DatabaseService.listDreamRuns(20, onlyCompleted = true)
+        assertEquals(2, runs.size, "running run and journal-less runs are excluded")
+        assertEquals(second, runs.first().id, "newest first")
+        assertEquals(first, runs.last().id)
+        assertEquals(listOf("forest"), runs.first().dreamSymbols)
+        assertTrue(runs.first().dreamJournal!!.contains("forest"))
     }
 }

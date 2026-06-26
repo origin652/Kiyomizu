@@ -127,7 +127,11 @@ object MemoryService {
         val dreamTraces: List<RecalledMemory> = emptyList(),
         val selfMemories: List<RecalledMemory> = emptyList(),
         val selfObservations: List<DatabaseService.MemoryObservationRecord> = emptyList(),
-        val pinnedMemories: List<RecalledMemory> = emptyList()
+        val pinnedMemories: List<RecalledMemory> = emptyList(),
+        // Non-fact emotional coloration drawn from the most recent dream journal, gated by
+        // trust. Lower trust → fuller residue (the companion turns inward when guarded).
+        // Null when residue injection is disabled, the dream is too old, or trust is high.
+        val dreamResidue: String? = null
     )
 
     private data class SummaryNodePayload(
@@ -4044,6 +4048,74 @@ object MemoryService {
         return context.queryTerms.size >= 2
     }
 
+    /**
+     * The most recent completed dream run with a journal, within the residue freshness window.
+     * Used for both the dream-residue prompt coloration and the recall resonance bonus. Both
+     * consume a product the proxy already owns (the dream job's narrative) — no upstream model
+     * is invoked here.
+     */
+    private fun latestDreamForResonance(now: Long = Instant.now().epochSecond): DatabaseService.DreamRunRecord? {
+        val maxAgeHours = Config.memoryDreamResidueMaxAgeHours
+        if (maxAgeHours <= 0) return null // freshness window disabled → no residue/resonance source
+        val maxAgeSeconds = maxAgeHours.toLong() * 3600L
+        val latest = DatabaseService.getLatestDreamRun() ?: return null
+        if (latest.status !in setOf("completed", "skipped")) return null
+        val at = latest.finishedAt ?: latest.startedAt
+        if (now - at > maxAgeSeconds) return null
+        if (latest.dreamJournal.isNullOrBlank() && latest.dreamSummary.isNullOrBlank() &&
+            latest.dreamSymbols.isEmpty() && latest.dreamEmotions.isEmpty()
+        ) return null
+        return latest
+    }
+
+    /**
+     * Non-fact emotional residue text drawn from the latest dream journal, gated by trust tier.
+     * trust < 30 → full journal summary (companion is guarded, turns inward); 30..70 → a
+     * one-line residue of symbols/emotions; >= 70 → none (close enough to not need dream-self-talk).
+     * Returns null when injection is disabled or no recent dream exists. Text is explicitly
+     * labelled as a dream, never verified fact — mirrors the dream-trace disclaimer wording.
+     */
+    private fun dreamResidueText(trust: Double, now: Long = Instant.now().epochSecond): String? {
+        if (!Config.memoryDreamResidueInject) return null
+        val dream = latestDreamForResonance(now) ?: return null
+        return when {
+            trust < 30.0 -> {
+                val body = dream.dreamJournal?.takeIf { it.isNotBlank() } ?: dream.dreamSummary ?: ""
+                if (body.isBlank()) null else "A recent dream still lingers. This is inner dream material, not a verified memory — let it color tone, not claims: $body"
+            }
+            trust < 70.0 -> {
+                val tags = (dream.dreamSymbols + dream.dreamEmotions).filter { it.isNotBlank() }.distinct()
+                if (tags.isEmpty()) null else "A faint dream residue lingers (not a fact): ${tags.joinToString(", ")}."
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Proxy-internal recall resonance: a small score boost for candidates whose emotion or
+     * topics overlap the latest dream's symbols/emotions. Memories thematically close to a
+     * recent dream surface more easily — "having just dreamt of it, it comes to mind." This
+     * is a ranking weight only; it touches no storage and invokes no upstream model.
+     */
+    private fun dreamResonanceBonus(node: DatabaseService.MemoryNodeRecord, dream: DatabaseService.DreamRunRecord?): Double {
+        if (!Config.memoryDreamResonanceBonus || dream == null) return 0.0
+        if (dream.dreamSymbols.isEmpty() && dream.dreamEmotions.isEmpty()) return 0.0
+        val dreamTags = (dream.dreamSymbols.asSequence() + dream.dreamEmotions.asSequence())
+            .map { it.lowercase().trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (dreamTags.isEmpty()) return 0.0
+        val nodeTags = (node.topics.asSequence() + node.keywords.asSequence())
+            .map { it.lowercase().trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (nodeTags.isEmpty()) return 0.0
+        val hits = dreamTags.count { it in nodeTags }
+        if (hits == 0) return 0.0
+        // Cap so resonance nudges ranking without overwhelming query-relevance signals.
+        return (0.05 + 0.05 * hits).coerceAtMost(0.3)
+    }
+
     private fun buildRecallContext(userQuery: String, deepRecall: Boolean): RecallContext {
         val trimmed = userQuery.trim()
         val normalized = normalizeText(trimmed)
@@ -4349,12 +4421,16 @@ object MemoryService {
             kinds = setOf("identity", "preference", "relationship")
         ).forEach { seeds += it }
 
+        // Dream resonance: a recent dream nudges thematically close memories up in ranking.
+        // Proxy-internal weight only; computed once here and applied to the local-path score.
+        val dream = latestDreamForResonance(now)
+
         val primary = seeds
             .map {
                 val hit = hitById[it.id]
                 ScoredNode(
                     node = it,
-                    score = scoreNode(context, it, now) + (hit?.textScore ?: 0.0) * 0.35,
+                    score = scoreNode(context, it, now) + (hit?.textScore ?: 0.0) * 0.35 + dreamResonanceBonus(it, dream),
                     matchReason = hit?.matchReason ?: "",
                     matchedTerms = hit?.matchedTerms ?: emptyList()
                 )
@@ -5184,7 +5260,8 @@ object MemoryService {
             dreamTraces = dreamTraces.trustFiltered(),
             selfMemories = selfMemories.trustFiltered(),
             selfObservations = selfObservations,
-            pinnedMemories = pinnedMemories
+            pinnedMemories = pinnedMemories,
+            dreamResidue = dreamResidueText(trust)
         )
     }
 

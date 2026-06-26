@@ -73,6 +73,91 @@ async function loadCompanionState() {
   await loadMemoryQueues();
   await loadSelfMemory();
   await loadTopics();
+  await loadTrustHistory();
+  await loadDreamDiary();
+}
+
+// ---- Trust curve: append-only samples from /api/companion/trust-history ----
+async function loadTrustHistory() {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/trust-history?hours=168&limit=500');
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) return;
+    renderTrustCurve(d.samples || []);
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e.message || 'Failed to load trust history'), 'err');
+  }
+}
+function renderTrustCurve(samples) {
+  const svg = document.getElementById('trust-curve-svg');
+  const empty = document.getElementById('t-no-trust-history');
+  if (!svg || !empty) return;
+  if (!samples || samples.length === 0) {
+    svg.innerHTML = '';
+    svg.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  svg.style.display = '';
+  const W = 600, H = 120, pad = 6;
+  const t0 = samples[0].at, t1 = samples[samples.length - 1].at;
+  const span = Math.max(1, t1 - t0);
+  const x = at => pad + ((at - t0) / span) * (W - 2 * pad);
+  const y = v => pad + (1 - v / 100) * (H - 2 * pad);
+  const pts = samples.map(s => `${x(s.at).toFixed(1)},${y(s.trust).toFixed(1)}`).join(' ');
+  // 30/70 disclosure thresholds as reference lines.
+  const line30 = `M${pad},${y(30)} L${W - pad},${y(30)}`;
+  const line70 = `M${pad},${y(70)} L${W - pad},${y(70)}`;
+  svg.innerHTML =
+    `<line x1="${pad}" y1="${y(30)}" x2="${W - pad}" y2="${y(30)}" stroke="var(--border-default)" stroke-dasharray="3 3" />` +
+    `<line x1="${pad}" y1="${y(70)}" x2="${W - pad}" y2="${y(70)}" stroke="var(--border-default)" stroke-dasharray="3 3" />` +
+    `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" />` +
+    samples.map(s => `<circle cx="${x(s.at).toFixed(1)}" cy="${y(s.trust).toFixed(1)}" r="2" fill="${s.delta < 0 ? 'var(--danger)' : 'var(--accent)'}" />`).join('');
+}
+
+// ---- Dream diary: recent dream journals from /api/companion/dream-runs ----
+async function loadDreamDiary() {
+  const s = STRINGS[currentLang];
+  try {
+    const r = await fetchConfig('/api/companion/dream-runs?limit=20');
+    const d = await readJsonResponse(r);
+    if (!r.ok || d.error) return;
+    renderDreamDiary(d.runs || []);
+  } catch (e) {
+    setStatus((s.error || 'Error: ') + (e.message || 'Failed to load dream diary'), 'err');
+  }
+}
+function renderDreamDiary(runs) {
+  const list = document.getElementById('dream-diary-list');
+  const empty = document.getElementById('t-no-dream-diary');
+  if (!list || !empty) return;
+  list.textContent = '';
+  if (!runs || runs.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'empty';
+    e.textContent = STRINGS[currentLang].noDreamDiary || 'No dream journals yet. Run a dream to produce one.';
+    list.appendChild(e);
+    return;
+  }
+  runs.forEach(run => {
+    const item = document.createElement('div');
+    item.className = 'memory-queue-item';
+    const body = document.createElement('div');
+    const journal = run.dream_journal || run.dream_summary || '—';
+    body.textContent = journal;
+    const meta = document.createElement('div');
+    meta.className = 'memory-queue-meta';
+    const at = run.finished_at || run.started_at;
+    const when = at ? new Date(at * 1000).toLocaleString() : '—';
+    const tags = (run.dream_symbols || []).concat(run.dream_emotions || []).filter(t => t);
+    const counts = `merged=${run.merged||0} archived=${run.archived||0} dream=${run.created_dream||0} consolidated=${run.created_consolidated||0}`;
+    meta.textContent = `${when} · ${run.status} · ${counts}${tags.length ? ' · ' + tags.join(', ') : ''}`;
+    item.appendChild(body);
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
 }
 function renderDreamRunMessage(message, kind = 'info') {
   const store = Alpine.store('dream');

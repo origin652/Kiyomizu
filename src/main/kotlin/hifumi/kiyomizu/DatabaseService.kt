@@ -126,6 +126,19 @@ object DatabaseService {
                 """.trimIndent())
                 ensureRelationshipStateSchema(conn)
 
+                // trust_history: append-only samples of trust mutations, so the UI can plot a
+                // trust curve. Written from the sole trust-change entry points in this file.
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS trust_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        at INTEGER NOT NULL,
+                        trust REAL NOT NULL,
+                        delta REAL NOT NULL,
+                        source TEXT NOT NULL
+                    )
+                """.trimIndent())
+                stmt.execute("CREATE INDEX IF NOT EXISTS idx_trust_history_at ON trust_history(at DESC)")
+
                 // 2. memories
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS memories (
@@ -868,20 +881,68 @@ object DatabaseService {
 
     fun updateRelationshipState(intimacy: Double, trust: Double, mood: String) {
         val now = Instant.now().epochSecond
+        val coercedTrust = trust.coerceIn(0.0, 100.0)
         getConnection().use { conn ->
+            val priorTrust = readRelationshipState(conn)?.trust ?: 10.0
             conn.prepareStatement("""
                 UPDATE relationship_state
                 SET intimacy = ?, trust = ?, mood = ?, last_interaction_at = ?, last_decay_at = ?
                 WHERE id = 1
             """.trimIndent()).use { pstmt ->
                 pstmt.setDouble(1, intimacy.coerceIn(0.0, 100.0))
-                pstmt.setDouble(2, trust.coerceIn(0.0, 100.0))
+                pstmt.setDouble(2, coercedTrust)
                 pstmt.setString(3, mood)
                 pstmt.setLong(4, now)
                 pstmt.setLong(5, now)
                 pstmt.executeUpdate()
             }
+            insertTrustHistorySample(conn, now, coercedTrust, coercedTrust - priorTrust, "manual")
         }
+    }
+
+    private fun insertTrustHistorySample(conn: Connection, at: Long, trust: Double, delta: Double, source: String) {
+        conn.prepareStatement("""
+            INSERT INTO trust_history (at, trust, delta, source)
+            VALUES (?, ?, ?, ?)
+        """.trimIndent()).use { pstmt ->
+            pstmt.setLong(1, at)
+            pstmt.setDouble(2, trust)
+            pstmt.setDouble(3, delta)
+            pstmt.setString(4, source)
+            pstmt.executeUpdate()
+        }
+    }
+
+    data class TrustHistorySample(val at: Long, val trust: Double, val delta: Double, val source: String)
+
+    fun listTrustHistory(sinceEpochSecond: Long, limit: Int): List<TrustHistorySample> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<TrustHistorySample>()
+        getConnection().use { conn ->
+            conn.prepareStatement("""
+                SELECT at, trust, delta, source
+                FROM trust_history
+                WHERE at >= ?
+                ORDER BY at DESC, id DESC
+                LIMIT ?
+            """.trimIndent()).use { pstmt ->
+                pstmt.setLong(1, sinceEpochSecond)
+                pstmt.setInt(2, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) {
+                    list.add(
+                        TrustHistorySample(
+                            at = rs.getLong("at"),
+                            trust = rs.getDouble("trust"),
+                            delta = rs.getDouble("delta"),
+                            source = rs.getString("source")
+                        )
+                    )
+                }
+            }
+        }
+        // Oldest-first for plotting left-to-right.
+        return list.reversed()
     }
 
     fun applyRelationshipDelta(intimacyDelta: Double, trustDelta: Double, mood: String) {
@@ -911,6 +972,10 @@ object DatabaseService {
                 pstmt.setLong(5, now)
                 pstmt.executeUpdate()
             }
+            // Sample the resulting trust for the history curve. delta records the scaled
+            // trust change actually applied (0 when only mood/intimacy moved).
+            val newTrust = readRelationshipState(conn)?.trust ?: return@use
+            insertTrustHistorySample(conn, now, newTrust, scaledTrustDelta, "delta")
         }
     }
 
@@ -2293,6 +2358,29 @@ object DatabaseService {
             }
         }
         return 0
+    }
+
+    fun listDreamRuns(limit: Int, onlyCompleted: Boolean): List<DreamRunRecord> {
+        if (limit <= 0) return emptyList()
+        val list = mutableListOf<DreamRunRecord>()
+        getConnection().use { conn ->
+            val sql = if (onlyCompleted) {
+                """
+                    SELECT * FROM dream_runs
+                    WHERE status IN ('completed', 'skipped') AND dream_journal IS NOT NULL AND dream_journal != ''
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT ?
+                """.trimIndent()
+            } else {
+                "SELECT * FROM dream_runs ORDER BY started_at DESC, id DESC LIMIT ?"
+            }
+            conn.prepareStatement(sql).use { pstmt ->
+                pstmt.setInt(1, limit)
+                val rs = pstmt.executeQuery()
+                while (rs.next()) list.add(readDreamRun(rs))
+            }
+        }
+        return list
     }
 
     fun getDreamRunItems(dreamRunId: Int, limit: Int = 100): List<DreamRunItemRecord> {

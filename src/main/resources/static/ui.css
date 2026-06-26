@@ -1670,3 +1670,9 @@ input[disabled], textarea[disabled], select[disabled] {
   .flow-line { animation: none !important; }
   .badge-dot { animation: none !important; }
 }
+
+/* Trust curve + dream diary (companion pane) */
+.trust-curve-wrap { position: relative; margin: 0 0 12px; }
+.trust-curve { width: 100%; height: 120px; display: block; }
+.trust-curve-wrap .empty { display: none; }
+.dream-diary-list { display: flex; flex-direction: column; gap: 8px; }

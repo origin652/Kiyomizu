@@ -215,6 +215,14 @@
               </div>
               <div class="bar-track"><div class="bar-fill trust bar-fill-zero" id="companion-trust-bar"></div></div>
             </div>
+            <div class="panel-title-row">
+              <div class="eyebrow" id="t-trust-curve-label">Trust curve</div>
+              <button class="btn btn-ghost" onclick="loadTrustHistory()" id="t-trust-curve-refresh">Refresh curve</button>
+            </div>
+            <div class="trust-curve-wrap" id="trust-curve-wrap">
+              <svg class="trust-curve" id="trust-curve-svg" viewBox="0 0 600 120" preserveAspectRatio="none" aria-label="Trust curve"></svg>
+              <div class="empty" id="t-no-trust-history">No trust history yet.</div>
+            </div>
             <div id="companion-mood" class="badge-mood">—</div>
             <div class="companion-meta">
               <span id="t-memory-count-label">Graph nodes: </span><span id="companion-memory-count">—</span>
@@ -383,6 +391,15 @@
                   <div class="empty" id="t-no-topics-used">No used topics yet.</div>
                 </div>
               </div>
+            </div>
+
+            <!-- Dream diary: journals produced by the dream job, newest first. Read-only. -->
+            <div class="panel-title-row">
+              <div class="eyebrow" id="t-dream-diary-label">Dream diary</div>
+              <button class="btn btn-ghost" onclick="loadDreamDiary()" id="t-dream-diary-refresh">Refresh diary</button>
+            </div>
+            <div class="dream-diary-list" id="dream-diary-list">
+              <div class="empty" id="t-no-dream-diary">No dream journals yet. Run a dream to produce one.</div>
             </div>
           </div>
         </div>

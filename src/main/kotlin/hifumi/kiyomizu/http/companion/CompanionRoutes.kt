@@ -628,4 +628,63 @@ fun Route.installCompanionRoutes() {
     if (ok) HttpStatusCode.OK else HttpStatusCode.BadRequest
     )
     }
+
+    // Trust history curve: append-only samples written from the trust-change entry points.
+    get("/api/companion/trust-history") {
+        if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+        if (!requireConfigAuth(call)) return@get
+        val hours = (call.parameters["hours"]?.toIntOrNull() ?: 168).coerceIn(1, 24 * 365)
+        val limit = (call.parameters["limit"]?.toIntOrNull() ?: 500).coerceIn(1, 5000)
+        val since = java.time.Instant.now().epochSecond - hours.toLong() * 3600L
+        val samples = DatabaseService.listTrustHistory(since, limit)
+        call.respondText(
+            buildJsonObject {
+                put("hours", hours)
+                put("samples", buildJsonArray {
+                    samples.forEach { s ->
+                        add(buildJsonObject {
+                            put("at", s.at)
+                            put("trust", s.trust)
+                            put("delta", s.delta)
+                            put("source", s.source)
+                        })
+                    }
+                })
+            }.toString(),
+            ContentType.Application.Json
+        )
+    }
+
+    // Dream diary: recent dream runs with their journals/symbols/emotions, newest first.
+    // Only completed/skipped runs that actually produced a journal are listed.
+    get("/api/companion/dream-runs") {
+        if (!ConfigAuth.isConfigured()) { ConfigAuth.setupRequired(call); return@get }
+        if (!requireConfigAuth(call)) return@get
+        val limit = (call.parameters["limit"]?.toIntOrNull() ?: 20).coerceIn(1, 200)
+        val runs = DatabaseService.listDreamRuns(limit, onlyCompleted = true)
+        call.respondText(
+            buildJsonObject {
+                put("runs", buildJsonArray {
+                    runs.forEach { run ->
+                        add(buildJsonObject {
+                            put("id", run.id)
+                            put("started_at", run.startedAt)
+                            put("finished_at", run.finishedAt ?: 0L)
+                            put("mode", run.mode)
+                            put("status", run.status)
+                            put("dream_summary", run.dreamSummary ?: "")
+                            put("dream_journal", run.dreamJournal ?: "")
+                            put("dream_symbols", buildJsonArray { run.dreamSymbols.forEach { add(JsonPrimitive(it)) } })
+                            put("dream_emotions", buildJsonArray { run.dreamEmotions.forEach { add(JsonPrimitive(it)) } })
+                            put("merged", run.mergedCount)
+                            put("archived", run.archivedCount)
+                            put("created_dream", run.createdDreamCount)
+                            put("created_consolidated", run.createdConsolidatedCount)
+                        })
+                    }
+                })
+            }.toString(),
+            ContentType.Application.Json
+        )
+    }
 }

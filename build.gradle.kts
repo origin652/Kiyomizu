@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     kotlin("jvm") version "2.0.21"
     kotlin("plugin.serialization") version "2.0.21"
@@ -48,22 +50,54 @@ tasks.test {
 }
 
 // ui.html uses @UI_ASSET_VERSION@ on static URLs so CDN/browser caches bust on release.
-// Use the git short SHA so the URL changes whenever the working tree is committed; falls
-// back to the project version when not in a git repo. This avoids serving stale CSS/JS
-// from browser/CDN caches after a deploy — a fixed version string would let old assets
-// persist indefinitely.
+// The version must change whenever the UI assets change, otherwise browsers/CDNs serve
+// stale CSS/JS after a deploy.
+//
+// Preferred source: the git short SHA (changes every commit). But Docker builds COPY only
+// `src/`, not `.git/`, so `git rev-parse` fails there and the previous fallback — the fixed
+// project version — never changed, busting nothing. So when git is unavailable we instead
+// hash the contents of ui.html + every static asset. That hash changes iff the assets
+// change, which is exactly when the cache must bust. Works in Docker, in fresh checkouts,
+// and anywhere .git is absent.
+val uiStaticDir = layout.projectDirectory.dir("src/main/resources/static")
 val uiAssetVersion: String = try {
     val sha = providers.exec {
         commandLine("git", "rev-parse", "--short", "HEAD")
     }.standardOutput.asText.get().trim()
-    if (sha.isNotEmpty()) sha else project.version.toString()
+    if (sha.isNotEmpty()) sha else contentHashVersion()
 } catch (e: Exception) {
-    project.version.toString()
+    contentHashVersion()
 }
+
+fun contentHashVersion(): String {
+    val md = MessageDigest.getInstance("SHA-256")
+    val files = mutableListOf<File>()
+    files += file("src/main/resources/ui.html")
+    uiStaticDir.asFileTree.files.forEach { files += it }
+    files.filter { it.isFile }.sortedBy { it.path }.forEach { f ->
+        md.update(f.path.toByteArray())
+        md.update(f.readBytes())
+    }
+    val hex = StringBuilder()
+    for (b in md.digest()) {
+        hex.append(String.format("%02x", b))
+    }
+    return "h" + hex.take(12)
+}
+
 tasks.processResources {
     // Track the SHA as an up-to-date input so a new commit re-runs the filter even when
-    // ui.html itself is unchanged (the @UI_ASSET_VERSION@ placeholder is constant).
+    // ui.html itself is unchanged (the @UI_ASSET_VERSION@ placeholder is constant). In the
+    // content-hash fallback path the static asset files are inputs, so editing any of them
+    // also re-runs the filter.
     inputs.property("uiAssetVersion", uiAssetVersion)
+    if (!uiAssetVersion.startsWith("h")) {
+        // git-SHA path: only ui.html carries the placeholder; assets are untracked inputs
+        // above via the uiAssetVersion property.
+    } else {
+        // content-hash path: make the hashed files explicit inputs.
+        inputs.files(file("src/main/resources/ui.html"), uiStaticDir.asFileTree)
+    }
     filesMatching("ui.html") {
         filter(
             org.apache.tools.ant.filters.ReplaceTokens::class,

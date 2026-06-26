@@ -211,6 +211,14 @@ object Config {
     private val memoryLongIdlePauseDaysRef = AtomicInteger(System.getenv("MEMORY_LONG_IDLE_PAUSE_DAYS")?.toIntOrNull() ?: 7)
     private val memoryRecycleRetentionDaysRef = AtomicInteger(System.getenv("MEMORY_RECYCLE_RETENTION_DAYS")?.toIntOrNull() ?: 30)
     private val memoryDreamRecallMaxTracesRef = AtomicInteger(System.getenv("MEMORY_DREAM_RECALL_MAX_TRACES")?.toIntOrNull() ?: 2)
+    // Dream residue: inject the most recent dream journal as non-fact emotional coloration at
+    // low trust (the companion turns inward when guarded). Off by default; env-only.
+    private val memoryDreamResidueInjectRef = AtomicReference(System.getenv("MEMORY_DREAM_RESIDUE_INJECT") == "1")
+    // How recent (hours) a dream run must be to qualify as residue; older dreams stop bleeding in.
+    private val memoryDreamResidueMaxAgeHoursRef = AtomicInteger(System.getenv("MEMORY_DREAM_RESIDUE_MAX_AGE_HOURS")?.toIntOrNull() ?: 24)
+    // Dream resonance: boost recall candidates whose emotion/topics overlap the latest dream's
+    // symbols/emotions. Proxy-internal ranking weight only; no upstream mutation. Off by default.
+    private val memoryDreamResonanceBonusRef = AtomicReference(System.getenv("MEMORY_DREAM_RESONANCE_BONUS") == "1")
     private val memoryMaintenanceAggressivenessRef = AtomicReference(
         System.getenv("MEMORY_MAINTENANCE_AGGRESSIVENESS")
             ?.trim()
@@ -546,6 +554,15 @@ object Config {
     var memoryDreamRecallMaxTraces: Int
         get() = memoryDreamRecallMaxTracesRef.get()
         set(value) { memoryDreamRecallMaxTracesRef.set(value) }
+    var memoryDreamResidueInject: Boolean
+        get() = memoryDreamResidueInjectRef.get()
+        set(value) { memoryDreamResidueInjectRef.set(value) }
+    var memoryDreamResidueMaxAgeHours: Int
+        get() = memoryDreamResidueMaxAgeHoursRef.get()
+        set(value) { memoryDreamResidueMaxAgeHoursRef.set(value) }
+    var memoryDreamResonanceBonus: Boolean
+        get() = memoryDreamResonanceBonusRef.get()
+        set(value) { memoryDreamResonanceBonusRef.set(value) }
 
     var memoryMaintenanceAggressiveness: String
         get() = memoryMaintenanceAggressivenessRef.get()

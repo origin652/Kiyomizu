@@ -388,7 +388,8 @@ object MessagePatcher {
         selfMemories: List<MemoryService.RecalledMemory>,
         selfObservations: List<DatabaseService.MemoryObservationRecord>,
         reflections: List<String>,
-        pinnedMemories: List<MemoryService.RecalledMemory> = emptyList()
+        pinnedMemories: List<MemoryService.RecalledMemory> = emptyList(),
+        dreamResidue: String? = null
     ): String {
         val intimacyStage = when {
             state.intimacy < 30.0 -> "Relationship stage: You and the user are still getting to know each other. Be polite, respectful, and emotionally measured."
@@ -502,6 +503,9 @@ object MessagePatcher {
                     append("  - $it\n")
                 }
             }
+            if (!dreamResidue.isNullOrBlank()) {
+                append("$dreamResidue\n")
+            }
             append("[End Kiyomizu Companion Core]\n\n")
         }
     }
@@ -523,7 +527,8 @@ object MessagePatcher {
             context.selfMemories,
             context.selfObservations,
             reflections,
-            context.pinnedMemories
+            context.pinnedMemories,
+            context.dreamResidue
         )
         // Topic consumption is proxy-side and read-only: if a topic-switch signal is detected,
         // claim the oldest unused topic (FIFO), mark it used, and inject its text here. The

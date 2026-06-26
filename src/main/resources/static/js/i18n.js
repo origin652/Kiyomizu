@@ -199,6 +199,12 @@ const STRINGS = {
     consolidationLabel: '最近深度回忆：',
     reflectionsLabel: '最近的日记',
     noReflections: '暂无日记。',
+    trustCurveLabel: '信任曲线',
+    trustCurveRefresh: '刷新曲线',
+    noTrustHistory: '暂无信任历史。',
+    dreamDiaryLabel: '梦境日记',
+    dreamDiaryRefresh: '刷新日记',
+    noDreamDiary: '暂无梦境日记。运行一次梦来生成。',
     logsPanelTitle: '最近请求',
     logsRefresh: '刷新',
     logThTime: '时间',
@@ -439,6 +445,12 @@ const STRINGS = {
     consolidationLabel: 'Last deep recall: ',
     reflectionsLabel: 'Recent Reflections',
     noReflections: 'No reflections yet.',
+    trustCurveLabel: 'Trust curve',
+    trustCurveRefresh: 'Refresh curve',
+    noTrustHistory: 'No trust history yet.',
+    dreamDiaryLabel: 'Dream diary',
+    dreamDiaryRefresh: 'Refresh diary',
+    noDreamDiary: 'No dream journals yet. Run a dream to produce one.',
     logsPanelTitle: 'Recent Requests',
     logsRefresh: 'Refresh',
     logThTime: 'Time',
@@ -679,6 +691,12 @@ const STRINGS = {
     consolidationLabel: '最近の深い想起：',
     reflectionsLabel: '最近の日記',
     noReflections: 'まだ日記がありません。',
+    trustCurveLabel: '信頼曲線',
+    trustCurveRefresh: '曲線を更新',
+    noTrustHistory: '信頼履歴はまだありません。',
+    dreamDiaryLabel: '夢日記',
+    dreamDiaryRefresh: '日記を更新',
+    noDreamDiary: '夢日記はまだありません。夢を実行して生成してください。',
     logsPanelTitle: '最近のリクエスト',
     logsRefresh: '更新',
     logThTime: '日時',
@@ -991,6 +1009,18 @@ function applyLang(lang) {
   if (reflectionsLbl) reflectionsLbl.textContent = s.reflectionsLabel || 'Recent Reflections';
   const noReflEl = document.getElementById('t-no-reflections');
   if (noReflEl) noReflEl.textContent = s.noReflections || 'No reflections yet.';
+  const trustCurveLabel = document.getElementById('t-trust-curve-label');
+  if (trustCurveLabel) trustCurveLabel.textContent = s.trustCurveLabel || 'Trust curve';
+  const trustCurveRefresh = document.getElementById('t-trust-curve-refresh');
+  if (trustCurveRefresh) trustCurveRefresh.textContent = s.trustCurveRefresh || 'Refresh curve';
+  const noTrustHistory = document.getElementById('t-no-trust-history');
+  if (noTrustHistory) noTrustHistory.textContent = s.noTrustHistory || 'No trust history yet.';
+  const dreamDiaryLabel = document.getElementById('t-dream-diary-label');
+  if (dreamDiaryLabel) dreamDiaryLabel.textContent = s.dreamDiaryLabel || 'Dream diary';
+  const dreamDiaryRefresh = document.getElementById('t-dream-diary-refresh');
+  if (dreamDiaryRefresh) dreamDiaryRefresh.textContent = s.dreamDiaryRefresh || 'Refresh diary';
+  const noDreamDiary = document.getElementById('t-no-dream-diary');
+  if (noDreamDiary) noDreamDiary.textContent = s.noDreamDiary || 'No dream journals yet. Run a dream to produce one.';
   const logsPanelTitle = document.getElementById('t-logs-panel-title');
   if (logsPanelTitle) logsPanelTitle.textContent = s.logsPanelTitle || 'Recent Requests';
   const logsRefresh = document.getElementById('t-logs-refresh');
